@@ -179,9 +179,9 @@ python3 scripts/verify_outline.py           # 提纲结构、编号、锚点、�
 
 ## 作者与致谢
 
-作者：[Shiqian Tan（谭诗乾）](https://github.com/ShiqianTan)，香港中文大学（深圳）材料科学与工程博士研究生，研究方向为面向高分子材料的机器学习。作者维护 [AI4Polymer 资源清单](https://github.com/ShiqianTan/AI4Polymer) 与微信公众号「鲸落生」。
+作者：[Shiqian Tan（谭诗乾）](https://github.com/ShiqianTan)，香港中文大学（深圳）材料科学与工程博士研究生，[PolyCUHKSZ 课题组](https://polysz.cuhk.edu.cn/)成员，导师为[朱世平教授](https://sse.cuhk.edu.cn/faculty/zhushiping)、[张祺教授](https://myweb.cuhk.edu.cn/qizhang)与[于天舒教授](https://mypage.cuhk.edu.cn/yutianshu/)；研究方向为面向高分子材料的机器学习。作者维护 [AI4Polymer 资源清单](https://github.com/ShiqianTan/AI4Polymer) 与微信公众号「鲸落生」。
 
-感谢香港中文大学（深圳）PolyCUHKSZ 课题组提供的研究环境与讨论，感谢香港科技大学博士生 Haifan Zhou 的讨论与建议，感谢家人的支持。感谢相关论文、开源项目与技术文档的作者，以及参与勘误与案例复现的读者。引用来源见正文上角标与[附录 G 参考文献总表](manuscripts/90-附录.md)。本书 PDF 沿用《深入理解 AI Agent》/《深入理解 AI Infra》的 ElegantBook / XeLaTeX 模板。
+感谢香港中文大学（深圳）[PolyCUHKSZ 课题组](https://polysz.cuhk.edu.cn/)提供的研究环境与讨论，感谢香港科技大学博士生 Haifan Zhou 的讨论与建议，感谢家人的支持。感谢相关论文、开源项目与技术文档的作者，以及参与勘误与案例复现的读者。引用来源见正文上角标与[附录 G 参考文献总表](manuscripts/90-附录.md)。本书 PDF 沿用《深入理解 AI Agent》/《深入理解 AI Infra》的 ElegantBook / XeLaTeX 模板。
 
 ## 许可
 
