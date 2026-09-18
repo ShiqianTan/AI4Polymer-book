@@ -31,7 +31,7 @@
 | 1 | [初识 AI4Polymer](<manuscripts/01-初识 AI4Polymer.md>) |
 | 2 | [高分子表示与描述符](manuscripts/02-高分子表示与描述符.md) |
 | 3 | [数据、基准与可复现性](manuscripts/03-数据、基准与可复现性.md) |
-| 4 | [高分子物理与结构–性能关系](manuscripts/04-高分子物理与结构–性能关系.md) |
+| 4 | [高分子物理与结构–性能关系](manuscripts/04-高分子物理与结构性能关系.md) |
 
 ### 第二部分 计算与预测
 
