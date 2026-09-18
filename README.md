@@ -5,6 +5,10 @@
 [![Version](https://img.shields.io/badge/version-v1.0%20print%20snapshot-informational)](https://github.com/ShiqianTan/AI4Polymer-book/releases/tag/print-v1.0)
 [![Stars](https://img.shields.io/github/stars/ShiqianTan/AI4Polymer-book?style=social)](https://github.com/ShiqianTan/AI4Polymer-book)
 
+<p align="center">
+  <img src="manuscripts/cover/ChatGPT-Image-cover-github.png" alt="《AI4Polymer：人工智能驱动的高分子材料设计》——高分子链与神经网络、设计—合成—测试—学习闭环" width="100%">
+</p>
+
 > [!TIP]
 > ### 下载全书 PDF
 >
@@ -39,8 +43,8 @@
 | :--: | --- |
 | 5 | [分子模拟与多尺度计算](manuscripts/05-分子模拟与多尺度计算.md) |
 | 6 | [性质预测模型](manuscripts/06-性质预测模型.md) |
-| 7 | [多任务、迁移与物理信息学习](manuscripts/07-多任务、迁移与物理信息学习.md) |
-| 8 | [表征、成像与光谱的 AI 分析](manuscripts/08-表征、成像与光谱的 AI 分析.md) |
+| 7 | [多任务、迁移与物理信息学习](manuscripts/07-多任务迁移与物理信息学习.md) |
+| 8 | [表征、成像与光谱的 AI 分析](manuscripts/08-表征成像与光谱的 AI 分析.md) |
 
 ### 第三部分 生成、优化与合成
 
@@ -48,8 +52,8 @@
 | :--: | --- |
 | 9 | [生成模型与高分子序列设计](manuscripts/09-生成模型与高分子序列设计.md) |
 | 10 | [逆向设计与多目标材料设计](manuscripts/10-逆向设计与多目标材料设计.md) |
-| 11 | [主动学习、贝叶斯优化与强化学习](manuscripts/11-主动学习、贝叶斯优化与强化学习.md) |
-| 12 | [反应预测、聚合建模与可合成性](manuscripts/12-反应预测、聚合建模与可合成性.md) |
+| 11 | [主动学习、贝叶斯优化与强化学习](manuscripts/11-主动学习贝叶斯优化与强化学习.md) |
+| 12 | [反应预测、聚合建模与可合成性](manuscripts/12-反应预测聚合建模与可合成性.md) |
 
 ### 第四部分 闭环系统与落地
 
