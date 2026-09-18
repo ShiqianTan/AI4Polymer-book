@@ -1,0 +1,762 @@
+arXiv:2504.17656v3  [cs.CE]  11 Jun 2025
+polyGen - A Learning Framework for Atomic-level
+Polymer Structure Generation
+Ayush Jain
+School of Materials Science and Engineering
+Computational Science and Engineering
+Georgia Institute of Technology
+ayush.jain@gatech.edu
+Rampi Ramprasad
+School of Materials Science and Engineering
+Georgia Institute of Technology
+rampi.ramprasad@mse.gatech.edu
+Abstract
+Synthetic polymeric materials underpin fundamental technologies in the energy,
+electronics, consumer goods, and medical sectors, yet their development still suf-
+fers from prolonged design timelines. Although polymer informatics tools have
+supported speedup, polymer simulation protocols continue to face significant chal-
+lenges in the on-demand generation of realistic 3D atomic structures that respect
+conformational diversity. Generative algorithms for 3D structures of inorganic
+crystals, bio-polymers, and small molecules exist, but have not addressed synthetic
+polymers because of challenges in representation and dataset constraints. In this
+work, we introduce polyGen, the first generative model designed specifically for
+polymer structures from minimal inputs such as the repeat unit chemistry alone.
+polyGen combines graph-based encodings with a latent diffusion transformer using
+positional biased attention for realistic conformation generation. Given the limited
+dataset of 3,855 DFT-optimized polymer structures, we incorporate joint training
+with small molecule data to enhance generation quality. We also establish structure
+matching criteria to benchmark our approach on this novel problem. polyGen
+overcomes the limitations of traditional crystal structure prediction methods for
+polymers, successfully generating realistic and diverse linear and branched con-
+formations, with promising performance even on challenging large repeat units.
+As the first atomic-level proof-of-concept capturing intrinsic polymer flexibility, it
+marks a new capability in material structure generation.
+1
+Introduction
+Polymeric materials play a central role in modern science and engineering, enabling technologies
+across sectors such as packaging, electronics, medicine, and energy. [1, 2] Their versatility arises from
+the vast structural diversity of organic building blocks [3], the ingenuity of synthetic chemistry, and
+the breadth of accessible processing techniques. By tuning parameters such as monomer composition,
+chain architecture, additives, and processing conditions, polymers can be engineered to span a wide
+range of mechanical, electrical, and transport properties—from rigid plastics, elastomers, dielectrics
+[4], and membranes [5, 6, 7]. Despite the impact of polymers, the discovery and deployment of new
+materials remains a slow and resource-intensive process. This is due to the vastness of chemical and
+processing design spaces [8] and the need to balance performance, cost, safety, and manufacturability.
+As a result, polymer innovation still relies heavily on experience, trial-and-error, chemical intuition,
+and serendipity. Novel methods of generating polymer designs guided by informatics approaches have
+emerged, such as virtual forward synthesis, evolutionary algorithms, and syntax-directed autoencoders
+that can produce a theoretically innumerable amount of polymer candidates [9, 1, 10, 11]. Physics-
+based computer simulations may accelerate the pace of polymer discovery but these methods also
+Preprint. Under review.
+
+Figure 1: Theoretical overview of polyGen from the perspective of chemistry-conditioned energy
+minimization of the potential energy surface represented in the latent space. With this capability, an
+initial connectivity for a polymer repeat unit can be used to generate structures with a high probability
+of being at a potential energy minimum.
+face barriers that have thus far prevented the widespread utilization of such approaches as detailed
+below.
+A key challenge faced by the polymer simulation community is the creation of suitable initial
+atomic-level structures especially for novel chemistries. Unlike crystalline inorganic materials,
+polymers exhibit a complex combination of amorphous, semicrystalline, and crystalline domains,
+with conformational flexibility and structural disorder playing essential roles in their function [12].
+Currently, Polymer Structure Predictor (PSP) [13] is a physics and heuristic-based framework that
+can generate initial structures of polymers to be used as inputs to Density Functional Theory (DFT)
+or Molecular Dynamics (MD) simulations. However, rapidly producing statistically diverse and
+realistic conformations requires accounting for the many low-energy conformations that a polymer
+can adopt. As illustrated in Figure 1, there is a growing need for predictive tools that can generate
+realistic 3D atomic structures of polymers from minimal inputs, such as chemical composition or
+connectivity (e.g., SMILES). Such tools would enable property prediction, surrogate simulation, and
+rational design faster in the discovery pipeline.
+Generative Materials Structure Prediction Materials generation via diffusion models [14] or flow
+matching [15] offers promise. Typically, these models use datasets containing structures optimized by
+DFT [16] or MD simulations [17]. With materials research, these methods have been used thus far for
+inorganic crystalline materials with a finite number of atoms within a unit cell parameterized by the
+lattice angles and lengths [18, 19, 20]. Significant progress has also emerged in structure prediction
+for large biological polymers, particularly proteins, where models like AlphaFold [17, 21] and
+Boltz-1 [22] can now generate accurate three-dimensional conformations from amino acid sequences.
+Similarly, the generation of small molecule conformers [23, 24, 25] has also been an open problem,
+especially in the context of protein docking [26].
+The synthetic polymers generation problem is a mix of all of these applications. Similar to crystals,
+synthetic polymers can be defined by a periodic unit. 3D structures of these repeat units are also
+defined within unit cells/bounding boxes [12]. Traditional crystal structure prediction methods,
+while powerful for smaller systems, have not displayed abilities to capture the rich conformational
+landscape of polymers. The local features of synthetic polymers are more akin to molecules where
+the local (short-range) connectivity of their structures is well-defined. However, polymers occur as
+long chains composed of sequences of 10s-10,000s of monomeric repeat units, which necessitates
+an understanding of longer-range interactions for stochastic structure generation. This is similar to
+protein modeling approaches like AlphaFold3, which employs diffusion transformers to predict an
+ensemble of structures [21]. However, unlike proteins, which have a consistent backbone (a sequence
+of repeating N −Cα −C, where Cα is the centrally located carbon in the amino acid residue) and
+a finite set of amino acids, synthetic polymers boast a limitless design space to draw their repeat
+units and backbones from [1, 2]. Additionally, proteins and molecules are aperiodic and non-periodic,
+respectively. In combination with the aforementioned challenges, polymer structure datasets from
+MD or DFT have only recently been standardized and have not seen the scale required for generative
+modeling [12]. Moreover, past work [27] in general may overlook the need of representing chain
+level [12], amorphous [28, 5], and network systems [29], in simulations using periodic boundary
+conditions.
+2
+
+Figure 2: The training and generation process for polyGen. a) First, an autoencoder with conditional
+encoder EC, encoder E, and decoder D is trained to learn an atom-wise latent space by reconstructing
+the system as a bounding box ˆbz, fractional coordinates fi, and cartesian coordinates pi. In this
+process, an atom-wise conditioning Ci is learned. b) The diffusion model M is trained within this
+latent space, iteratively denoising a gaussian random latent ˆz0
+i into a new distribution ˆzT
+i that is likely
+a valid polymer conformation. c) During post-generation filtering, a structure is calculated from the
+predicted positions, and can be used if connectivity and bonding are preserved.
+The complexity of polymer design and representation, combined with limited available data, explains
+why generative models for polymers have remained largely unexplored until now. We introduce
+polyGen (Figure 2), the first latent diffusion model specifically designed to generate periodic and
+stochastic polymeric structures. We build upon latent diffusion frameworks for materials generation
+such as All-Atom DiT [30]. Our problem and approach are modified to predict an ensemble of
+low-energy polymer conformations conditioned on a specified repeat unit with prescribed atomic
+connectivities rather than performing unconstrained de novo structure generation. Our method lever-
+ages a molecular encoding that captures atomic connectivity, which is used as a conditioning signal
+throughout the model architecture. We adopt a latent diffusion strategy over joint diffusion methods
+such as DiffCSP [18] or molecular generation methods in Cartesian space [23] due to the strong
+coupling between atomic positions and box dimensions imposed by polymer connectivity constraints.
+We augment our dataset with smaller structures from DFT-optimized molecules, demonstrating
+improved polymer structure prediction capabilities owing to the shared weights of a dataset invariant
+encoder and decoder, and a shared latent space. This work culminates in a learning framework that
+can generate ensembles of realistic polymer chain conformations. To benchmark the quality of these
+conformations, we introduce rigorous evaluation criteria on bonds, angles, and dihedrals—standards
+that, to our knowledge, have not yet been applied in the context of materials generation. This appli-
+cation represents a novel proof-of-concept to predict atomic-level synthetic polymer conformations
+while accounting for their intrinsic flexibility and the distribution of plausible structures.
+3
+
+2
+Results
+2.1
+Dataset and Evaluation Metrics
+The main dataset, polyChainStructures, consists of 3855 DFT-optimized infinite polymer chain
+structures, with a maximum of 208 atoms, including hydrogens. Further details of this already
+open-sourced dataset, as well as DFT methods can be found in [12]. We use a 3084/386/385
+(train/validation/test) split for the polyChainStructures dataset. The QM9 dataset, which contains
+DFT-optimized small-molecule conformations, is used to augment the training, allowing the models
+to learn local patterns from molecular structures. We use the train set from QM9 [25] which is a size
+of 100K molecules. We acknowledge the presence of larger molecular datasets (i.e., GEOM) that
+could be used to further augment our model’s learning [31]. However, from a structural perspective,
+the conformational behavior of non-zero temperature molecules found in GEOM differs significantly
+from the idealized infinite chains at 0K modeled in this work.
+We benchmark polymer structure prediction on our polyChainStructures test set with our method.
+Unlike crystals, polymers are amorphous and can adopt many valid low-energy conformations,
+making conventional structure matching [32] unsuitable. Molecule generation is also evaluated
+with root mean squared distance after rotational alignment [24, 33], but this doesn’t account for
+conformational variability experienced by infinite chains.
+To this end, we compare the predicted conformations against the DFT-optimized structures by
+examining distributions over bond lengths, bond angles, and dihedrals. We quantify similarity using
+the forward Kullback–Leibler (KL) divergence from the predicted distribution to the ground truth.
+The task is to generate a distribution of plausible polymer conformations and assess the likelihood
+that the DFT-optimized structure could have been drawn from this predicted distribution. For a set of
+predicted quantities Qpred we match it to the set of DFT predicted quantities QDFT with
+LKL = DKL (QDFT ∥Qpred) =
+Z
+QDFT(z) log QDFT(z)
+Qpred(z) dz
+(1)
+In practice, we do this over a discrete set of buckets where dz is 0.001 of the predefined ranges of the
+quantities, which could be bond lengths (0.9 to 2.0), angles (0 to 180), or dihedrals (0 to 360).
+2.2
+Structure Matching Results
+We find that our model is capable of predicting polymer structures that closely match the linear
+chain structure calculated by DFT. To provide context to our rationale, Figure 3 shows examples of
+predicted polymers compared to the ground truth of the dataset. In Figure 3a-d we see the capabilities
+of generating systems with qualitatively similar structures after filtering. We also provide examples
+of errors that are caught by our filtering. In Figure 3a and c, we see examples of carbon atoms
+incorrectly predicted within a supposedly aromatic ring in the backbone, which lead to incorrect
+connectivity. Many failed structures, especially the one in Figure 3b, can easily be fixed with an
+energy minimization or a heuristic-based increasing of the C-H bond, demonstrating the efficacy of
+the remaining generation and the stringent nature of the generation filter. Also, the complexity of
+these structures should be noted, given chain size, branching, and the number of rings present.
+4
+
+Figure 3: Visual samples from 100 generations per polymer type. Each row (a-d) displays examples
+from a single polymer. The ground truth, a successfully generated sample, and an unsuccessful sample
+are provided. The unsuccessful samples highlight the errors that caused the incorrect connectivity.
+Note that the structures for b) and c) are replicated along the z-axis for visual clarity of the structure.
+The visualizations are accompanied by corresponding ground truth distributions (top) and model-
+predicted distributions (bottom) of molecular bonds, angles, and dihedrals for that polymer.
+To quantify structural similarity, we compare bond length, triplet angle, and dihedral angle distribu-
+tions for some atomic species. Predicted structures should exhibit peaks comparable to optimized
+structures. The forward KL divergences establish benchmarks for acceptable "matches" in bond
+lengths, angles, and dihedrals.
+We find that our approach can find relative trends in the majority of bond lengths, but lacks precision.
+For example, the predicted C-O bonds in Figure 3a shows 2 peaks for single and double bonds, with
+noisy predictions scattered by at least 0.1 Å around these peaks. In Figure 3b and c, both predicted
+C-N and C-S bond distributions show peaks corresponding with the true bond length, but with wide
+distributions. Generation is precise to the order of Å, but not on the scale of picometers. Precision
+on the level of picometers will be necessary to properly distinguish between bond types before our
+approach is scaled to larger system sizes.
+We find that the distribution peaks of angles and dihedrals match the ground truth peaks, especially
+the O-C-O and O-S-O bonds in Figure 3a and c, respectively. The dihedral distributions can be
+used to validate the prediction of correct local structures in the polymer. For example, the C-N-C-C
+dihedrals in Figure 3b validate the feasible prediction of the nitrogen containing 5-membered ring
+5
+
+in the backbone. In Figure 3c, the C-C-C-O dihedral, located on a branch, shares a peak with the
+ground truth at 160◦but has a few predictions around 80◦and 320◦. This reflects the difficulties in
+generating branched structures, which may have conformational variability.
+Figure 3d shows predictions for the largest system in the test dataset, containing 208 atoms. Only 3
+out of 100 generated structures pass the filtering when using position-biased attention, while the DiT
+model with vanilla attention fails to produce any valid structure. The broad distribution of predicted
+C–N–C–O dihedral angles and their high deviation from the ground truth further highlight the lack of
+conformational viability. These results underscore a clear limitation in handling larger systems, likely
+due to constraints in the training dataset, and illustrate the challenges of generating feasible structures
+for complex polymer repeat units.
+Figure 4: a) Demonstration of diverse structures generated from polyGen for the same repeat
+unit, compared to the ground truth structure. b) The ground truth dihedrals (top) compared to the
+distributions of the full generated ensemble (bottom) along with the KL Divergence. For reference,
+the structures are generated from the polymer repeat unit in Figure 1.
+2.3
+Prediction of Diverse Samples
+As highlighted earlier, polymer structures do not reside in one fixed conformation but occur as
+an ensemble of minimized conformations, even close to 0 K. Our training dataset contains only 1
+conformational example out of the potential ones, because the generation of these ensembles is costly.
+A useful generation model would produce a diverse ensemble of conformations representative of
+many possible low-energy states. In Figure 4b, despite the lack of per-polymer distribution in our
+dataset, polyGen can generate an ensemble of diverse structures with variable repeat unit lengths.
+Moreover, these samples pass the post-generation filtering and remain consistent with structural
+features in the DFT ground truth, as seen in the KL Divergences in Figure 4b.
+6
+
+2.4
+Overall Results
+Following previous works, we also see that joint training on multiple DFT datasets can improve
+model performance [30, 16]. In this section, we show the specific areas in which the inclusion of
+the QM9 dataset can benefit the generation of polymer structures by comparing the joint dataset
+approach with a model fully trained on just the polyChainStructures dataset. Figure 5 shows the
+overall KL divergences for bond lengths, angle lengths, and dihedrals, and comparison of predicted
+z-height. The inclusion of the QM9 dataset improves predictions on the local levels of polymer
+chains, as the KL divergences of bonds and angles decrease by 41.0% and 29.0%, respectively, upon
+the addition of the QM9 dataset. Larger features, such as dihedral angles and the z-height show
+limited improvement, with dihedrals improving by 16.1%. This is likely because small molecules do
+not provide any insight into the macrostructural properties of polymers. Overall, we find that 36.1%
+of the generated structures by the jointly trained model pass our filtering, whereas 27.4% samples are
+generated correctly when using only the polyChainStructures dataset for training.
+Another major improvement is seen when including position attention biasing (Section 4.4.1) in the
+DiT module. Because local interactions are explicitly specified, we find that the positional encoding
+improves generation success from 36.9% to 64.8% when looking at isomorphism of the predicted
+structure compared to the original graph. Figure 5 showcases the improvement of polyGen with a
+relative encoding bias on all metrics, notably the decrease of angle and dihedral KL Divergences by
+33.5% and 21.2%, respectively.
+As highlighted in Figure 5d and discussed in Section 2.3, we expect some variability in the prediction
+of the z-height of the polymer chain. Despite this, we can achieve an r2 score of 0.854 between the
+predicted and DFT heights, meaning that the model can differentiate between dense vs. sparsely
+packed structures. Additionally, we see a larger standard deviation and error in predictions for larger
+repeat units (> 10 Å), because these repeat units may show more flexibility. Figure 5e also highlights
+the difficulty of generation as system size increases. Most generated systems with <25 atoms show
+success rates > 0.5. For system sizes greater than 150 atoms, the model with vanilla attention cannot
+generate any systems with proper connectivity, but the relative position bias substantially improves
+this.
+Intuitively, it would also seem that complex polymeric structures would be more difficult to generate.
+To this end, we also compare these metrics with the Synthetic Accessibility (SA) in Supplementary
+Information A. We see loose correlations with KL divergences of bond length, angles, and dihedrals
+with the SA score, but the ratio of successful generations of a polymer do not have a strong correlation
+Figure 5: KL Divergences of Joint training for Position Bias, Joint Training and polyChainStructures
+Only for a) Bonds b) Angles and c) Dihedrals. d) The comparison of z-height prediction vs the DFT
+ground truth. e) The success rate of filtering as a function of the atom count of the system.
+7
+
+with the SA score. Therefore, generation success could be independent from SA score and more
+reliant on the system size.
+3
+Discussion
+In this study, we introduce a solution to the problem of atomic-level polymer structure genera-
+tion—given only the atomic connectivity of a repeat unit (i.e. SMILES), polyGen can generate an
+ensemble of realistic 3D structures of synthetic polymers. Results demonstrate that polyGen effec-
+tively generates structures with bond lengths, angles, and dihedral distributions that align well with
+ground truth structures, and the quality of structures improves with the inclusion of positional biasing
+to the attention mechanism of the diffusion transformer. The model also successfully generates
+valid conformations for complex features like aromatic backbones and branches while correlating
+repeat unit chemistry with structural properties, such as repeat unit length. These initial results are
+particularly promising considering our polymer structure dataset optimized with Density Functional
+Theory contains only 3855 systems. We also investigate the limitations and demonstrate the need for
+stringent benchmarking of future polymer structure generation techniques. While capturing relative
+trends in structure, the model lacks precision at the picometer scale needed to definitively distinguish
+between bond types. Performance degrades significantly for larger polymeric systems, likely due
+to dataset constraints. Finally, the consistency of feasible generation needs to be improved. Given
+the successes of this proof-of-concept, future work will focus on expanding the training dataset to
+include larger polymer systems, incorporating additional physics-informed constraints, and exploring
+hybrid approaches that combine latent diffusion with molecular dynamics simulations. Addressing
+these challenges could transform polyGen into an invaluable tool for computational materials science,
+accelerating the discovery of novel polymeric materials across numerous applications.
+4
+Methods
+polyGen consists of three phases, a 0D conditioning on the molecular graph of the desired polymer
+repeat unit chemical structure, a variational autoencoder for structure (Figure 2a), and a latent diffusion
+module (Figure 2b). Overall, we choose an architecture that does not include any equivariance or
+inductive biases, following the sentiment of recent works [30, 21] where data scale and augmentation
+can be a path to learning these more efficiently.
+4.1
+Polymer Structure Specification
+Several previous works have learned structural and chemical representations of periodic materials,
+which include fractional coordinates, unit cell lengths, and lattice angles. For single polymer chain
+structures, we take a modified approach. Because of their complexity, training set structures are
+optimized using DFT with a periodic orthogonal box where the chain is continuous through the z
+axis. The width of the box is needed to encapsulate side chains/branched structures and are made
+large enough to isolate the single chain during optimization.
+We note that the x and y axis are not entirely polymer structure dependent. Including these as
+prediction variables is an overparameterization, and does not contribute much information. Therefore,
+we fix the x and y of the box to a 55 Å x 55 Å box, and define the system by the z height of the box,
+bz. In theory, this quantity is a proxy for the system’s density (which is also stochastic, depending on
+the specific sampled configurations). Atomic positions are provided as fractional coordinates within
+this orthogonal bounding box.
+4.2
+Graph Conditioning
+The generation of polymer structures begins with a minimal representation of atomic connectivity,
+typically provided in the form of a SMILES string. This string is converted into a molecular graph:
+periodic for polymers and non-periodic for small molecules. To extract a universal atom-wise
+representation, denoted as Ci, we apply a graph conditioning module that encodes the molecular
+connectivity. As illustrated in Figure 2a and b, Ci serves as contextual input to the encoder, decoder,
+and diffusion modules. The graph conditioning module is implemented using a graph interaction
+network, similar to [34], which captures local chemical environments by modeling interactions
+8
+
+between different atom and bond types. Importantly, the same network weights are used across
+all datasets and connectivity types, facilitating effective transfer learning and generalization across
+chemical spaces.
+Given a graph G = (V, E), each node i ∈V is associated with an atom type and positional encodings,
+and each edge (i, j) ∈E is associated with a bond type. The initial node and edge embeddings are
+computed as:
+h(0)
+i
+= Embed(atom_typei),
+e(0)
+ij = Embed(bond_typeij),
+h(0)
+i
+= MLP([h(0)
+i ; rRW
+i
+; rLap
+i
+])
+(2)
+For each layer l = 1, . . . , L, we update the edges and the nodes as:
+e(l)
+ij = e(l−1)
+ij
+We + f (l)
+e (LN([e(l−1)
+ij
+; h(l−1)
+i
+; h(l−1)
+j
+]))
+m(l)
+i
+=
+X
+j∈N(i)
+e(l)
+ij ,
+h(l)
+i
+= h(l−1)
+i
+Wv + f (l)
+v (LN([m(l)
+i ; h(l−1)
+i
+]))
+(3)
+We finally node features to add global context for the whole molecule:
+g =
+X
+i∈V
+h(L)
+i
+,
+Ci = f (l)
+f ([g; h(L)
+i
+])
+(4)
+where f (l)
+e , f (l)
+v , f (l)
+f
+are MLPs, LN is layer normalization, rRW
+i
+is a random walk positional encoding
+[35] of size 16 and rLap
+i
+is a Laplacian positional encoding [36, 37] of size 2. We use L = 4 to capture
+local interactions of an atom 1 "hop" away from its furthest dihedral. The global pooling prior to
+embedding into token dimension is done so that atomic-level information is taken with global system
+information.
+The encoder, decoder, and diffusion modules are all transformers, which typically require a positional
+encoding to identify token ordering and condition the self-attention weights. Similar to contemporary
+graph transformer methods, Ci communicates this by providing embeddings calculated from rRW
+i
+and rLap
+i
+[38].
+4.3
+Structural Variational AutoEncoder
+The next step is to learn a way to combine all aspects of a polymer system, such as monomer chemistry,
+fractional coordinates, and the bounding box, into a joint space. This space should also allow the
+fusion of information from small molecules or other systems to enhance learning. We employ a VAE
+to create unified atom-wise latent representation that contains structural details for small molecules
+and polymers, Z ∈Rd where d is a latent dimension. The VAE is based on traditional graph VAEs,
+including an encoder E and a decoder D operating atom-wise.
+The structure of the molecule/polymer is given through a concatenated vector of fractional coordinates
+fi and Cartesian positions pi. For a polymer structure, both the fi and scaled pi according to the
+bounding box are provided. This forces the VAE to learn and reconstruct the relationship between the
+Cartesian positions, fractional coordinates, and the bounding box. For non-periodic molecules, pi
+is provided and fi = ∅, which allows periodic and non-periodic materials to share the same latent
+space, similar to [30]. The atom-wise latent space is then calculated along with the Ci.
+µi, σi = E(fi, pi, Ci)
+(5)
+Zi ∼N(µi, σi)
+(6)
+The decoder then produces a structure from Z,
+ˆfi, ˆpi,ˆbz = D(Z, Ci)
+(7)
+where ˆfi is the predicted fractional coordinates, ˆpi is the predicted cartesian coordinates, and ˆbz is
+the z direction height of the bounding box. The loss on the decoder is used to optimize the model
+9
+
+Ltotal = ⟨wbbox · Lbbox⟩+ ⟨wfrac_coords · Lfrac_coords⟩+ ⟨wpos · Lpos⟩
++ ⟨wkl · Lkl⟩+ ⟨wbond · Lbond⟩+ ⟨wangle · Langle⟩+ ⟨wdihedral · Ldihedral⟩
+(8)
+Where the reconstruction terms are defined as:
+Lbbox = MSE
+ ˆbz, bz/(10
+3√
+N)
+
+,
+Lfrac_coords = 1
+d
+X
+i
+MSE( ˆfi, fi),
+Lpos = 1
+d
+X
+i
+MSE
+ ˆpi −⟨ˆp⟩, pi −⟨p⟩
+
+,
+Lkl = KL
+ qϕ(z | x) ∥p(z)
+
+.
+And the structural loss terms are:
+Lbond = MSE(dij, ˆdij)
+Langle = MSE(∠ijk, ˆ∠ijk)
+Ldihedral = (∆periodic(τijkl, ˆτijkl))2
+Where:
+dij, ˆdij = bond length between atoms i and j with true/predicted coordinates
+∠ijk, ˆ∠ijk = angle between bonded atoms i-j-k with true/predicted coordinates
+τijkl, ˆτijkl = dihedral angle of atoms i-j-k-l with true/predicted coordinates
+∆periodic = periodic difference within 0-2π radians, N = number of atoms
+The inclusion of the structural loss is to help the VAE optimize to decode structures that are structurally
+similar to the target, even if the positions may be slightly different than the target. Similar approaches
+for enforcing local atomic relations are utilized in works concerning biological polymer structures
+[21, 39]. Final model hyperparameters are provided in Supplementary Information C.
+4.4
+Diffusion Transformer
+Now that a joint latent space is learned, we require a way to find suitable structures for new polymer
+chemistries. We use a DiT architecture for our generative model M, operating within the latent space
+Z learned by the VAE. We use a similar DiT architecture as ADiT [30], however the previous work
+uses sinusoidal positional encodings for atomic tokens, which make it difficult for unordered atomic
+representations. In our case, we want to preserve the permutation invariant qualities of a GNN, so we
+use the positional encoded features and interactions in Ci to provide positional information relative
+to other atoms in the system. We also modify the attention mechanism to add a bias towards bonds,
+elaborated in Section 4.4.1.
+Our denoiser is implemented through a gaussian flow matching approach, which is equivalent to
+denoising diffusion as one can be derived from the other [40, 30]. We start by encoding a DFT
+optimized structure into the latent space, using Equation 6, to get Z1. Similar to other latent
+diffusion/flow matching works we denoise from zero-centered random noise Z0 ∼N(0, 1) at t = 0
+to Z1 at t = 1 [30]. To train the transformer, we provide it with an interpolated sample Zt at a
+random timestep t ∼U(0, 1),
+Zt = (1 −t)Z0 + tZ1
+(9)
+We can pose the learning problem as the linear ordinary differential equation (ODE),
+ut = ˙Z(Zt) = Z1 −Zt
+1 −t
+(10)
+The final prediction task is defined as,
+ˆZ1 = M(Zt, Zsc, t, Ci, S),
+ˆut =
+ˆZ1 −Zt
+1 −t
+where S is an embedding that represents the dataset used during generation. This is used exclusively
+during joint training. Only the embedding for the polyChainStructures dataset is used during
+inference. Zsc denotes a self-conditioning input, which corresponds to a previous prediction of
+ˆZ1. Self-conditioning improves autoregressive molecular generation [41, 30]. Our training uses a
+10
+
+two-pass approach: first predicting ˆZ1 with Zsc = ∅, then feeding this prediction back as Zsc for
+refinement. To avoid overreliance, we randomly drop self-conditioning (Zsc = ∅) with probability
+0.5 during training. Within M, the latent features and conditioning signals are incorporated as
+˜x = EZ([Zt; Zsc]) + Ci,
+c = d + Et(t),
+where ˜x is input and c is the modulation conditioning for attention blocks from [? ]. EZ and Et are
+embedding blocks.
+The training objective is defined as the atom-wise mean squared error between ˆut
+(i) and u(i)
+t
+for N
+atoms in a system:
+LG = 1
+N
+N
+X
+i=1
+u(i)
+t
+−ˆu(i)
+t
+
+2
+(11)
+= 1
+N
+N
+X
+i=1
+
+Z(i)
+1
+−Z(i)
+t
+1 −t
+−
+ˆZ(i)
+1
+−Z(i)
+t
+1 −t
+
+2
+(12)
+=
+1
+(1 −t)2 · 1
+N
+N
+X
+i=1
+Z(i)
+1
+−ˆZ(i)
+1
+
+2
+(13)
+To prevent numerical instability in the loss function calculation, we clip the value of t to 0.9, in
+accordance with previous work [30].
+During inference, we sample an initial latent Z0 ∼N(0, I) and iteratively denoise it using T steps
+of Euler integration:
+Zt+∆t = Zt + ∆tˆut,
+where ∆t = 1.0/T. This process generates a final conformation ˆZ1, which is decoded into a novel
+3D atomic system using D. We compare generation hyperparameters in Supplementary Information
+B, and show final model hyperparameters in Supplementary Information C.
+4.4.1
+Relative Positional Encoding Attention Modification
+With a traditional attention mechanism, DiT is forced to learn bonding relationships from the atom-
+wise conditional embeddings. For smaller systems, this can provide enough information for proper
+structure prediction, but this may be a problem for larger systems. Alphafold3, which operates on
+larger atomic systems than traditional material structure generation models, utilizes a pairformer [21]
+with a relative position encoding to allow tokens to attend to nearby neighbors by conditioning the
+attention weights of the diffusion module.
+We employ a lightweight relative positional encoding with attention biasing mechanism in the
+polyGen DiT module to differentiate local atomic interactions from global. First, we encode pairwise
+relationships with a one-hot graph-distance tensor
+D ∈{0, 1}N×N×5,
+where each of the five channels indicates whether atoms i and j are
+(1) identical
+(2) bonded
+(3) separated by an angle
+(4) separated by a dihedral
+(5) beyond four bonds apart
+An MLP fD then maps each one-hot vector Di,j to a scalar bias, which is added directly into the
+scaled dot-product attention:
+11
+
+biasi,j = fD
+ Di,j
+
+,
+(14)
+Attentioni,j = Softmax
+
+Qi · Kj
+√num_heads + biasi,j
+
+.
+(15)
+Intuitively, nearby atoms (bonds, angles, dihedrals) should have a higher bias and other atoms should
+have a lower bias. With a per-DiT-block learnable bias, the DiT has the ability to allocate more
+attention weight while still retaining the ability to attend globally in some layers.
+4.5
+Post-Generation Filtering
+Often, sampling from a flow matching or diffusion model can lead to unphysical generations. In
+Figure 2c, we show post-generation filtering as a sanity check of generation. First, we take the final
+predicted system (atom_typei,ˆbz, ˆfi) and use the Cartesian distances between atoms to calculate the
+predicted structure, ˆG = (V, ˆE). If the ground truth graph G and the predicted graph ˆG are isomorphic,
+i.e., whether G ∼= ˆG, then it passes the filter. If any bond length is < 0.8 then the sample is filtered out.
+Samples that pass this filtering criteria will be "successful" and those that don’t are "unsuccessful."
+However, a successful prediction of connectivity doesn’t guarantee an accurate 3D structure, and the
+successful samples are evaluated against the optimized 3D structures in Section 2.
+4.6
+Machine Learning Techniques
+Our main polymer DFT dataset, polyChainStructures (elaborated in Section 2.1), and the QM9
+dataset are imbalanced, with the latter training set being ≈33x larger. To handle this we upsample
+the polyChainStructures data by 30x per epoch. During training for the polychain dataset only, this
+upsampling ratio is held the same for comparison, so that both models see the same amount of
+polyChainStructures data per epoch. To learn equivariance, we randomly rotate and translate the
+systems at every training step for both the VAE and the DiT.
+The autoencoder models were trained for 300 epochs, and the highest-performing validation check-
+point was taken. The diffusion models were trained for a maximum of 500 epochs.
+5
+Data Availability
+The dataset used in this study is available on the Ramprasad group’s computational knowledge-base,
+Khazana (https://khazana.gatech.edu/dataset).
+6
+Code Availability
+The code used for this work will be made publicly available upon publication on the Ramprasad
+group’s github (https://github.com/Ramprasad-Group)
+7
+Acknowledgements
+This work was financially supported by the Office of Naval Research (ONR) through Grant N00014-
+21-1-2258 and the National Science Foundation (NSF) DMREF Grant 2323695. A.J. acknowledges
+S. Shukla, A. Savit, H. Sahu, H. Tran, and R. Gurnani for valuable discussions.
+8
+Author Contributions
+A.J. is the main architect of the models and wrote the paper. R.R. conceived the project and guided
+the work and the previous project for dataset generation.
+9
+Competing Interests
+R.R. is a founder of Matmerize, Inc., a company specializing in materials informatics software and
+services. The other authors have no conflicts of interest to declare.
+12
+
+References
+[1] Huan Tran, Rishi Gurnani, Chiho Kim, Ghanshyam Pilania, Ha-Kyung Kwon, Ryan P Lively, and Rampi
+Ramprasad. Design of functional and sustainable polymers assisted by artificial intelligence. Nature
+Reviews Materials, pages 1–21, 2024.
+[2] Rohit Batra, Le Song, and Rampi Ramprasad. Emerging materials intelligence ecosystems propelled by
+machine learning. Nature Reviews Materials, 6(8):655–678, 2021.
+[3] Shivank S Shukla, Christopher Kuenneth, and Rampi Ramprasad. Polymer informatics beyond homopoly-
+mers. arXiv preprint arXiv:2303.12938, 2023.
+[4] Rishi Gurnani, Stuti Shukla, Deepak Kamal, Chao Wu, Jing Hao, Christopher Kuenneth, Pritish Aklujkar,
+Ashish Khomane, Robert Daniels, Ajinkya A Deshmukh, et al. Ai-assisted discovery of high-temperature
+dielectrics for energy storage. Nature Communications, 15(1):6107, 2024.
+[5] Brandon K Phan, Kuan-Hsuan Shen, Rishi Gurnani, Huan Tran, Ryan Lively, and Rampi Ramprasad. Gas
+permeability, diffusivity, and solubility in polymers: Simulation-experiment data fusion and multi-task
+machine learning. npj Computational Materials, 10(1):186, 2024.
+[6] Lihua Chen, Ghanshyam Pilania, Rohit Batra, Tran Doan Huan, Chiho Kim, Christopher Kuenneth, and
+Rampi Ramprasad. Polymer informatics: Current status and critical next steps. Materials Science and
+Engineering: R: Reports, 144:100595, 2021.
+[7] Huan Doan Tran, Chiho Kim, Lihua Chen, Anand Chandrasekaran, Rohit Batra, Shruti Venkatram, Deepak
+Kamal, Jordan P Lightstone, Rishi Gurnani, Pranav Shetty, et al. Machine-learning predictions of polymer
+properties with polymer genome. Journal of Applied Physics, 128(17):171104, 2020.
+[8] Rishi Gurnani, Christopher Kuenneth, Aubrey Toland, and Rampi Ramprasad. Polymer informatics at
+scale with multitask graph neural networks. Chemistry of Materials, 35(4):1560–1567, 2023.
+[9] Joseph Kern, Yongliang Su, Will Gutekunst, and Rampi Ramprasad. An informatics framework for the
+design of sustainable, chemically recyclable, synthetically-accessible and durable polymers. arXiv preprint
+arXiv:2409.15354, 2024.
+[10] Joseph Kern, Lihua Chen, Chiho Kim, and Rampi Ramprasad. Design of polymers for energy storage
+capacitors using machine learning and evolutionary algorithms. Journal of Materials Science, 56:19623–
+19635, 2021.
+[11] Rohit Batra, Hanjun Dai, Tran Doan Huan, Lihua Chen, Chiho Kim, Will R Gutekunst, Le Song, and Rampi
+Ramprasad. Polymers for extreme conditions designed using syntax-directed variational autoencoders.
+Chemistry of Materials, 32(24):10489–10500, 2020.
+[12] Tran Doan Huan and Rampi Ramprasad. Polymer structure prediction from first principles. The Journal of
+Physical Chemistry Letters, 11(15):5823–5829, 2020.
+[13] Harikrishna Sahu, Kuan-Hsuan Shen, Joseph H Montoya, Huan Tran, and Rampi Ramprasad. Polymer
+structure predictor (psp): a python toolkit for predicting atomic-level structural models for a range of
+polymer geometries. Journal of Chemical Theory and Computation, 18(4):2737–2748, 2022.
+[14] Ling Yang, Zhilong Zhang, Yang Song, Shenda Hong, Runsheng Xu, Yue Zhao, Wentao Zhang, Bin Cui,
+and Ming-Hsuan Yang. Diffusion models: A comprehensive survey of methods and applications. ACM
+Computing Surveys, 56(4):1–39, 2023.
+[15] Yaron Lipman, Ricky TQ Chen, Heli Ben-Hamu, Maximilian Nickel, and Matt Le. Flow matching for
+generative modeling. arXiv preprint arXiv:2210.02747, 2022.
+[16] Richard Tran, Janice Lan, Muhammed Shuaibi, Brandon M Wood, Siddharth Goyal, Abhishek Das, Javier
+Heras-Domingo, Adeesh Kolluru, Ammar Rizvi, Nima Shoghi, et al. The open catalyst 2022 (oc22) dataset
+and challenges for oxide electrocatalysts. ACS Catalysis, 13(5):3066–3084, 2023.
+[17] John Jumper, Richard Evans, Alexander Pritzel, Tim Green, Michael Figurnov, Olaf Ronneberger, Kathryn
+Tunyasuvunakool, Russ Bates, Augustin Žídek, Anna Potapenko, et al. Highly accurate protein structure
+prediction with alphafold. nature, 596(7873):583–589, 2021.
+[18] Rui Jiao, Wenbing Huang, Peijia Lin, Jiaqi Han, Pin Chen, Yutong Lu, and Yang Liu. Crystal structure
+prediction by joint equivariant diffusion. Advances in Neural Information Processing Systems, 36:17464–
+17497, 2023.
+[19] Tian Xie, Xiang Fu, Octavian-Eugen Ganea, Regina Barzilay, and Tommi Jaakkola. Crystal diffusion
+variational autoencoder for periodic material generation. arXiv preprint arXiv:2110.06197, 2021.
+[20] Benjamin Kurt Miller, Ricky TQ Chen, Anuroop Sriram, and Brandon M Wood. Flowmm: Generating
+materials with riemannian flow matching. In Forty-first International Conference on Machine Learning,
+2024.
+13
+
+[21] Josh Abramson, Jonas Adler, Jack Dunger, Richard Evans, Tim Green, Alexander Pritzel, Olaf Ronneberger,
+Lindsay Willmore, Andrew J Ballard, Joshua Bambrick, et al. Accurate structure prediction of biomolecular
+interactions with alphafold 3. Nature, 630(8016):493–500, 2024.
+[22] Jeremy Wohlwend, Gabriele Corso, Saro Passaro, Mateo Reveiz, Ken Leidal, Wojtek Swiderski, Tally
+Portnoi, Itamar Chinn, Jacob Silterra, Tommi Jaakkola, et al. Boltz-1: Democratizing biomolecular
+interaction modeling. bioRxiv, pages 2024–11, 2024.
+[23] Majdi Hassan, Nikhil Shenoy, Jungyoon Lee, Hannes Stärk, Stephan Thaler, and Dominique Beaini.
+Et-flow: Equivariant flow-matching for molecular conformer generation. Advances in Neural Information
+Processing Systems, 37:128798–128824, 2024.
+[24] Minkai Xu, Alexander Powers, Ron Dror, Stefano Ermon, and Jure Leskovec. Geometric latent diffusion
+models for 3d molecule generation, 2023. URL https://arxiv.org/abs/2305.01140.
+[25] Zhenqin Wu, Bharath Ramsundar, Evan N Feinberg, Joseph Gomes, Caleb Geniesse, Aneesh S Pappu,
+Karl Leswing, and Vijay Pande. Moleculenet: a benchmark for molecular machine learning. Chemical
+science, 9(2):513–530, 2018.
+[26] Gabriele Corso, Hannes Stärk, Bowen Jing, Regina Barzilay, and Tommi Jaakkola. Diffdock: Diffusion
+steps, twists, and turns for molecular docking. arXiv preprint arXiv:2210.01776, 2022.
+[27] Fanmeng Wang, Wentao Guo, Qi Ou, Hongshuai Wang, Haitao Lin, Hongteng Xu, and Zhifeng Gao.
+Polyconf: Unlocking polymer conformation generation through hierarchical generative models. arXiv
+preprint arXiv:2504.08859, 2025.
+[28] Mohammad Atif Faiz Afzal, Andrea R Browning, Alexander Goldberg, Mathew D Halls, Jacob L Gavartin,
+Tsuguo Morisato, Thomas F Hughes, David J Giesen, and Joseph E Goose. High-throughput molecular
+dynamics simulations and validation of thermophysical properties of polymers for various applications.
+ACS Applied Polymer Materials, 3(2):620–630, 2020.
+[29] Mathilde Orselly, Julien Devemy, Agathe Bouvet-Marchand, Alain Dequidt, Cédric Loubat, and Patrice
+Malfreyt. Molecular simulations of thermomechanical properties of epoxy-amine resins. ACS omega, 7
+(34):30040–30050, 2022.
+[30] Chaitanya K Joshi, Xiang Fu, Yi-Lun Liao, Vahe Gharakhanyan, Benjamin Kurt Miller, Anuroop Sriram,
+and Zachary W Ulissi. All-atom diffusion transformers: Unified generative modelling of molecules and
+materials. arXiv preprint arXiv:2503.03965, 2025.
+[31] Simon Axelrod and Rafael Gomez-Bombarelli. Geom, energy-annotated molecular conformations for
+property prediction and molecular generation. Scientific Data, 9(1):185, 2022.
+[32] Shyue Ping Ong, William Davidson Richards, Anubhav Jain, Geoffroy Hautier, Michael Kocher, Shreyas
+Cholia, Dan Gunter, Vincent L Chevrier, Kristin A Persson, and Gerbrand Ceder. Python materials
+genomics (pymatgen): A robust, open-source python library for materials analysis. Computational
+Materials Science, 68:314–319, 2013.
+[33] Bowen Jing, Gabriele Corso, Jeffrey Chang, Regina Barzilay, and Tommi Jaakkola. Torsional diffusion for
+molecular conformer generation. Advances in neural information processing systems, 35:24240–24253,
+2022.
+[34] Peter Battaglia, Razvan Pascanu, Matthew Lai, Danilo Jimenez Rezende, et al. Interaction networks for
+learning about objects, relations and physics. Advances in neural information processing systems, 29,
+2016.
+[35] Vijay Prakash Dwivedi, Anh Tuan Luu, Thomas Laurent, Yoshua Bengio, and Xavier Bresson. Graph
+neural networks with learnable structural and positional representations. arXiv preprint arXiv:2110.07875,
+2021.
+[36] Vijay Prakash Dwivedi, Chaitanya K Joshi, Anh Tuan Luu, Thomas Laurent, Yoshua Bengio, and Xavier
+Bresson. Benchmarking graph neural networks. Journal of Machine Learning Research, 24(43):1–48,
+2023.
+[37] Yuyang Wang, Ahmed A. A. Elhag, Navdeep Jaitly, Joshua M. Susskind, and Miguel Angel Bautista.
+Swallowing the bitter pill: Simplified scalable conformer generation. In International Conference on
+Machine Learning, 2023. URL https://api.semanticscholar.org/CorpusID:265506007.
+[38] Erxue Min, Runfa Chen, Yatao Bian, Tingyang Xu, Kangfei Zhao, Wenbing Huang, Peilin Zhao, Junzhou
+Huang, Sophia Ananiadou, and Yu Rong. Transformer for graphs: An overview from architecture
+perspective. arXiv preprint arXiv:2202.08455, 2022.
+[39] Valerio Mariani, Marco Biasini, Alessandro Barbato, and Torsten Schwede. lddt: a local superposition-free
+score for comparing protein structures and models using distance difference tests. Bioinformatics, 29(21):
+2722–2728, 2013.
+14
+
+[40] Ruiqi Gao, Emiel Hoogeboom, Jonathan Heek, Valentin De Bortoli, Kevin P. Murphy, and Tim Salimans.
+Diffusion meets flow matching: Two sides of the same coin. 2024. URL https://diffusionflow.
+github.io/.
+[41] Hannes Stärk, Bowen Jing, Regina Barzilay, and Tommi Jaakkola. Harmonic self-conditioned flow
+matching for multi-ligand docking and binding site design. arXiv preprint arXiv:2310.05764, 2023.
+15

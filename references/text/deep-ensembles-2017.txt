@@ -1,0 +1,1562 @@
+Simple and Scalable Predictive Uncertainty
+Estimation using Deep Ensembles
+Balaji Lakshminarayanan
+Alexander Pritzel
+Charles Blundell
+DeepMind
+{balajiln,apritzel,cblundell}@google.com
+Abstract
+Deep neural networks (NNs) are powerful black box predictors that have recently
+achieved impressive performance on a wide spectrum of tasks. Quantifying pre-
+dictive uncertainty in NNs is a challenging and yet unsolved problem. Bayesian
+NNs, which learn a distribution over weights, are currently the state-of-the-art
+for estimating predictive uncertainty; however these require signiﬁcant modiﬁca-
+tions to the training procedure and are computationally expensive compared to
+standard (non-Bayesian) NNs. We propose an alternative to Bayesian NNs that
+is simple to implement, readily parallelizable, requires very little hyperparameter
+tuning, and yields high quality predictive uncertainty estimates. Through a series
+of experiments on classiﬁcation and regression benchmarks, we demonstrate that
+our method produces well-calibrated uncertainty estimates which are as good or
+better than approximate Bayesian NNs. To assess robustness to dataset shift, we
+evaluate the predictive uncertainty on test examples from known and unknown
+distributions, and show that our method is able to express higher uncertainty on
+out-of-distribution examples. We demonstrate the scalability of our method by
+evaluating predictive uncertainty estimates on ImageNet.
+1
+Introduction
+Deep neural networks (NNs) have achieved state-of-the-art performance on a wide variety of machine
+learning tasks [35] and are becoming increasingly popular in domains such as computer vision
+[32], speech recognition [25], natural language processing [42], and bioinformatics [2, 61]. Despite
+impressive accuracies in supervised learning benchmarks, NNs are poor at quantifying predictive
+uncertainty, and tend to produce overconﬁdent predictions. Overconﬁdent incorrect predictions can be
+harmful or offensive [3], hence proper uncertainty quantiﬁcation is crucial for practical applications.
+Evaluating the quality of predictive uncertainties is challenging as the ‘ground truth’ uncertainty
+estimates are usually not available. In this work, we shall focus upon two evaluation measures that
+are motivated by practical applications of NNs. Firstly, we shall examine calibration [12, 13], a
+frequentist notion of uncertainty which measures the discrepancy between subjective forecasts and
+(empirical) long-run frequencies. The quality of calibration can be measured by proper scoring rules
+[17] such as log predictive probabilities and the Brier score [9]. Note that calibration is an orthogonal
+concern to accuracy: a network’s predictions may be accurate and yet miscalibrated, and vice versa.
+The second notion of quality of predictive uncertainty we consider concerns generalization of the
+predictive uncertainty to domain shift (also referred to as out-of-distribution examples [23]), that is,
+measuring if the network knows what it knows. For example, if a network trained on one dataset is
+evaluated on a completely different dataset, then the network should output high predictive uncertainty
+as inputs from a different dataset would be far away from the training data. Well-calibrated predictions
+that are robust to model misspeciﬁcation and dataset shift have a number of important practical uses
+(e.g., weather forecasting, medical diagnosis).
+31st Conference on Neural Information Processing Systems (NIPS 2017), Long Beach, CA, USA.
+arXiv:1612.01474v3  [stat.ML]  4 Nov 2017
+
+There has been a lot of recent interest in adapting NNs to encompass uncertainty and probabilistic
+methods. The majority of this work revolves around a Bayesian formalism [4], whereby a prior
+distribution is speciﬁed upon the parameters of a NN and then, given the training data, the posterior
+distribution over the parameters is computed, which is used to quantify predictive uncertainty.
+Since exact Bayesian inference is computationally intractable for NNs, a variety of approximations
+have been developed including Laplace approximation [40], Markov chain Monte Carlo (MCMC)
+methods [46], as well as recent work on variational Bayesian methods [6, 19, 39], assumed density
+ﬁltering [24], expectation propagation [21, 38] and stochastic gradient MCMC variants such as
+Langevin diffusion methods [30, 59] and Hamiltonian methods [53]. The quality of predictive
+uncertainty obtained using Bayesian NNs crucially depends on (i) the degree of approximation due
+to computational constraints and (ii) if the prior distribution is ‘correct’, as priors of convenience
+can lead to unreasonable predictive uncertainties [50]. In practice, Bayesian NNs are often harder
+to implement and computationally slower to train compared to non-Bayesian NNs, which raises
+the need for a ‘general purpose solution’ that can deliver high-quality uncertainty estimates and yet
+requires only minor modiﬁcations to the standard training pipeline.
+Recently, Gal and Ghahramani [15] proposed using Monte Carlo dropout (MC-dropout) to estimate
+predictive uncertainty by using Dropout [54] at test time. There has been work on approximate
+Bayesian interpretation [15, 29, 41] of dropout. MC-dropout is relatively simple to implement
+leading to its popularity in practice. Interestingly, dropout may also be interpreted as ensemble model
+combination [54] where the predictions are averaged over an ensemble of NNs (with parameter
+sharing). The ensemble interpretation seems more plausible particularly in the scenario where the
+dropout rates are not tuned based on the training data, since any sensible approximation to the true
+Bayesian posterior distribution has to depend on the training data. This interpretation motivates the
+investigation of ensembles as an alternative solution for estimating predictive uncertainty.
+It has long been observed that ensembles of models improve predictive performance (see [14] for a
+review). However it is not obvious when and why an ensemble of NNs can be expected to produce
+good uncertainty estimates. Bayesian model averaging (BMA) assumes that the true model lies within
+the hypothesis class of the prior, and performs soft model selection to ﬁnd the single best model within
+the hypothesis class [43]. In contrast, ensembles perform model combination, i.e. they combine the
+models to obtain a more powerful model; ensembles can be expected to be better when the true model
+does not lie within the hypothesis class. We refer to [11, 43] and [34, §2.5] for related discussions.
+It is important to note that even exact BMA is not guaranteed be robust to mis-speciﬁcation with
+respect to domain shift.
+Summary of contributions: Our contribution in this paper is two fold. First, we describe a simple and
+scalable method for estimating predictive uncertainty estimates from NNs. We argue for training
+probabilistic NNs (that model predictive distributions) using a proper scoring rule as the training
+criteria. We additionally investigate the effect of two modiﬁcations to the training pipeline, namely
+(i) ensembles and (ii) adversarial training [18] and describe how they can produce smooth predictive
+estimates. Secondly, we propose a series of tasks for evaluating the quality of the predictive uncertainty
+estimates, in terms of calibration and generalization to unknown classes in supervised learning
+problems. We show that our method signiﬁcantly outperforms (or matches) MC-dropout. These tasks,
+along with our simple yet strong baseline, serve as an useful benchmark for comparing predictive
+uncertainty estimates obtained using different Bayesian/non-Bayesian/hybrid methods.
+Novelty and Signiﬁcance: Ensembles of NNs, or deep ensembles for short, have been successfully
+used to boost predictive performance (e.g. classiﬁcation accuracy in ImageNet or Kaggle contests)
+and adversarial training has been used to improve robustness to adversarial examples. However, to
+the best of our knowledge, ours is the ﬁrst work to investigate their usefulness for predictive uncer-
+tainty estimation and compare their performance to current state-of-the-art approximate Bayesian
+methods on a series of classiﬁcation and regression benchmark datasets. Compared to Bayesian
+NNs (e.g. variational inference or MCMC methods), our method is much simpler to implement,
+requires surprisingly few modiﬁcations to standard NNs, and well suited for distributed computation,
+thereby making it attractive for large-scale deep learning applications. To demonstrate scalability of
+our method, we evaluate predictive uncertainty on ImageNet (and are the ﬁrst to do so, to the best of
+our knowledge). Most work on uncertainty in deep learning focuses on Bayesian deep learning; we
+hope that the simplicity and strong empirical performance of our approach will spark more interest in
+non-Bayesian approaches for predictive uncertainty estimation.
+2
+
+2
+Deep Ensembles: A Simple Recipe For Predictive Uncertainty Estimation
+2.1
+Problem setup and High-level summary
+We assume that the training dataset D consists of N i.i.d. data points D = {xn, yn}N
+n=1, where
+x ∈RD represents the D-dimensional features. For classiﬁcation problems, the label is assumed
+to be one of K classes, that is y ∈{1, . . . , K}. For regression problems, the label is assumed to
+be real-valued, that is y ∈R. Given the input features x, we use a neural network to model the
+probabilistic predictive distribution pθ(y|x) over the labels, where θ are the parameters of the NN.
+We suggest a simple recipe: (1) use a proper scoring rule as the training criterion, (2) use adversarial
+training [18] to smooth the predictive distributions, and (3) train an ensemble. Let M denote the
+number of NNs in the ensemble and {θm}M
+m=1 denote the parameters of the ensemble. We ﬁrst
+describe how to train a single neural net and then explain how to train an ensemble of NNs.
+2.2
+Proper scoring rules
+Scoring rules measure the quality of predictive uncertainty (see [17] for a review). A scoring rule
+assigns a numerical score to a predictive distribution pθ(y|x), rewarding better calibrated predictions
+over worse. We shall consider scoring rules where a higher numerical score is better. Let a scoring
+rule be a function S(pθ, (y, x)) that evaluates the quality of the predictive distribution pθ(y|x) relative
+to an event y|x ∼q(y|x) where q(y, x) denotes the true distribution on (y, x)-tuples. The expected
+scoring rule is then S(pθ, q) =
+R
+q(y, x)S(pθ, (y, x))dydx. A proper scoring rule is one where
+S(pθ, q) ≤S(q, q) with equality if and only if pθ(y|x) = q(y|x), for all pθ and q. NNs can then be
+trained according to measure that encourages calibration of predictive uncertainty by minimizing the
+loss L(θ) = −S(pθ, q).
+It turns out many common NN loss functions are proper scoring rules. For example, when maximizing
+likelihood, the score function is S(pθ, (y, x)) = log pθ(y|x), and this is a proper scoring rule due
+to Gibbs inequality: S(pθ, q) = Eq(x)q(y|x) log pθ(y|x) ≤Eq(x)q(y|x) log q(y|x). In the case of
+multi-class K-way classiﬁcation, the popular softmax cross entropy loss is equivalent to the log
+likelihood and is a proper scoring rule. Interestingly, L(θ) = −S(pθ, (y, x)) = K−1 PK
+k=1
+ δk=y −
+pθ(y = k|x)
+2, i.e., minimizing the squared error between the predictive probability of a label and
+one-hot encoding of the correct label, is also a proper scoring rule known as the Brier score [9].
+This provides justiﬁcation for this common trick for training NNs by minimizing the squared error
+between a binary label and its associated probability and shows it is, in fact, a well deﬁned loss with
+desirable properties.1
+2.2.1
+Training criterion for regression
+For regression problems, NNs usually output a single value say µ(x) and the parameters are optimized
+to minimize the mean squared error (MSE) on the training set, given by PN
+n=1
+ yn −µ(xn)
+2.
+However, the MSE does not capture predictive uncertainty. Following [47], we use a network
+that outputs two values in the ﬁnal layer, corresponding to the predicted mean µ(x) and variance2
+σ2(x) > 0. By treating the observed value as a sample from a (heteroscedastic) Gaussian distribution
+with the predicted mean and variance, we minimize the negative log-likelihood criterion:
+−log pθ(yn|xn) = log σ2
+θ(x)
+2
++
+ y −µθ(x)
+2
+2σ2
+θ(x)
++ constant.
+(1)
+We found the above to perform satisfactorily in our experiments. However, two simple extensions are
+worth further investigation: (i) Maximum likelihood estimation over µθ(x) and σ2
+θ(x) might overﬁt;
+one could impose a prior and perform maximum-a-posteriori (MAP) estimation. (ii) In cases where
+the Gaussian is too-restrictive, one could use a complex distribution e.g. mixture density network [5]
+or a heavy-tailed distribution.
+1Indeed as noted in Gneiting and Raftery [17], it can be shown that asymptotically maximizing any proper
+scoring rule recovers true parameter values.
+2We enforce the positivity constraint on the variance by passing the second output through the softplus
+function log(1 + exp(·)), and add a minimum variance (e.g. 10−6) for numerical stability.
+3
+
+2.3
+Adversarial training to smooth predictive distributions
+Adversarial examples, proposed by Szegedy et al. [55] and extended by Goodfellow et al. [18], are
+those which are ‘close’ to the original training examples (e.g. an image that is visually indistin-
+guishable from the original image to humans), but are misclassiﬁed by the NN. Goodfellow et al.
+[18] proposed the fast gradient sign method as a fast solution to generate adversarial examples.
+Given an input x with target y, and loss ℓ(θ, x, y) (e.g. −log pθ(y|x)), the fast gradient sign method
+generates an adversarial example as x′ = x + ϵ sign
+ ∇x ℓ(θ, x, y)
+
+, where ϵ is a small value such
+that the max-norm of the perturbation is bounded. Intuitively, the adversarial perturbation creates
+a new training example by adding a perturbation along a direction which the network is likely to
+increase the loss. Assuming ϵ is small enough, these adversarial examples can be used to augment
+the original training set by treating (x′, y) as additional training examples. This procedure, referred
+to as adversarial training,3 was found to improve the classiﬁer’s robustness [18].
+Interestingly, adversarial training can be interpreted as a computationally efﬁcient solution to smooth
+the predictive distributions by increasing the likelihood of the target around an ϵ-neighborhood of
+the observed training examples. Ideally one would want to smooth the predictive distributions along
+all 2D directions in {1, −1}D; however this is computationally expensive. A random direction
+might not necessarily increase the loss; however, adversarial training by deﬁnition computes the
+direction where the loss is high and hence is better than a random direction for smoothing predictive
+distributions. Miyato et al. [44] proposed a related idea called virtual adversarial training (VAT),
+where they picked ∆x = arg max∆x KL
+ p(y|x)||p(y|x + ∆x)
+
+; the advantage of VAT is that
+it does not require knowledge of the true target y and hence can be applied to semi-supervised
+learning. Miyato et al. [44] showed that distributional smoothing using VAT is beneﬁcial for efﬁcient
+semi-supervised learning; in contrast, we investigate the use of adversarial training for predictive
+uncertainty estimation. Hence, our contributions are complementary; one could use VAT or other
+forms of adversarial training, cf. [33], for improving predictive uncertainty in the semi-supervised
+setting as well.
+2.4
+Ensembles: training and prediction
+The most popular ensembles use decision trees as the base learners and a wide variety of method
+have been explored in the literature on ensembles. Broadly, there are two classes of ensembles:
+randomization-based approaches such as random forests [8], where the ensemble members can
+be trained in parallel without any interaction, and boosting-based approaches where the ensemble
+members are ﬁt sequentially. We focus only on the randomization based approach as it is better suited
+for distributed, parallel computation. Breiman [8] showed that the generalization error of random
+forests can be upper bounded by a function of the strength and correlation between individual trees;
+hence it is desirable to use a randomization scheme that de-correlates the predictions of the individual
+models as well as ensures that the individual models are strong (e.g. high accuracy). One of the
+popular strategies is bagging (a.k.a. bootstrapping), where ensemble members are trained on different
+bootstrap samples of the original training set. If the base learner lacks intrinsic randomization (e.g. it
+can be trained efﬁciently by solving a convex optimization problem), bagging is a good mechanism
+for inducing diversity. However, if the underlying base learner has multiple local optima, as is the
+case typically with NNs, the bootstrap can sometimes hurt performance since a base learner trained
+on a bootstrap sample sees only 63% unique data points.4 In the literature on decision tree ensembles,
+Breiman [8] proposed to use a combination of bagging [7] and random subset selection of features at
+each node. Geurts et al. [16] later showed that bagging is unnecessary if additional randomness can
+be injected into the random subset selection procedure. Intuitively, using more data for training the
+base learners helps reduce their bias and ensembling helps reduce the variance.
+We used the entire training dataset to train each network since deep NNs typically perform better
+with more data, although it is straightforward to use a random subsample if need be. We found that
+random initialization of the NN parameters, along with random shufﬂing of the data points, was
+sufﬁcient to obtain good performance in practice. We observed that bagging deteriorated performance
+in our experiments. Lee et al. [36] independently observed that training on entire dataset with
+random initialization was better than bagging for deep ensembles, however their goal was to improve
+3Not to be confused with Generative Adversarial Networks (GANs).
+4 The bootstrap draws N times uniformly with replacement from a dataset with N items. The probability
+an item is picked at least once is 1 −(1 −1/N)N, which for large N becomes 1 −e−1 ≈0.632. Hence, the
+number of unique data points in a bootstrap sample is 0.632 × N on average.
+4
+
+predictive accuracy and not predictive uncertainty. The overall training procedure is summarized in
+Algorithm 1.
+Algorithm 1 Pseudocode of the training procedure for our method
+1: ▷Let each neural network parametrize a distribution over the outputs, i.e. pθ(y|x). Use a proper
+scoring rule as the training criterion ℓ(θ, x, y). Recommended default values are M = 5 and
+ϵ = 1% of the input range of the corresponding dimension (e.g 2.55 if input range is [0,255]).
+2: Initialize θ1, θ2, . . . , θM randomly
+3: for m = 1 : M do
+▷train networks independently in parallel
+4:
+Sample data point nm randomly for each net
+▷single nm for clarity, minibatch in practice
+5:
+Generate adversarial example using x′
+nm = xnm + ϵ sign
+ ∇xnm ℓ(θm, xnm, ynm)
+
+6:
+Minimize ℓ(θm, xnm, ynm) + ℓ(θm, x′
+nm, ynm) w.r.t. θm
+▷adversarial training (optional)
+We treat the ensemble as a uniformly-weighted mixture model and combine the predictions as
+p(y|x) = M −1 PM
+m=1 pθm(y|x, θm). For classiﬁcation, this corresponds to averaging the predicted
+probabilities. For regression, the prediction is a mixture of Gaussian distributions. For ease of
+computing quantiles and predictive probabilities, we further approximate the ensemble prediction as a
+Gaussian whose mean and variance are respectively the mean and variance of the mixture. The mean
+and variance of a mixture M −1 P N
+ µθm(x), σ2
+θm(x)
+
+are given by µ∗(x) = M −1 P
+m µθm(x)
+and σ2
+∗(x) = M −1 P
+m
+ σ2
+θm(x) + µ2
+θm(x)
+
+−µ2
+∗(x) respectively.
+3
+Experimental results
+3.1
+Evaluation metrics and experimental setup
+For both classiﬁcation and regression, we evaluate the negative log likelihood (NLL) which depends
+on the predictive uncertainty. NLL is a proper scoring rule and a popular metric for evaluating
+predictive uncertainty [49]. For classiﬁcation we additionally measure classiﬁcation accuracy and
+the Brier score, deﬁned as BS = K−1 PK
+k=1
+ t∗
+k −p(y = k|x∗)
+2 where t∗
+k = 1 if k = y∗, and 0
+otherwise. For regression problems, we additionally measured the root mean squared error (RMSE).
+Unless otherwise speciﬁed, we used batch size of 100 and Adam optimizer with ﬁxed learning rate of
+0.1 in our experiments. We use the same technique for generating adversarial training examples for
+regression problems. Goodfellow et al. [18] used a ﬁxed ϵ for all dimensions; this is unsatisfying
+if the input dimensions have different ranges. Hence, in all of our experiments, we set ϵ to 0.01
+times the range of the training data along that particular dimension. We used the default weight
+initialization in Torch.
+3.2
+Regression on toy datasets
+First, we qualitatively evaluate the performance of the proposed method on a one-dimensional toy
+regression dataset. This dataset was used by Hern´andez-Lobato and Adams [24], and consists of 20
+training examples drawn as y = x3 + ϵ where ϵ ∼N(0, 32). We used the same architecture as [24].
+A commonly used heuristic in practice is to use an ensemble of NNs (trained to minimize MSE),
+obtain multiple point predictions and use the empirical variance of the networks’ predictions as an
+approximate measure of uncertainty. We demonstrate that this is inferior to learning the variance by
+training using NLL.5 The results are shown in Figure 1.
+The results clearly demonstrate that (i) learning variance and training using a scoring rule (NLL) leads
+to improved predictive uncertainty and (ii) ensemble combination improves performance, especially
+as we move farther from the observed training data.
+3.3
+Regression on real world datasets
+In our next experiment, we compare our method to state-of-the-art methods for predictive uncertainty
+estimation using NNs on regression tasks. We use the experimental setup proposed by Hern´andez-
+Lobato and Adams [24] for evaluating probabilistic backpropagation (PBP), which was also used
+5See also Appendix A.2 for calibration results on a real world dataset.
+5
+
+−6 −4 −2
+0
+2
+4
+6
+−200
+−100
+0
+100
+200
+−6 −4 −2
+0
+2
+4
+6
+−200
+−100
+0
+100
+200
+−6 −4 −2
+0
+2
+4
+6
+−200
+−100
+0
+100
+200
+−6 −4 −2
+0
+2
+4
+6
+−300
+−200
+−100
+0
+100
+200
+300
+Figure 1: Results on a toy regression task: x-axis denotes x. On the y-axis, the blue line is the ground
+truth curve, the red dots are observed noisy training data points and the gray lines correspond to
+the predicted mean along with three standard deviations. Left most plot corresponds to empirical
+variance of 5 networks trained using MSE, second plot shows the effect of training using NLL using
+a single net, third plot shows the additional effect of adversarial training, and ﬁnal plot shows the
+effect of using an ensemble of 5 networks respectively.
+by Gal and Ghahramani [15] to evaluate MC-dropout.6 Each dataset is split into 20 train-test folds,
+except for the protein dataset which uses 5 folds and the Year Prediction MSD dataset which uses
+a single train-test split. We use the identical network architecture: 1-hidden layer NN with ReLU
+nonlinearity [45], containing 50 hidden units for smaller datasets and 100 hidden units for the larger
+protein and Year Prediction MSD datasets. We trained for 40 epochs; we refer to [24] for further
+details about the datasets and the experimental protocol. We used 5 networks in our ensemble. Our
+results are shown in Table 1, along with the PBP and MC-dropout results reported in their respective
+papers.
+Datasets
+RMSE
+NLL
+PBP
+MC-dropout
+Deep Ensembles
+PBP
+MC-dropout
+Deep Ensembles
+Boston housing
+3.01 ± 0.18
+2.97 ± 0.85
+3.28 ± 1.00
+2.57 ± 0.09
+2.46 ± 0.25
+2.41 ± 0.25
+Concrete
+5.67 ± 0.09
+5.23 ± 0.53
+6.03 ± 0.58
+3.16 ± 0.02
+3.04 ± 0.09
+3.06 ± 0.18
+Energy
+1.80 ± 0.05
+1.66 ± 0.19
+2.09 ± 0.29
+2.04 ± 0.02
+1.99 ± 0.09
+1.38 ± 0.22
+Kin8nm
+0.10 ± 0.00
+0.10 ± 0.00
+0.09 ± 0.00
+-0.90 ± 0.01
+-0.95 ± 0.03
+-1.20 ± 0.02
+Naval propulsion plant
+0.01 ± 0.00
+0.01 ± 0.00
+0.00 ± 0.00
+-3.73 ± 0.01
+-3.80 ± 0.05
+-5.63 ± 0.05
+Power plant
+4.12 ± 0.03
+4.02 ± 0.18
+4.11 ± 0.17
+2.84 ± 0.01
+2.80 ± 0.05
+2.79 ± 0.04
+Protein
+4.73 ± 0.01
+4.36 ± 0.04
+4.71 ± 0.06
+2.97 ± 0.00
+2.89 ± 0.01
+2.83 ± 0.02
+Wine
+0.64 ± 0.01
+0.62 ± 0.04
+0.64 ± 0.04
+0.97 ± 0.01
+0.93 ± 0.06
+0.94 ± 0.12
+Yacht
+1.02 ± 0.05
+1.11 ± 0.38
+1.58 ± 0.48
+1.63 ± 0.02
+1.55 ± 0.12
+1.18 ± 0.21
+Year Prediction MSD
+8.88 ± NA
+8.85 ± NA
+8.89 ± NA
+3.60 ± NA
+3.59 ± NA
+3.35 ± NA
+Table 1: Results on regression benchmark datasets comparing RMSE and NLL. See Table 2 for
+results on variants of our method.
+We observe that our method outperforms (or is competitive with) existing methods in terms of NLL.
+On some datasets, we observe that our method is slightly worse in terms of RMSE. We believe that
+this is due to the fact that our method optimizes for NLL (which captures predictive uncertainty)
+instead of MSE. Table 2 in Appendix A.1 reports additional results on variants of our method,
+demonstrating the advantage of using an ensemble as well as learning variance.
+3.4
+Classiﬁcation on MNIST, SVHN and ImageNet
+Next we evaluate the performance on classiﬁcation tasks using MNIST and SVHN datasets. Our goal
+is not to achieve the state-of-the-art performance on these problems, but rather to evaluate the effect
+of adversarial training as well as the number of networks in the ensemble. To verify if adversarial
+training helps, we also include a baseline which picks a random signed vector. For MNIST, we used
+an MLP with 3-hidden layers with 200 hidden units per layer and ReLU non-linearities with batch
+normalization. For MC-dropout, we added dropout after each non-linearity with 0.1 as the dropout
+rate.7 Results are shown in Figure 2(a). We observe that adversarial training and increasing the
+number of networks in the ensemble signiﬁcantly improve performance in terms of both classiﬁcation
+accuracy as well as NLL and Brier score, illustrating that our method produces well-calibrated
+uncertainty estimates. Adversarial training leads to better performance than augmenting with random
+direction. Our method also performs much better than MC-dropout in terms of all the performance
+measures. Note that augmenting the training dataset with invariances (such as random crop and
+horizontal ﬂips) is complementary to adversarial training and can potentially improve performance.
+6We do not compare to VI [19] as PBP and MC-dropout outperform VI on these benchmarks.
+7We also tried dropout rate of 0.5, but that performed worse.
+6
+
+0
+5
+10
+15
+Number of nets
+1.0
+1.2
+1.4
+1.6
+1.8
+Classification Error
+Ensemble
+Ensemble + R
+Ensemble + AT
+MC dropout
+0
+5
+10
+15
+Number of nets
+0.02
+0.04
+0.06
+0.08
+0.10
+0.12
+0.14
+NLL
+Ensemble
+Ensemble + R
+Ensemble + AT
+MC dropout
+0
+5
+10
+15
+Number of nets
+0.0014
+0.0016
+0.0018
+0.0020
+0.0022
+0.0024
+0.0026
+0.0028
+0.0030
+Brier Score
+Ensemble
+Ensemble + R
+Ensemble + AT
+MC dropout
+(a) MNIST dataset using 3-layer MLP
+0
+5
+10
+Number of nets
+2
+4
+6
+8
+10
+12
+14
+Classification Error
+Ensemble
+Ensemble + R
+Ensemble + AT
+MC dropout
+0
+5
+10
+Number of nets
+0.15
+0.20
+0.25
+0.30
+0.35
+0.40
+0.45
+0.50
+NLL
+Ensemble
+Ensemble + R
+Ensemble + AT
+MC dropout
+0
+5
+10
+Number of nets
+0.004
+0.006
+0.008
+0.010
+0.012
+0.014
+0.016
+Brier Score
+Ensemble
+Ensemble + R
+Ensemble + AT
+MC dropout
+(b) SVHN using VGG-style convnet
+Figure 2: Evaluating predictive uncertainty as a function of ensemble size M (number of networks
+in the ensemble or the number of MC-dropout samples): Ensemble variants signiﬁcantly outperform
+MC-dropout performance with the corresponding M in terms of all 3 metrics. Adversarial training
+improves results for MNIST for all M and SVHN when M = 1, but the effect drops as M increases.
+To measure the sensitivity of the results to the choice of network architecture, we experimented
+with a two-layer MLP as well as a convolutional NN; we observed qualitatively similar results; see
+Appendix B.1 in the supplementary material for details.
+We also report results on the SVHN dataset using an VGG-style convolutional NN.8 The results are
+in Figure 2(b). Ensembles outperform MC dropout. Adversarial training helps slightly for M = 1,
+however the effect drops as the number of networks in the ensemble increases. If the classes are
+well-separated, adversarial training might not change the classiﬁcation boundary signiﬁcantly. It is
+not clear if this is the case here, further investigation is required.
+Finally, we evaluate on the ImageNet (ILSVRC-2012) dataset [51] using the inception network [56].
+Due to computational constraints, we only evaluate the effect of ensembles on this dataset. The
+results on ImageNet (single-crop evaluation) are shown in Table 4. We observe that as M increases,
+both the accuracy and the quality of predictive uncertainty improve signiﬁcantly.
+Another advantage of using an ensemble is that it enables us to easily identify training examples
+where the individual networks disagree or agree the most. This disagreement9 provides another
+useful qualitative way to evaluate predictive uncertainty. Figures 10 and 11 in Appendix B.2 report
+qualitative evaluation of predictive uncertainty on the MNIST dataset.
+3.5
+Uncertainty evaluation: test examples from known vs unknown classes
+In the ﬁnal experiment, we evaluate uncertainty on out-of-distribution examples from unseen classes.
+Overconﬁdent predictions on unseen classes pose a challenge for reliable deployment of deep learning
+models in real world applications. We would like the predictions to exhibit higher uncertainty when
+the test data is very different from the training data. To test if the proposed method possesses this
+desirable property, we train a MLP on the standard MNIST train/test split using the same architecture
+as before. However, in addition to the regular test set with known classes, we also evaluate it on a
+test set containing unknown classes. We used the test split of the NotMNIST10 dataset. The images
+in this dataset have the same size as MNIST, however the labels are alphabets instead of digits. We
+do not have access to the true conditional probabilities, but we expect the predictions to be closer
+to uniform on unseen classes compared to the known classes where the predictive probabilities
+should concentrate on the true targets. We evaluate the entropy of the predictive distribution and
+use this to evaluate the quality of the uncertainty estimates. The results are shown in Figure 3(a).
+For known classes (top row), both our method and MC-dropout have low entropy as expected. For
+unknown classes (bottom row), as M increases, the entropy of deep ensembles increases much faster
+than MC-dropout indicating that our method is better suited for handling unseen test examples. In
+particular, MC-dropout seems to give high conﬁdence predictions for some of the test examples, as
+evidenced by the mode around 0 even for unseen classes. Such overconﬁdent wrong predictions can
+be problematic in practice when tested on a mixture of known and unknown classes, as we will see in
+Section 3.6. Comparing different variants of our method, the mode for adversarial training increases
+slightly faster than the mode for vanilla ensembles indicating that adversarial training is beneﬁcial
+8The architecture is similar to the one described in http://torch.ch/blog/2015/07/30/cifar.html.
+9More precisely, we deﬁne disagreement as PM
+m=1 KL(pθm(y|x)||pE(y|x)) where KL denotes the
+Kullback-Leibler divergence and pE(y|x) = M −1 P
+m pθm(y|x) is the prediction of the ensemble.
+10Available at http://yaroslavvb.blogspot.co.uk/2011/09/notmnist-dataset.html
+7
+
+for quantifying uncertainty on unseen classes. We qualitatively evaluate results in Figures 12(a)
+and 12(b) in Appendix B.2. Figure 12(a) shows that the ensemble agreement is highest for letter ‘I’
+which resembles 1 in the MNIST training dataset, and that the ensemble disagreement is higher for
+examples visually different from the MNIST training dataset.
+−0.5 0.0 0.5 1.0 1.5 2.0
+entropy values
+0
+2
+4
+6
+8
+10
+12
+14
+Ensemble
+1
+5
+10
+−0.5 0.0 0.5 1.0 1.5 2.0
+entropy values
+Ensemble + R
+1
+5
+10
+−0.5 0.0 0.5 1.0 1.5 2.0
+entropy values
+Ensemble + AT
+1
+5
+10
+−0.5 0.0 0.5 1.0 1.5 2.0
+entropy values
+MC dropout 0.1
+1
+5
+10
+−0.5 0.0 0.5 1.0 1.5 2.0
+entropy values
+0
+2
+4
+6
+8
+10
+12
+14
+Ensemble
+1
+5
+10
+−0.5 0.0 0.5 1.0 1.5 2.0
+entropy values
+Ensemble + R
+1
+5
+10
+−0.5 0.0 0.5 1.0 1.5 2.0
+entropy values
+Ensemble + AT
+1
+5
+10
+−0.5 0.0 0.5 1.0 1.5 2.0
+entropy values
+MC dropout 0.1
+1
+5
+10
+(a) MNIST-NotMNIST
+−0.50.0 0.5 1.0 1.5 2.0 2.5
+entropy values
+0
+1
+2
+3
+4
+5
+6
+7
+Ensemble
+1
+5
+10
+−0.50.0 0.5 1.0 1.5 2.0 2.5
+entropy values
+Ensemble + R
+1
+5
+10
+−0.50.0 0.5 1.0 1.5 2.0 2.5
+entropy values
+Ensemble + AT
+1
+5
+10
+−0.5 0.0 0.5 1.0 1.5 2.0
+entropy values
+MC dropout
+1
+5
+10
+−0.50.0 0.5 1.0 1.5 2.0 2.5
+entropy values
+0
+1
+2
+3
+4
+5
+6
+7
+Ensemble
+1
+5
+10
+−0.50.0 0.5 1.0 1.5 2.0 2.5
+entropy values
+Ensemble + R
+1
+5
+10
+−0.50.0 0.5 1.0 1.5 2.0 2.5
+entropy values
+Ensemble + AT
+1
+5
+10
+−0.50.0 0.5 1.0 1.5 2.0 2.5
+entropy values
+MC dropout
+1
+5
+10
+(b) SVHN-CIFAR10
+Figure 3: : Histogram of the predictive entropy on test examples from known classes (top row) and
+unknown classes (bottom row), as we vary ensemble size M.
+We ran a similar experiment, training on SVHN and testing on CIFAR-10 [31] test set; both datasets
+contain 32 × 32 × 3 images, however SVHN contains images of digits whereas CIFAR-10 contains
+images of object categories. The results are shown in Figure 3(b). As in the MNIST-NotMNIST
+experiment, we observe that MC-dropout produces over-conﬁdent predictions on unseen examples,
+whereas our method produces higher uncertainty on unseen classes.
+Finally, we test on ImageNet by splitting the training set by categories. We split the dataset into
+images of dogs (known classes) and non-dogs (unknown classes), following Vinyals et al. [58] who
+proposed this setup for a different task. Figure 5 shows the histogram of the predictive entropy as
+well as the maximum predicted probability (i.e. conﬁdence in the predicted class). We observe that
+the predictive uncertainty improves on unseen classes, as the ensemble size increases.
+3.6
+Accuracy as a function of conﬁdence
+In practical applications, it is highly desirable for a system to avoid overconﬁdent, incorrect predictions
+and fail gracefully. To evaluate the usefulness of predictive uncertainty for decision making, we
+consider a task where the model is evaluated only on cases where the model’s conﬁdence is above an
+user-speciﬁed threshold. If the conﬁdence estimates are well-calibrated, one can trust the model’s
+predictions when the reported conﬁdence is high and resort to a different solution (e.g. use human in
+a loop, or use prediction from a simpler model) when the model is not conﬁdent.
+We re-use the results from the experiment in the previous section where we trained a network on
+MNIST and test it on a mix of test examples from MNIST (known classes) and NotMNIST (unknown
+M
+Top-1 error
+Top-5 error
+NLL
+Brier Score
+%
+%
+×10−3
+1
+22.166
+6.129
+0.959
+0.317
+2
+20.462
+5.274
+0.867
+0.294
+3
+19.709
+4.955
+0.836
+0.286
+4
+19.334
+4.723
+0.818
+0.282
+5
+19.104
+4.637
+0.809
+0.280
+6
+18.986
+4.532
+0.803
+0.278
+7
+18.860
+4.485
+0.797
+0.277
+8
+18.771
+4.430
+0.794
+0.276
+9
+18.728
+4.373
+0.791
+0.276
+10
+18.675
+4.364
+0.789
+0.275
+Figure 4: Results on ImageNet: Deep
+Ensembles lead to lower classiﬁcation
+error as well as better predictive uncer-
+tainty as evidenced by lower NLL and
+Brier score.
+0.20.0 0.2 0.4 0.6 0.8 1.0 1.2 1.4 1.6
+entropy values
+0
+1
+2
+3
+4
+5
+6
+7
+8
+Known classes
+1
+2
+3
+4
+5
+1
+0
+1
+2
+3
+4
+5
+entropy values
+0.0
+0.1
+0.2
+0.3
+0.4
+0.5
+0.6
+0.7
+Unknown classes
+1
+2
+3
+4
+5
+0.2
+0.4
+0.6
+0.8
+1.0
+1.2
+max predicted prob
+0
+1
+2
+3
+4
+5
+6
+7
+8
+Known classes
+1
+2
+3
+4
+5
+0.2 0.0
+0.2
+0.4
+0.6
+0.8
+1.0
+1.2
+max predicted prob
+0.0
+0.5
+1.0
+1.5
+2.0
+2.5
+3.0
+3.5
+4.0
+Unknown classes
+1
+2
+3
+4
+5
+Figure 5: ImageNet trained only on dogs: Histogram of the
+predictive entropy (left) and maximum predicted probabil-
+ity (right) on test examples from known classes (dogs) and
+unknown classes (non-dogs), as we vary the ensemble size.
+8
+
+0.0
+0.1
+0.2
+0.3
+0.4
+0.5
+0.6
+0.7
+0.8
+0.9
+Confidence Threshold ¿
+30
+40
+50
+60
+70
+80
+90
+Accuracy on examples p(yjx) ¸ ¿
+Ensemble
+Ensemble + R
+Ensemble + AT
+MC dropout
+Figure 6: Accuracy vs Conﬁdence curves: Networks trained on MNIST and tested on both MNIST
+test containing known classes and the NotMNIST dataset containing unseen classes. MC-dropout can
+produce overconﬁdent wrong predictions, whereas deep ensembles are signiﬁcantly more robust.
+classes). The network will produce incorrect predictions on out-of-distribution examples, however we
+would like these predictions to have low conﬁdence. Given the prediction p(y = k|x), we deﬁne the
+predicted label as ˆy = arg maxk p(y = k|x), and the conﬁdence as p(y = ˆy|x) = maxk p(y = k|x).
+We ﬁlter out test examples, corresponding to a particular conﬁdence threshold 0 ≤τ ≤1 and plot the
+accuracy for this threshold. The conﬁdence vs accuracy results are shown in Figure 6. If we look at
+cases only where the conﬁdence is ≥90%, we expect higher accuracy than cases where conﬁdence
+≥80%, hence the curve should be monotonically increasing. If the application demands an accuracy
+x%, we can trust the model only in cases where the conﬁdence is greater than the corresponding
+threshold. Hence, we can compare accuracy of the models for a desired conﬁdence threshold of the
+application. MC-dropout can produce overconﬁdent wrong predictions as evidenced by low accuracy
+even for high values of τ, whereas deep ensembles are signiﬁcantly more robust.
+4
+Discussion
+We have proposed a simple and scalable non-Bayesian solution that provides a very strong baseline
+on evaluation metrics for predictive uncertainty quantiﬁcation. Intuitively, our method captures two
+sources of uncertainty. Training a probabilistic NN pθ(y|x) using proper scoring rules as training
+objectives captures ambiguity in targets y for a given x. In addition, our method uses a combination
+of ensembles (which captures “model uncertainty” by averaging predictions over multiple models
+consistent with the training data), and adversarial training (which encourages local smoothness),
+for robustness to model misspeciﬁcation and out-of-distribution examples. Ensembles, even for
+M = 5, signiﬁcantly improve uncertainty quality in all the cases. Adversarial training helps on
+some datasets for some metrics and is not strictly necessary in all cases. Our method requires very
+little hyperparameter tuning and is well suited for large scale distributed computation and can be
+readily implemented for a wide variety of architectures such as MLPs, CNNs, etc including those
+which do not use dropout e.g. residual networks [22]. It is perhaps surprising to the Bayesian deep
+learning community that a non-Bayesian (yet probabilistic) approach can perform as well as Bayesian
+NNs. We hope that our work will encourage the community to consider non-Bayesian approaches
+(such as ensembles) and other interesting evaluation metrics for predictive uncertainty. Concurrent
+with our work, Hendrycks and Gimpel [23] and Guo et al. [20] have also independently shown that
+non-Bayesian solutions can produce good predictive uncertainty estimates on some tasks. Abbasi
+and Gagn´e [1], Tram`er et al. [57] have also explored ensemble-based solutions to tackle adversarial
+examples, a particularly hard case of out-of-distribution examples.
+There are several avenues for future work. We focused on training independent networks as training
+can be trivially parallelized. Explicitly de-correlating networks’ predictions, e.g. as in [37], might
+promote ensemble diversity and improve performance even further. Optimizing the ensemble weights,
+as in stacking [60] or adaptive mixture of experts [28], can further improve the performance. The
+ensemble has M times more parameters than a single network; for memory-constrained applications,
+the ensemble can be distilled into a simpler model [10, 26]. It would be also interesting to investigate
+so-called implicit ensembles the where ensemble members share parameters, e.g. using multiple
+heads [36, 48], snapshot ensembles [27] or swapout [52].
+9
+
+Acknowledgments
+We would like to thank Samuel Ritter and Oriol Vinyals for help with ImageNet experiments, and
+Daan Wierstra, David Silver, David Barrett, Ian Osband, Martin Szummer, Peter Dayan, Shakir
+Mohamed, Theophane Weber, Ulrich Paquet and the anonymous reviewers for helpful feedback.
+References
+[1] M. Abbasi and C. Gagn´e. Robustness to adversarial examples through an ensemble of specialists.
+arXiv preprint arXiv:1702.06856, 2017.
+[2] B. Alipanahi, A. Delong, M. T. Weirauch, and B. J. Frey. Predicting the sequence speciﬁcities
+of DNA-and RNA-binding proteins by deep learning. Nature biotechnology, 33(8):831–838,
+2015.
+[3] D. Amodei, C. Olah, J. Steinhardt, P. Christiano, J. Schulman, and D. Man´e. Concrete problems
+in AI safety. arXiv preprint arXiv:1606.06565, 2016.
+[4] J. M. Bernardo and A. F. Smith. Bayesian Theory, volume 405. John Wiley & Sons, 2009.
+[5] C. M. Bishop. Mixture density networks. 1994.
+[6] C. Blundell, J. Cornebise, K. Kavukcuoglu, and D. Wierstra. Weight uncertainty in neural
+networks. In ICML, 2015.
+[7] L. Breiman. Bagging predictors. Machine learning, 24(2):123–140, 1996.
+[8] L. Breiman. Random forests. Machine learning, 45(1):5–32, 2001.
+[9] G. W. Brier. Veriﬁcation of forecasts expressed in terms of probability. Monthly weather review,
+1950.
+[10] C. Bucila, R. Caruana, and A. Niculescu-Mizil. Model compression. In KDD. ACM, 2006.
+[11] B. Clarke. Comparing Bayes model averaging and stacking when model approximation error
+cannot be ignored. J. Mach. Learn. Res. (JMLR), 4:683–712, 2003.
+[12] A. P. Dawid. The well-calibrated Bayesian. Journal of the American Statistical Association,
+1982.
+[13] M. H. DeGroot and S. E. Fienberg. The comparison and evaluation of forecasters. The
+statistician, 1983.
+[14] T. G. Dietterich. Ensemble methods in machine learning. In Multiple classiﬁer systems. 2000.
+[15] Y. Gal and Z. Ghahramani.
+Dropout as a Bayesian approximation: Representing model
+uncertainty in deep learning. In ICML, 2016.
+[16] P. Geurts, D. Ernst, and L. Wehenkel. Extremely randomized trees. Machine learning, 63(1):
+3–42, 2006.
+[17] T. Gneiting and A. E. Raftery. Strictly proper scoring rules, prediction, and estimation. Journal
+of the American Statistical Association, 102(477):359–378, 2007.
+[18] I. J. Goodfellow, J. Shlens, and C. Szegedy. Explaining and harnessing adversarial examples. In
+ICLR, 2015.
+[19] A. Graves. Practical variational inference for neural networks. In NIPS, 2011.
+[20] C. Guo, G. Pleiss, Y. Sun, and K. Q. Weinberger. On calibration of modern neural networks.
+arXiv preprint arXiv:1706.04599, 2017.
+[21] L. Hasenclever, S. Webb, T. Lienart, S. Vollmer, B. Lakshminarayanan, C. Blundell, and Y. W.
+Teh. Distributed Bayesian learning with stochastic natural-gradient expectation propagation and
+the posterior server. arXiv preprint arXiv:1512.09327, 2015.
+10
+
+[22] K. He, X. Zhang, S. Ren, and J. Sun. Deep residual learning for image recognition. In
+Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition, pages
+770–778, 2016.
+[23] D. Hendrycks and K. Gimpel. A baseline for detecting misclassiﬁed and out-of-distribution
+examples in neural networks. arXiv preprint arXiv:1610.02136, 2016.
+[24] J. M. Hern´andez-Lobato and R. P. Adams. Probabilistic backpropagation for scalable learning
+of Bayesian neural networks. In ICML, 2015.
+[25] G. Hinton, L. Deng, D. Yu, G. E. Dahl, A.-r. Mohamed, N. Jaitly, A. Senior, V. Vanhoucke,
+P. Nguyen, T. N. Sainath, et al. Deep neural networks for acoustic modeling in speech recog-
+nition: The shared views of four research groups. Signal Processing Magazine, IEEE, 29(6):
+82–97, 2012.
+[26] G. Hinton, O. Vinyals, and J. Dean. Distilling the knowledge in a neural network. arXiv preprint
+arXiv:1503.02531, 2015.
+[27] G. Huang, Y. Li, G. Pleiss, Z. Liu, J. E. Hopcroft, and K. Q. Weinberger. Snapshot ensembles:
+Train 1, get M for free. ICLR submission, 2017.
+[28] R. A. Jacobs, M. I. Jordan, S. J. Nowlan, and G. E. Hinton. Adaptive mixtures of local experts.
+Neural computation, 3(1):79–87, 1991.
+[29] D. P. Kingma, T. Salimans, and M. Welling. Variational dropout and the local reparameterization
+trick. In NIPS, 2015.
+[30] A. Korattikara, V. Rathod, K. Murphy, and M. Welling. Bayesian dark knowledge. In NIPS,
+2015.
+[31] A. Krizhevsky. Learning multiple layers of features from tiny images. 2009.
+[32] A. Krizhevsky, I. Sutskever, and G. E. Hinton. Imagenet classiﬁcation with deep convolutional
+neural networks. In NIPS, 2012.
+[33] A. Kurakin, I. Goodfellow, and S. Bengio. Adversarial machine learning at scale. arXiv preprint
+arXiv:1611.01236, 2016.
+[34] B. Lakshminarayanan. Decision trees and forests: a probabilistic perspective. PhD thesis, UCL
+(University College London), 2016.
+[35] Y. LeCun, Y. Bengio, and G. Hinton. Deep learning. Nature, 521(7553):436–444, 2015.
+[36] S. Lee, S. Purushwalkam, M. Cogswell, D. Crandall, and D. Batra. Why M heads are better than
+one: Training a diverse ensemble of deep networks. arXiv preprint arXiv:1511.06314, 2015.
+[37] S. Lee, S. P. S. Prakash, M. Cogswell, V. Ranjan, D. Crandall, and D. Batra. Stochastic multiple
+choice learning for training diverse deep ensembles. In NIPS, 2016.
+[38] Y. Li, J. M. Hern´andez-Lobato, and R. E. Turner. Stochastic expectation propagation. In NIPS,
+2015.
+[39] C. Louizos and M. Welling. Structured and efﬁcient variational deep learning with matrix
+Gaussian posteriors. arXiv preprint arXiv:1603.04733, 2016.
+[40] D. J. MacKay. Bayesian methods for adaptive models. PhD thesis, California Institute of
+Technology, 1992.
+[41] S.-i. Maeda. A Bayesian encourages dropout. arXiv preprint arXiv:1412.7003, 2014.
+[42] T. Mikolov, K. Chen, G. Corrado, and J. Dean. Efﬁcient estimation of word representations in
+vector space. arXiv preprint arXiv:1301.3781, 2013.
+[43] T. P. Minka. Bayesian model averaging is not model combination. 2000.
+11
+
+[44] T. Miyato, S.-i. Maeda, M. Koyama, K. Nakae, and S. Ishii. Distributional smoothing by virtual
+adversarial examples. In ICLR, 2016.
+[45] V. Nair and G. E. Hinton. Rectiﬁed linear units improve restricted Boltzmann machines. In
+ICML, 2010.
+[46] R. M. Neal. Bayesian Learning for Neural Networks. Springer-Verlag New York, Inc., 1996.
+[47] D. A. Nix and A. S. Weigend. Estimating the mean and variance of the target probability
+distribution. In IEEE International Conference on Neural Networks, 1994.
+[48] I. Osband, C. Blundell, A. Pritzel, and B. Van Roy. Deep exploration via bootstrapped DQN. In
+NIPS, 2016.
+[49] J. Quinonero-Candela, C. E. Rasmussen, F. Sinz, O. Bousquet, and B. Sch¨olkopf. Evaluating
+predictive uncertainty challenge. In Machine Learning Challenges. Springer, 2006.
+[50] C. E. Rasmussen and J. Quinonero-Candela. Healing the relevance vector machine through
+augmentation. In ICML, 2005.
+[51] O. Russakovsky, J. Deng, H. Su, J. Krause, S. Satheesh, S. Ma, Z. Huang, A. Karpathy,
+A. Khosla, M. Bernstein, A. C. Berg, and L. Fei-Fei. ImageNet Large Scale Visual Recognition
+Challenge. International Journal of Computer Vision (IJCV), 115(3):211–252, 2015.
+[52] S. Singh, D. Hoiem, and D. Forsyth. Swapout: Learning an ensemble of deep architectures. In
+NIPS, 2016.
+[53] J. T. Springenberg, A. Klein, S. Falkner, and F. Hutter. Bayesian optimization with robust
+Bayesian neural networks. In Advances in Neural Information Processing Systems, pages
+4134–4142, 2016.
+[54] N. Srivastava, G. Hinton, A. Krizhevsky, I. Sutskever, and R. Salakhutdinov. Dropout: A simple
+way to prevent neural networks from overﬁtting. JMLR, 2014.
+[55] C. Szegedy, W. Zaremba, I. Sutskever, J. Bruna, D. Erhan, I. Goodfellow, and R. Fergus.
+Intriguing properties of neural networks. In ICLR, 2014.
+[56] C. Szegedy, V. Vanhoucke, S. Ioffe, J. Shlens, and Z. Wojna. Rethinking the inception archi-
+tecture for computer vision. In Proceedings of the IEEE Conference on Computer Vision and
+Pattern Recognition, pages 2818–2826, 2016.
+[57] F. Tram`er, A. Kurakin, N. Papernot, D. Boneh, and P. McDaniel. Ensemble adversarial training:
+Attacks and defenses. arXiv preprint arXiv:1705.07204, 2017.
+[58] O. Vinyals, C. Blundell, T. Lillicrap, D. Wierstra, et al. Matching networks for one shot learning.
+In NIPS, 2016.
+[59] M. Welling and Y. W. Teh. Bayesian learning via stochastic gradient Langevin dynamics. In
+ICML, 2011.
+[60] D. H. Wolpert. Stacked generalization. Neural networks, 5(2):241–259, 1992.
+[61] J. Zhou and O. G. Troyanskaya. Predicting effects of noncoding variants with deep learning-
+based sequence model. Nature methods, 12(10):931–934, 2015.
+12
+
+Supplementary material
+Simple and Scalable Predictive Uncertainty Estimation using Deep Ensembles
+A
+Additional results on regression
+A.1
+Additional results on regression benchmarks
+Datasets
+Ensemble-5 (MSE)
+Ensemble-10 (MSE)
+ML-1
+ML-1 + AT
+ML-5
+Boston housing
+3.09 ± 0.84
+3.10 ± 0.83
+3.17 ± 1.00
+3.18 ± 0.99
+3.28 ± 1.00
+Concrete
+5.73 ± 0.50
+5.76 ± 0.50
+6.08 ± 0.56
+6.09 ± 0.54
+6.03 ± 0.58
+Energy
+1.61 ± 0.19
+1.62 ± 0.18
+2.11 ± 0.30
+2.09 ± 0.29
+2.09 ± 0.29
+Kin8nm
+0.08 ± 0.00
+0.08 ± 0.00
+0.09 ± 0.00
+0.09 ± 0.00
+0.09 ± 0.00
+Naval propulsion plant
+0.00 ± 0.00
+0.00 ± 0.00
+0.00 ± 0.00
+0.00 ± 0.00
+0.00 ± 0.00
+Power plant
+4.08 ± 0.15
+4.07 ± 0.15
+4.10 ± 0.15
+4.10 ± 0.15
+4.11 ± 0.17
+Protein
+4.49 ± 0.04
+4.50 ± 0.02
+4.64 ± 0.01
+4.75 ± 0.11
+4.71 ± 0.17
+Wine
+0.64 ± 0.04
+0.64 ± 0.04
+0.64 ± 0.04
+0.64 ± 0.04
+0.64 ± 0.04
+Yacht
+2.78 ± 0.59
+2.68 ± 0.57
+1.43 ± 0.57
+1.47 ± 0.58
+1.58 ± 0.48
+Year Prediction MSD
+8.92 ± nan
+8.95 ± nan
+8.89 ± nan
+9.02 ± nan
+8.89 ± nan
+Datasets
+Ensemble-5 (MSE)
+Ensemble-10 (MSE)
+ML-1
+ML-1 + AT
+ML-5
+Boston housing
+17.28 ± 6.17
+10.61 ± 4.37
+2.55 ± 0.36
+2.57 ± 0.37
+2.41 ± 0.25
+Concrete
+16.07 ± 5.75
+8.96 ± 1.73
+3.22 ± 0.31
+3.21 ± 0.26
+3.06 ± 0.18
+Energy
+9.54 ± 4.54
+6.70 ± 2.39
+1.61 ± 0.40
+1.51 ± 0.28
+1.38 ± 0.22
+Kin8nm
+2.12 ± 0.97
+0.11 ± 0.20
+-1.11 ± 0.04
+-1.12 ± 0.04
+-1.20 ± 0.02
+Naval propulsion plant
+-5.68 ± 0.34
+-5.85 ± 0.15
+-5.65 ± 0.28
+-4.08 ± 0.13
+-5.63 ± 0.26
+Power plant
+35.78 ± 12.87
+22.04 ± 4.42
+2.82 ± 0.04
+2.82 ± 0.04
+2.79 ± 0.04
+Protein
+40.98 ± 7.43
+25.73 ± 1.59
+2.87 ± 0.03
+2.91 ± 0.03
+2.83 ± 0.02
+Wine
+33.73 ± 10.75
+20.55 ± 3.72
+1.95 ± 4.08
+1.58 ± 2.30
+0.94 ± 0.12
+Yacht
+10.18 ± 4.86
+6.85 ± 2.84
+1.26 ± 0.29
+1.28 ± 0.36
+1.18 ± 0.21
+Year Prediction MSD
+39.02 ± nan
+21.45 ± nan
+3.41 ± nan
+3.39 ± nan
+3.35 ± nan
+Table 2: Additional results on regression benchmark datasets: the top table reports RMSE and bottom
+table reports NLL. Ensemble-M (MSE) denotes ensemble of M networks trained to minimize mean
+squared error (MSE); the predicted variance is the empirical variance of the individual networks’
+predictions. ML-1 denotes maximum likelihood with a single network trained to predict the mean
+and variance as described in Section 2.2.1 . ML-1 is signiﬁcantly better than Ensemble-5 (MSE) as
+well as Ensemble-10 (MSE), clearly demonstrating the effect of learning variance. ML-1+AT denotes
+additional effect of adversarial training (AT); AT does not signiﬁcantly help on these benchmarks.
+ML-5, referred to as deep ensembles in Table 1, is an ensemble of 5 networks trained to predict mean
+and variance. ML-5+AT results are very similar to ML-5 (the error bars overlap), hence we do not
+report them here.
+A.2
+Effect of training using MSE vs training using NLL
+A commonly used heuristic in practice, is to train an ensemble of NNs to minimize MSE and use the
+empirical variance of the networks’ predictions as an approximate measure of uncertainty. However,
+this generally does not lead to well-calibrated predictive probabilities as MSE is not a scoring rule
+that captures predictive uncertainty. As a motivating example, we report calibration curves (also
+known as reliability diagrams) on the Year Prediction MSD dataset in Figure 7. First, we compute
+the z% (e.g. 90%) prediction interval for each test data point based on Gaussian quantiles using
+predictive mean and variance. Next, we measure what fraction of test observations fall within this
+prediction interval. For a well-calibrated regressor, the observed fraction should be close to z%. We
+compute observed fraction for z = 10% to z = 90% in increments of 10. A well-calibrated regressor
+should lie very close to the diagonal; on the left subplot we observe that the proposed method, which
+learns the predictive variance, leads to a well-calibrated regressor. However, on the right subplot, we
+observe that the empirical variance obtained from NNs which do not learn the predictive variance
+(speciﬁcally, ﬁve NNs trained to minimize MSE) consistently underestimates the true uncertainty.
+For instance, the 80% prediction interval contains only 20% of the test observations, which means
+the empirical variance signiﬁcantly underestimates the true predictive uncertainty.
+13
+
+0.0
+0.2
+0.4
+0.6
+0.8
+1.0
+0.0
+0.2
+0.4
+0.6
+0.8
+1.0
+0.0
+0.2
+0.4
+0.6
+0.8
+1.0
+0.0
+0.2
+0.4
+0.6
+0.8
+1.0
+Figure 7: Calibration results on the Year Prediction MSD dataset: x-axis denotes the expected fraction
+and y-axis denotes the observed fraction; ideal output is the dashed blue line. Predicted variance (left)
+is signiﬁcantly better calibrated than the empirical variance (right). See main text for further details.
+B
+Additional results on classiﬁcation
+B.1
+Additional results on MNIST
+Figures 8 and 9 report results on MNIST dataset using different architecture than those in Figure 2(a).
+We observe qualitatively similar results. Ensembles outperform MC-dropout and adversarial training
+improves performance.
+0
+5
+10
+15
+Number of nets
+1.0
+1.1
+1.2
+1.3
+1.4
+1.5
+1.6
+1.7
+1.8
+Classification Error
+Ensemble
+Ensemble + R
+Ensemble + AT
+MC dropout
+0
+5
+10
+15
+Number of nets
+0.02
+0.04
+0.06
+0.08
+0.10
+0.12
+0.14
+NLL
+Ensemble
+Ensemble + R
+Ensemble + AT
+MC dropout
+0
+5
+10
+15
+Number of nets
+0.0015
+0.0020
+0.0025
+0.0030
+Brier Score
+Ensemble
+Ensemble + R
+Ensemble + AT
+MC dropout
+Figure 8: Results on MNIST dataset using the same setup as that in Figure 2(a) except that we use two
+hidden layers in the MLP instead of three. Ensembles and adversarial training improve performance
+and our method outperforms MC-dropout.
+0
+5
+10
+Number of nets
+1.3
+1.4
+1.5
+1.6
+1.7
+1.8
+1.9
+2.0
+2.1
+Classification Error
+Ensemble
+Ensemble + AT
+MC dropout
+0
+5
+10
+Number of nets
+0.04
+0.05
+0.06
+0.07
+0.08
+0.09
+0.10
+0.11
+0.12
+0.13
+NLL
+Ensemble
+Ensemble + AT
+MC dropout
+0
+5
+10
+Number of nets
+0.0020
+0.0022
+0.0024
+0.0026
+0.0028
+0.0030
+0.0032
+0.0034
+Brier Score
+Ensemble
+Ensemble + AT
+MC dropout
+Figure 9: Results on MNIST dataset using a convolutional network as opposed to the 3-layer MLP in
+Figure 2(a). Even on a different architecture, ensembles and adversarial training improve performance
+and our method outperforms MC-dropout.
+B.2
+Qualitative evaluation of uncertainty
+We qualitatively evaluate the performance of uncertainty in terms of two measures, namely the
+conﬁdence of the predicted label (i.e. maximum of the softmax output), and the disagreement between
+the ensemble members in terms of Jensen-Shannon divergence. The results on known classes are
+14
+
+shown in Figures 10 and 11. Similarly, the results on unknown classes are shown in Figures 12(a)
+and 12(b). We observe that both measures of uncertainty capture meaningful ambiguity.
+Figure 10: Results on MNIST showing test examples with high or low disagreement between the
+networks in the ensemble: Top two rows denote the test examples with least disagreement and the
+bottom two rows denote test examples with the most disagreement.
+Figure 11: Results on MNIST showing test examples with high or low conﬁdence: Top two rows
+denote the test examples with highest conﬁdence and the bottom two rows denote test examples with
+the least conﬁdence.
+7
+1
+3
+7
+3
+1
+2
+1
+7
+3
+3
+1
+3
+1
+1
+3
+1
+3
+1
+1
+7
+9
+0
+9
+0
+8
+0
+9
+8
+0
+0
+4
+4
+5
+0
+8
+0
+8
+4
+3
+(a) Least and most disagreement
+3
+3
+3
+3
+3
+3
+0
+3
+3
+2
+3
+3
+3
+3
+3
+3
+2
+3
+3
+3
+5
+0
+7
+3
+7
+0
+6
+2
+5
+4
+6
+5
+7
+6
+4
+0
+5
+0
+5
+8
+(b) Highest and least conﬁdence
+Figure 12: Deep ensemble trained on MNIST and tested on the NotMNIST dataset containing unseen
+classes: On the left, top two rows denote the test examples with highest conﬁdence and the bottom
+two rows denote the test examples with the least conﬁdence. On the right, top two rows denote the
+test examples with highest conﬁdence and the bottom two rows denote the test examples with the
+least conﬁdence. We observe that these measures capture meaningful ambiguity: for example, the
+ensemble agreement is high for letters ‘I’ and some variants of ‘J’ which resemble 1 in the MNIST
+training dataset. The ensemble disagreement is high and conﬁdence is low for examples visually
+dis-similar from the MNIST training dataset.
+15

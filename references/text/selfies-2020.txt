@@ -1,0 +1,793 @@
+Self-Referencing Embedded Strings (SELFIES):
+A 100% robust molecular string representation
+Mario Krenn,1, 2, 3, ∗Florian H¨ase,1, 2, 3, 4 AkshatKumar
+Nigam,2 Pascal Friederich,2, 5 and Alan Aspuru-Guzik1, 2, 3, 6, †
+1Department of Chemistry, University of Toronto, Canada.
+2Department of Computer Science, University of Toronto, Canada.
+3Vector Institute for Artiﬁcial Intelligence, Toronto, Canada.
+4Department of Chemistry and Chemical Biology, Harvard University, Cambridge, USA.
+5Institute of Nanotechnology, Karlsruhe Institute of Technology, Germany.
+6Canadian Institute for Advanced Research (CIFAR) Senior Fellow, Toronto, Canada.
+(Dated: March 6, 2020)
+The discovery of novel materials and functional molecules can help to solve some of society’s
+most urgent challenges, ranging from eﬃcient energy harvesting and storage to uncovering novel
+pharmaceutical drug candidates. Traditionally matter engineering – generally denoted as inverse
+design – was based massively on human intuition and high-throughput virtual screening. The last
+few years have seen the emergence of signiﬁcant interest in computer-inspired designs based on
+evolutionary or deep learning methods.
+The major challenge here is that the standard strings
+molecular representation SMILES shows substantial weaknesses in that task because large fractions
+of strings do not correspond to valid molecules.
+Here, we solve this problem at a fundamental
+level and introduce SELFIES (SELF-referencIng Embedded Strings), a string-based representation
+of molecules which is 100% robust. Every SELFIES string corresponds to a valid molecule, and
+SELFIES can represent every molecule.
+SELFIES can be directly applied in arbitrary machine
+learning models without the adaptation of the models; each of the generated molecule candidates is
+valid. In our experiments, the model’s internal memory stores two orders of magnitude more diverse
+molecules than a similar test with SMILES. Furthermore, as all molecules are valid, it allows for
+explanation and interpretation of the internal working of the generative models.
+Introduction – The rise of computers enabled the
+creation of the ﬁeld of computational chemistry and
+cheminformatics which deals with the development
+and application of methods to calculate, process, store
+and search molecular information on computing sys-
+tems. Arising challenges of molecular representation
+and identiﬁcation were addressed by SMILES (Simpli-
+ﬁed Molecular Input Line Entry System), which was
+invented by David Weiniger in 1988 [1]. SMILES is
+a simple string-based representation which is based
+on principles of molecular graph theory and allows
+molecular structure speciﬁcation with straightforward
+rules. SMILES has since become a standard tool in
+computational chemistry and is still a de-facto stan-
+dard for string-based representing molecular informa-
+tion in-silico.
+Apart from predicting molecular properties with
+high accuracy, one of the main goals in computational
+chemistry is the design of novel, functional molecules.
+Exploring the entire chemical space – even for rel-
+atively small molecules – is intractable due to the
+combinatorial explosion of possible and stable chem-
+ical structures [4–6]. Substantial recent advances in
+artiﬁcial intelligence and machine learning (ML), in
+∗mario.krenn@utoronto.ca
+† alan@aspuru.com
+The full code is available at GitHub:
+https://github.com/
+aspuru-guzik-group/selfies
+particular, the development and control of genera-
+tive models, have found their way into chemical re-
+search. There, scientists are currently adapting those
+novel methods for eﬃciently proposing new molecules
+with superior properties [7–12]. For identifying new
+molecules, input and output representations are in
+many cases SMILES strings.
+This, however, intro-
+duces a substantial problem: A signiﬁcant fraction of
+the resulting SMILES strings do not correspond to
+valid molecules. They are either syntactically invalid,
+i.e. do not even correspond to a molecular graph, or
+they violate basic chemical rules, such as the maxi-
+mum number of valence bonds between atoms. Re-
+searchers have proposed many special-case solutions
+for overcoming these problems, (such as adapting spe-
+ciﬁc machine learning models [13, 14] or changing
+some deﬁnitions of SMILES [15]), however, a univer-
+sal solution is lacking. Thus, more than 30 years after
+Weininger’s invention of SMILES, the applications of
+generative models for the de-novo design of molecules
+requires a new way to describe molecules on the com-
+puter.
+Here, we present SELFIES (SELF-referencIng Em-
+bedded Strings), a string-based representation of
+molecular graphs that is 100% robust.
+By that,
+we mean that each SELFIES corresponds to a valid
+molecule, even entirely random strings.
+Further-
+more, every molecule can be described as a SELFIES.
+SELFIES are independent of the machine learning
+model and can be used as a direct input without any
+arXiv:1905.13741v2  [cs.LG]  5 Mar 2020
+
+2
+adaptations of the models.
+We compare SELFIES with SMILES ML-based gen-
+erative models such as in Variational Autoencoders
+(VAE) [16] and Generative Adversarial Networks
+(GANs) [17].
+We ﬁnd that the output is entirely
+valid and the models encode orders of magnitude more
+diverse molecules with SELFIES than with SMILES.
+Those results are not only signiﬁcant for inverse-
+design of molecules, but also interpretability of the
+inner workings of neural networks in the chemical do-
+main.
+String-based representations of Molecules –
+We are describing the string-based representations of
+SMILES and SELFIES using the small biomolecule 3,4-
+Methylenedioxymethamphetamine (MDMA) in Fig.
+1A. The SMILES string in Fig.
+1B describes a se-
+quence of connected atoms (green). Brackets identify
+branches and, and numbers identify ring-closures at
+the atoms that are connected. In SELFIES, Fig. 1C,
+the information of branch length as well as ring size
+is stored together with the corresponding identiﬁers
+Branch and Ring.
+For that, the symbol after the
+Branch and Ring stands for a number that is inter-
+preted as lengths. Thereby, the possibility of invalid
+N=1 
+N=3 
+N=4 
+N=4 
+SMILES 
+SELFIES 
+A) 
+B) 
+C) 
+Figure
+1.
+Description
+of
+a
+molecular
+graph
+with
+two computer-friendly, string-based methods.
+A) The
+molecular
+graph
+of
+a
+small
+organic
+molecule,
+3,4-
+Methylenedioxymethamphetamine. B) Derivation of the
+molecular graph using SMILES. The main string (green)
+is augmented with branches (deﬁned by an opening and
+a closing bracket) and rings (deﬁned by unique numbers
+after the atoms that are connected).
+Note that both
+branches and rings are non-local operations. C) Deriva-
+tion of the molecular graph using SELFIES. The main
+string is derived using a rule set such that the number
+of valence bonds per atom does not exceed physical limits.
+The symbol after a Branch is interpreted as the number of
+SELFIES symbols derived inside the branch. The symbol
+after Ring interpreted as a number too, indicating that the
+current atom is connected to the (N +1)st previous atom.
+Thereby every information in the string (except the ring
+closure) is local and allows for eﬃcient derivation rules.
+syntactical string (such as a string with more open-
+ing than closing brackets), is prevented. Furthermore,
+each SELFIES symbols is generated using derivation
+rules, see Table 2.
+Formally, the table corresponds
+to a formal grammar from theoretical computer sci-
+ence [18]. The derivation of a single symbol depends
+on the state of the derivation Xn.
+The purpose of
+these rules is to enforce the validity of the chemical
+valence-bonds.
+As a simple example, the string [F][=C][=C][#N]
+is derived in the following way. Starting in the state
+X0, the ﬁrst symbol (rule vector) [F] leads to F X1.
+The derivation of the second symbol subsequently con-
+tinues in the state X1. The total derivation is given
+by
+X0
+[F ]
+7−−→FX1
+[=C]
+7−−−→FCX3
+[=C]
+7−−−→FC=CX2
+[#N]
+7−−−→FC=C=N
+The ﬁnal molecule FC=C=N, which satisﬁes all
+valence-bond rules, is 2-Fluoroethenimine.
+At this
+point, valence-bond constraints are satisﬁed for sub-
+sequent atoms and branches. The only remaining po-
+tential sources of violation of these constraints are the
+destination of rings. Therefore, we insert rings only
+if the number of valence-bond at the target has not
+yet reached the maximum. Thereby, using the rules
+in Table 2, 100% validity can be guaranteed for small
+biomolecules. It is straight forward to extend the cov-
+erage for broader classes of molecules, as we describe
+below.
+The derivation rules in Table 2 are generated sys-
+tematically and could be constructed fully automat-
+ically just from data, as we show in the SI. Fur-
+thermore, SELFIES are not restricted to molecular
+graphs but could be applied to other graph data types
+in the natural sciences that have additional domain-
+dependent constraints. We give an example, quantum
+optical experiments in physics with component depen-
+dent connectivity [19], in the SI.
+Informal conversations with several researchers lead
+to the argument that SMILES are ”readable”. Read-
+ability is in the eye of the beholder, but needless to
+say, SELFIES are as readable as ﬁgure 1C) attests to.
+After a little familiarity, functional groups and con-
+nectivity can be inferred by human interpretation for
+small molecular fragments.
+Eﬀects of random Mutations – The simplest
+way to compare robustness between SMILES and
+SELFIES is by starting from a valid string, such as
+MDMA in Fig. 1, and introduce random mutations of
+the symbols of the string. In Fig. 3A, we show three
+examples of one randomly introduced string mutation.
+We evaluate the resulting validity using RDKit [20].
+All three SMILES strings are invalid. The ﬁrst one
+is missing a second ring-identiﬁer for 2, the second
+one is missing a closing bracket for a branch, and the
+last one violates valence-bond numbers of Fluorine. In
+
+3
+Figure 2. Derivation rules of SELFIES for small organic molecules. Every symbol of SELFIES is interpreted as a rule
+vector (top red line). A SELFIES symbol will be replaced by the string at the intersection of the rule vector and derivation
+state of the derivation (left, green). The string can contain an atom or another state of derivation. The derivation starts
+in the state X0 (violet), and continues in the state previously derived. The state of derivation takes care of syntactical
+and chemical constraints, such as the maximal number of valence bonds. The rules in state Xn for n = 1-n = 4 are
+designed such the next atom can use up to n valence bonds. B(N, Xn) stands for function, creating a branch in the
+graph using the next N symbols and starting in state Xn. R(N) stands for a function that creates rings, from the
+current atom to the (N + 1)-st previously derived atom. In both cases, the letter subsequent to R or B is interpreted as
+a number N, which is deﬁned in the last line of the table. This table covers all non-ionic molecules in the database QM9
+[2, 3]. Ions, stereochemistry and larger molecules can also be represented by simply extending this table, as we show in
+the SI.
+A) Single Mutation 
+SMILES 
+SELFIES 
+CNC(C)CC1=CC=CNC(=C1)OCO2 
+CNC(C)CC1=CC=C2C(=C1FOCO2 
+CFC(C)CC1=CC=C2C(=C1)OCO2 
+B) Double Mutation 
+syntactically invalid 
+syntactically invalid 
+semantically invalid 
+valid 
+valid 
+valid 
+CNC(C)OC1=CC=C2C(=C1COCO2 
+CNC(C)CC1=CCOCCC(=C1)OCO2 
+CNC(C)#C1=CC=C2C(=C1)OCON 
+syntactically invalid 
+syntactically invalid 
+syntactically & semantically invalid 
+valid 
+valid 
+valid 
+C) Triple Mutation 
+CNO(C)CC1=CC=C2C(#F1)OCO2 
+C=C(C#CC1=CC=C2C(=CN)OCO2 
+CNC(C)CC1=CCCC2#F=C1)OCO2 
+valid 
+valid 
+valid 
+syntactically invalid 
+syntactically & semantically invalid 
+syntactically & semantically invalid 
+Figure 3.
+Random Mutations of SMILES and SELFIES
+of the molecule in Fig. 1A. A) Single mutations have led
+to three invalid SMILES strings, while all SELFIES pro-
+duce valid molecules. In B) and C) the initial molecule
+is two and three times mutated, respectively. In all cases,
+SMILES strings are invalid, while SELFIES produce valid
+molecules that deviate more and more from the initial
+molecule.
+contrast to that, all mutated SELFIES correspond to
+valid molecules. In Fig.3B and C, we introduce two
+and three mutations, respectively. Again, all SMILES
+are invalid, and all SELFIES are valid molecules. In
+general, the validity probability for SMILES with one
+mutation starting from MDMA is 9.9%, 3.0% and
+1.1% for one, two and three mutations, respectively.
+SELFIES, on the other hand, are valid in 100% of the
+cases. Three examples for each case can be seen on
+the right panel of Fig. 3. 1
+Results for deep generative Models – Genera-
+tive models are an ideal application of a 100% robust
+representation of molecules. One prominent example
+is a variational autoencoder (VAE) [16], which has re-
+cently been employed for the design of novel molecules
+[21]. In the domain of chemistry, the VAE is used to
+transform a discrete molecular graph into a continuous
+representation which can be optimized using gradient-
+based or Bayesian methods. As shown in Fig. 4, it
+consists of two neural networks, the encoder and de-
+coder. The encoder takes a string representation of
+the molecule (for instance, using one-hot encoding)
+and encodes it into a continuous, internal representa-
+tion. There, every molecule corresponds to a location
+in a high-dimensional space. The number of neurons
+deﬁnes the dimension in the latent space. The decoder
+takes a position in the latent space and transforms it
+1We also investigate the validity rates of a recent adaption of
+SMILES denoted DeepSMILES [15]. DeepSMILES could also
+be used as a direct input for arbitrary machine learning models
+and follows, therefore, a similar objective as SELFIES. We ﬁnd
+that single, double and triple mutations lead to 35.1%, 18.4%
+and 9.8% validity.
+
+4
+Input Layer 
+Output Layer 
+Encoder 
+Decoder 
+Latent Space 
+Variational Auto Encoder (VAE) 
+for Chemistry 
+Figure 4. Variational Autoencoder (VAE) for Chemistry.
+The VAE is a deep neural network that takes a molecule
+as an input, encodes it to continuous latent space, and re-
+constructs it from there with a decoder. The latent space
+is a high-dimensional space where each point can be de-
+coded into a discrete sequence. We represent the molecular
+graphs using one-hot encodings of SMILES and SELFIES.
+into a discrete molecule (for instance again, a one-hot
+encoding of SMILES or SELFIES).
+The goal of a VAE is learning to reconstruct
+molecules. After the training, one can scan through
+the latent space for optimizing chemical properties.
+Once an optimal point is identiﬁed, the decoder can
+map it to a molecular string. For any application of
+SMILES 
+SELFIES 
+Validity of Latent Space in VAE 
+Figure 5. Validity of latent space. We analyze the latent
+space of a VAE, which was trained to reproduce small
+organic molecules from the QM9 database.
+The latent
+space has 241 dimensions (LD stands for latent dimen-
+sion). Upper row: We chose four randomly oriented planes
+in the high-dimensional space that go through the origin.
+Along the plane, we decode latent space points and calcu-
+late whether they correspond to valid or invalid molecules.
+The color code stands for the proportion of valid molecules
+(red=0%, green=100% valid). Lower row: We chose a ran-
+dom orientation of the plane, and displace it by a third
+random orientation by (-2,-1,+1,+2) standard deviations
+from the origin. In all experiments, we ﬁnd that only a
+small fraction of the latent space for SMILES are valid,
+while for SELFIES the entire latent space is valid. This
+is not only important for generative tasks but is crucial
+for interpreting internals representations of the neural net-
+works.
+VAEs in chemistry, it is desirable that all points in
+the latent space correspond to valid molecules.
+We experiment with a standard VAE, which we
+train to reconstruct molecules from the benchmark
+dataset QM9 [2, 3].
+We employ both SMILES and
+SELFIES for that task.
+After the training, we ana-
+lyze the validity of the latent space. We do this by
+sampling latent space points from randomly oriented
+planes in the high-dimensional space. Using SMILES,
+we ﬁnd in Fig. 5A that only a small fraction of the
+space corresponds to valid molecules.
+A large frac-
+tion decodes to syntactically or semantically invalid
+strings that do not stand for molecules. In contrast to
+that, using SELFIES, we can see in Fig.5B that the en-
+tire space corresponds to valid molecules. We want to
+stress that a 100% valid latent space is not only signif-
+icant for inverse-design techniques in chemistry, but is
+essential for model interpretation [22–24], in particu-
+lar for interpreting the internal representations [25, 26]
+in a scientiﬁc context [27].
+Besides 100% validity, the molecule density in the
+latent space is of crucial importance too. The more
+valid, diverse molecules are encoded inside the latent
+space, the richer the chemical space that can be ex-
+plored during optimization procedures. In Fig. 6A, we
+compare the richness of the encoded molecules when a
+VAE is trained with SMILES and with SELFIES. For
+that, we sample random points in the latent space
+and stop after 20 samples didn’t produce any new
+molecule. We ﬁnd that the latent space of the SELFIES
+VAE is more than two orders of magnitude denser
+than the one of SMILES.
+Other prominent deep generative models are Gen-
+erative Adversarial Networks (GANs) [17], which have
+been introduced in the design of molecules [28]. There,
+two networks – called generator and discriminator –
+are trained in tandem. The setting is such that dis-
+criminator receives either molecule from a dataset or
+outputs of the generator. The goal of the discrimi-
+nator is to correctly identify the artiﬁcially generated
+structures, while the goal of the generator is to fool the
+discriminator. After the training, the generator has
+learned to reproduce the distribution of the dataset.
+We train the GAN, using 200 diﬀerent hyperparame-
+ter settings both for SMILES and SELFIES. After the
+training, we sample each of the models 10.000 times
+and calculate the number of unique, valid molecules.
+For the best set of hyperparameters, we ﬁnd that a
+GAN trained with SELFIES produces 78.9% diverse
+molecules while a GAN that produces SMILES strings
+only results in 18.6% diverse molecules, see Fig. 6B.
+Covering
+the
+chemical
+universe
+– In this
+manuscript, we demonstrate and apply SELFIES for
+small biomolecules.
+However, the language can be
+extended to cover much richer classes of molecules.
+In the corresponding GitHub repository, we extend
+the language to allow for molecules with up to 8000
+atoms per ring and branch, we add stereochemistry
+
+5
+A 
+B 
+                     Diversity of generated molecules in 
+                   VAE                                                    GAN 
+Figure 6. Diversity of generative models trained with SMILES and SELFIES, with the example of VAE and GAN. Beside
+robustness, diversity is one of the main objectives for generative models. A) We investigate the density of valid diverse
+molecules by sampling the latent space of a VAE. We chose points with a distance of σ around the centre, stopping after
+20 samples didn’t produce new instances. We ﬁnd that the VAE trained with SELFIES contains 100 times more valid
+diverse molecules than if it is trained with SMILES. B) We train a GAN with 200 diﬀerent hyperparameters to produce
+de-novo molecules for SELFIES and SMILES. Sampling 10.000 times, SELFIES produced 7889 diﬀerent valid molecules,
+while for SMILES the most diverse valid number of molecules where 1855). Both cases show that SELFIES leads to
+signiﬁcantly larger densities of diverse molecules compared to SMILES.
+information, ions as well as unconstrained unspeciﬁed
+symbols.
+Thereby, we encoded and decoded all 72
+million molecules from PubChem (the most complete
+collection of synthesized molecules) with less than 500
+SMILES chars, demonstrating coverage of the space of
+chemical interest.
+Conclusion –
+We presented SELFIES, a human-
+readable and 100% robust method to describe molec-
+ular graphs in a computer. These properties lead to
+superior behaviour in inverse design tasks for func-
+tional molecules, based on deep generative models or
+genetic algorithms. SELFIES can be used as a direct
+input into current and even future generative models,
+without the requirement to adapt the model. In gener-
+ative tasks, it leads to a signiﬁcantly higher diversity
+of molecules, which is the main objective in inverse
+design. In addition to the results presented here, in
+separate work, we use Genetic Algorithms and ﬁnd
+that without any hard-coded rules, SELFIES outper-
+form literature results in a commonly-used benchmark
+[29]. Apart from superior behaviour in inverse design,
+a 100% valid representation is also a suﬃcient con-
+dition for interpreting the internal structures of the
+machine learning models [27]. While we have focused
+on an representation that is ideal for computers, at-
+tention should also be drawn to SELFIES standardiza-
+tion to allow general readability [30], by exploiting the
+numerous remaining degrees of freedom of SELFIES.
+Standarization outlook – The SELFIES concept
+still requires work to become a standard. Upon publi-
+cation of this article, the authors will call for a work-
+shop to extend the format to the entire periodic table,
+allow for stereochemistry, polyvalency and other spe-
+cial cases so that all the features present in SMILES
+are available in selﬁes. Unicode will be employed to
+create readable symbols that exploit the ﬂexibility of
+modern text systems without restricting oneself to
+ASCII characters.
+ACKNOWLEDGEMENTS
+The authors thank Theophile Gaudin for useful dis-
+cussions.
+A. A.-G. acknowledges generous support
+from the Canada 150 Research Chair Program, Tata
+Steel, Anders G. Froseth, and the Oﬃce of Naval
+Research. We acknowledge supercomputing support
+from SciNet.
+M.K. acknowledges support from the
+Austrian Science Fund (FWF) through the Erwin
+Schr¨odinger fellowship No. J4309. F.H. acknowledges
+support from the Herchel Smith Graduate Fellowship
+and the Jacques-Emile Dubois Student Dissertation
+Fellowship. P.F. has received funding from the Eu-
+ropean Union’s Horizon 2020 research and innovation
+programme under the Marie Sklodowska-Curie grant
+agreement No 795206.
+[1] D. Weininger, SMILES, a chemical language and in-
+formation system. 1. Introduction to methodology
+and encoding rules. Journal of chemical information
+and computer sciences 28, 31–36 (1988).
+[2] R. Ramakrishnan, P.O. Dral, M. Rupp and O.A.
+Von Lilienfeld, Quantum chemistry structures and
+
+6
+properties of 134 kilo molecules. Scientiﬁc data 1,
+140022 (2014).
+[3] L. Ruddigkeit, R. Van Deursen, L.C. Blum and J.L.
+Reymond, Enumeration of 166 billion organic small
+molecules in the chemical universe database GDB-
+17. Journal of chemical information and modeling 52,
+2864–2875 (2012).
+[4] T.I. Oprea and J. Gottfries, Chemography: the art of
+navigating in chemical space. Journal of combinato-
+rial chemistry 3, 157–166 (2001).
+[5] A.M. Virshup, J. Contreras-Garc´ıa, P. Wipf, W. Yang
+and D.N. Beratan, Stochastic voyages into uncharted
+chemical space produce a representative library of all
+possible drug-like compounds. Journal of the Ameri-
+can Chemical Society 135, 7296–7303 (2013).
+[6] C. Qian, T. Siler and G.A. Ozin, Exploring the pos-
+sibilities and limitations of a nanomaterials genome.
+small 11, 64–69 (2015).
+[7] P. Raccuglia, K.C. Elbert, P.D. Adler, C. Falk, M.B.
+Wenny, A. Mollo, M. Zeller, S.A. Friedler, J. Schrier
+and A.J. Norquist, Machine-learning-assisted materi-
+als discovery using failed experiments. Nature 533, 73
+(2016).
+[8] B. S´anchez-Lengeling and A. Aspuru-Guzik, Inverse
+molecular design using machine learning: Generative
+models for matter engineering. Science 361, 360–365
+(2018).
+[9] P.B. Jørgensen, M.N. Schmidt and O. Winther, Deep
+generative models for molecular science. Molecular in-
+formatics 37, 1700133 (2018).
+[10] D.C. Elton, Z. Boukouvalas, M.D. Fuge and P.W.
+Chung,
+Deep
+learning
+for
+molecular
+generation
+and optimization-a review of the state of the art.
+arXiv:1903.04388 (2019).
+[11] P.S. Gromski, A.B. Henson, J.M. Granda and L.
+Cronin, How to explore chemical space using algo-
+rithms and automation. Nature Reviews Chemistry 1
+(2019).
+[12] J.H. Jensen, A graph-based genetic algorithm and
+generative model/Monte Carlo tree search for the ex-
+ploration of chemical space. Chemical Science 10,
+3567–3572 (2019).
+[13] T. Ma, J. Chen and C. Xiao, Constrained generation
+of semantically valid graphs via regularizing varia-
+tional autoencoders. Advances in Neural Information
+Processing Systems 7113–7124 (2018).
+[14] Q. Liu, M. Allamanis, M. Brockschmidt and A.
+Gaunt, Constrained graph variational autoencoders
+for molecule design. Advances in Neural Information
+Processing Systems 7795–7804 (2018).
+[15] N. O’Boyle and A. Dalke, DeepSMILES: An Adapta-
+tion of SMILES for Use in machine-learing chemical
+structures. ChemRxiv (2018).
+[16] D.P. Kingma and M. Welling, Auto-encoding varia-
+tional bayes. arXiv:1312.6114 (2013).
+[17] I. Goodfellow, J. Pouget-Abadie, M. Mirza, B. Xu,
+D. Warde-Farley, S. Ozair, A. Courville and Y. Ben-
+gio, Generative adversarial nets. Advances in neural
+information processing systems 2672–2680 (2014).
+[18] J.E. Hopcroft, R. Motwani and J.D. Ullman, Intro-
+duction to Automata Theory, Languages, and Com-
+putation (3rd Edition). (2006).
+[19] M. Krenn, M. Malik, R. Fickler, R. Lapkiewicz and A.
+Zeilinger, Automated search for new quantum exper-
+iments. Physical review letters 116, 090405 (2016).
+[20] G. Landrum and others, RDKit: Open-source chem-
+informatics. Journal of chemical information and
+modeling (2006).
+[21] R. G´omez-Bombarelli, J.N. Wei, D. Duvenaud, J.M.
+Hern´andez-Lobato, B. S´anchez-Lengeling, D. She-
+berla, J. Aguilera-Iparraguirre, T.D. Hirzel, R.P.
+Adams and A. Aspuru-Guzik, Automatic chemical de-
+sign using a data-driven continuous representation of
+molecules. ACS central science 4, 268–276 (2018).
+[22] K.T. Sch¨utt, F. Arbabzadah, S. Chmiela, K.R. M¨uller
+and A. Tkatchenko, Quantum-chemical insights from
+deep tensor neural networks. Nature communications
+8, 13890 (2017).
+[23] K. Preuer, G. Klambauer, F. Rippmann, S. Hochre-
+iter and T. Unterthiner, Interpretable Deep Learning
+in Drug Discovery. arXiv:1903.02788 (2019).
+[24] F. H¨ase, I.F. Galv´an, A. Aspuru-Guzik, R. Lindh and
+M. Vacher, How machine learning can assist the inter-
+pretation of ab initio molecular dynamics simulations
+and conceptual understanding of chemistry. Chemical
+Science 10, 2298–2307 (2019).
+[25] I. Higgins, L. Matthey, A. Pal, C. Burgess, X. Glorot,
+M. Botvinick, S. Mohamed and A. Lerchner, beta-
+VAE: Learning Basic Visual Concepts with a Con-
+strained Variational Framework.. ICLR 2, 6 (2017).
+[26] T.Q. Chen, X. Li, R.B. Grosse and D.K. Duvenaud,
+Isolating sources of disentanglement in variational au-
+toencoders. Advances in Neural Information Process-
+ing Systems 2610–2620 (2018).
+[27] R. Iten, T. Metger, H. Wilming, L. Del Rio and
+R. Renner, Discovering physical concepts with neu-
+ral networks. Physical Review Letters 124, 010508
+(2020).
+[28] G.L. Guimaraes,
+B. S´anchez-Lengeling,
+C. Out-
+eiral, P.L.C. Farias and A. Aspuru-Guzik, Objective-
+reinforced generative adversarial networks (ORGAN)
+for sequence generation models. arXiv:1705.10843
+(2017).
+[29] A. Nigam, P. Friederich, M. Krenn and A. Aspuru-
+Guzik, Augmenting Genetic Algorithms with Deep
+Neural Networks for Exploring the Chemical Space.
+arXiv:1909.11655 (2019).
+[30] N. O’Boyle, J. Mayﬁeld and R. Sayle, De facto stan-
+dard or a free-for-all?
+A benchmark for reading
+SMILES. Abstracts of Papers of the American Chem-
+ical Society 256, (2018).
+[31] M. Erhard, M. Malik, M. Krenn and A. Zeilinger, Ex-
+perimental greenberger–horne–zeilinger entanglement
+beyond qubits. Nature Photonics 12, 759–764 (2018).
+
+7
+Supplemental Materials
+I.
+FORMAL DEFINITION OF SELFIES
+We take advantage of a formal grammar to derive words, which will represent semantically valid graphs. A
+formal grammar is a tuple G(V, Σ, R, S), where v ∈V are non-terminal symbols that are replaced using rules,
+r ∈R, into non-terminal or terminal symbols t ∈Σ. S is a start symbol. When the resulting string only consists
+of terminal symbols, the derivation of a new word is completed [18]. The SELFIES representation is a Chomsky
+type-2, context-free grammar with self-referencing functions for valid generation of branches in graphs. The
+rule system is shown in Table I.
+In SELFIES, V = {X0, . . . , Xr, N} are non-terminal symbols or states. The states Xi restrict the subsequent
+edge to a maximal multiplicity of i; the maximal edge multiplicity of the generated graphs is r. The symbol N
+represents a numerical value, which acts as argument for the two self-referencing functions. Σ = {t0,1, . . . , tr,n}
+are terminal symbols. The derivation rule set R has exactly (n + m + p + 1) × (r + 2) elements, corresponding
+to n rules for vertex production, m rules for producing branches, p rules for rings and r non-terminal symbols
+in V . The subscripts ha,b, ia,b, ja,b and ka,b have values from 1 to r, and encode the actual domain-speciﬁc
+constraints. The semantic and syntactical constraints are encoded into the rule vectors, which guarantees strong
+robustness. There are n + m + p + 1 rule vectors Ai, each with a dimension (r + 2).
+II.
+SELF-REFERENCING FUNCTIONS FOR SYNTACTIC VALIDITY
+In order to account for syntactic validity of the graph, we augment the context-free grammar with branch-
+ing functions and ring functions. B(N, Xi) is the branching function, that recursively starts another gram-
+mar derivation with subsequent N SELFIES symbols in state Xi. After the full derivation of a new word (which
+is a graph), the branch function returns the graph, and connects it to the current vertex. The ring function
+R(N) establishes edges between the current vertex and the (N + 1)-th last derived vertex. Both the branching
+and ring functions have access to the SELFIES string and the derived string, thus are self-referencing.
+III.
+RULE VECTORS FOR SEMANTIC VALIDITY
+To incorporate semantic validity, we denote Ai as the i-th vector of rules, with dimension dAi = |V | = r+2.
+The conceptual idea is to interpret a symbol of a SELFIES string, si ∈{0, . . . , n + m + p} as an index of a
+rule vector, Asi. In the derivation of a symbol, the rule vector is deﬁned by the symbol of the SELFIES string
+(external state) while the speciﬁc rule is chosen by the non-terminal symbol (internal state). Thereby, we can
+encode semantic information into the rule vector Ai, which is memorized by the internal state during derivation.
+IV.
+ALGORITHMIC DERIVATION OF GRAMMAR FROM DATA, AND VALIDITY
+GUARANTEES
+Domain-speciﬁc grammars can be derived algorithmically directly from data, without any domain knowledge.
+Let T be the set of diﬀerent types of vertices (such as C, O, N, . . . in chemistry). We use a dataset to get the
+types of vertices Ti, and their maximal degrees Di (Di = maxdeg(Ti) – in chemistry, the DO = maxdeg(O) = 2,
+DC = maxdeg(C) = 4). Let M = maxi maxdeg(Ti) be the maximal degree of the dataset. Starting from Table
+I (I) we identify the rule vectors Ai, (II) deﬁne the non-terminal symbols Xj, and (III) deﬁne the rules R.
+I A1 . . . An (vertices rules) consist of Ti with a potential multiedge connection γ up to Di (in chemistry,
+DO=2, thus we have two rule vectors for O, one with single edge γ = 1, one with double connection γ = 2).
+An+1 . . . An+m represent branch rules. A branch forms connections to two vertices, thus we have maximally
+(M −1) branch rules, (combinations of (M −l, l) represent the maximal connectivity to the two branches).
+An+m+1 . . . An+m+p denote ring rules, in a generic case p = 1 is suﬃcient.
+II non-terminals X1 . . . Xr, with r = M, constrain the number of edges to connect two vertices.
+III Rule ri,j for Ai ∈{A1 . . . An} and Xj ∈{X1 . . . Xr} can consist of a terminal and non-terminal symbol.
+The terminal consists of a Ti (given by Ai) and a edge-multiplicity µ = min(j, γ). The corresponding
+
+8
+Vertices
+Branches
+Rings
+z
+}|
+{
+z
+}|
+{
+z
+}|
+{
+A0
+A1
+An
+An+1
+An+m
+An+m+1
+An+m+p
+X0 →ϵ
+| t0,1 Xh0,1 ... | t0,n Xhr,0 | B(N, Xi0,1) Xj0,1 ... |B(N, Xi0,m) Xj0,m | R(N) Xk0,1 ... |R(N) Xk0,p
+X1 →ϵ
+| t1,1 Xh1,1 ... | t1,n Xhr,1 | B(N, Xi1,1) Xj1,1 ... |B(N, Xi1,m) Xj1,m | R(N) Xk1,1 ... |R(N) Xk1,p
+...
+Xr →ϵ
+| tr,1 Xhr,1 ... | tr,n Xhr,n | B(N, Xir,1) Xjr,1 ... |B(N, Xir,m) Xjr,m | R(N) Xkr,1 ... |R(N) Xkr,p
+N →0
+| 1
+... | n
+| n+1
+... | n+m
+| n+m+1
+... |n+m+p
+Table I. Grammar of SELFIES, with recursion and S→X0.
+nonterminal symbol is XM−µ (if M −µ = 0, no non-terminal will be added). Note that constraints are
+satisﬁed due to the min operation in µ. Rules in state Xj for rings are R(N)Xj−1, and for branches are
+B(N, Xi)Xj−i.
+The edge-multiplicity µ = min(j, γ) is responsible for the semantic constraint of local degrees being satisﬁed.
+This is the most immediate constraint in many applications for physical sciences, which allows for 100% validity.
+More complex, non-local constraints could be implemented by more complex grammars, such as explicit context-
+sensitive type-1 grammars.
+V.
+POTENTIAL APPLICATIONS TO OTHER DOMAINS IN THE PHYSICAL SCIENCES
+SELFIES can be used independently of the domain, which we demonstrate here. Ideal targets for SELFIES
+grammar are diﬀerent types of objects (which for the vertices) with vertex-dependent connectivity restrictions.
+In that case, rule vectors of grammars can be used to encode the restrictions on connectivities. Rings and
+Branches could be dependent on vertices as well. We now show now one diﬀerent example from physics.
+A.
+Quantum Optical Experiments
+A grammar for the generation of quantum optical experments can be written in Table II.
+There, the non-terminal symbols stand for quantum optical components that are used in experiments, [SPDC]
+stands for a non-linear crystal that undergoes spontaneous parametric down-conversion to produce photon pairs,
+[BS] stands for beam splitters, [Holo] stands for holograms to modify the quantum state, [DP] stands for Dove
+prism which introduces mode dependent phases, [Ref] stand for mirrors which modify mode numbers and phases,
+and [Det] are single-photon detector. B(N,X0) and R(N) are branch functions and ring functions as deﬁned
+in the main text. Now we derive a recent complex quantum optical experiment (which has been designed by
+S 
+B 
+B 
+B 
+P 
+D 
+D 
+H 
+R 
+S 
+D 
+D 
+b 
+a 
+S 
+S 
+D 
+D 
+D 
+D 
+B 
+B 
+B 
+P 
+H 
+R 
+Figure 7. SELFIES for quantum optical experiments. In (a) we see the graph generated from SELFIES for a recent
+high-dimensional multipartite quantum experiment [31]. In (b), the structure of the experimental conﬁguration.
+
+9
+S
+B
+H
+P
+R
+D
+Y
+Z
+X0 →[SPDC] X2 | [BS] X3 | [Holo] X1 | [DP] X1 | [Ref] X1 | [Det] | X0
+| X0
+X1 →[SPDC] X1 | [BS] X3 | [Holo] X1 | [DP] X1 | [Ref] X1 | [Det] | X1
+| R(N)
+X2 →[SPDC] X1 | [BS] X3 | [Holo] X1 | [DP] X1 | [Ref] X1 | [Det] | B(N,X0)X1 | R(N)X1
+X3 →[SPDC] X1 | [BS] X3 | [Holo] X1 | [DP] X1 | [Ref] X1 | [Det] | B(N,X0)X2 | R(N)X2
+N →1
+| 2
+| 3
+| 4
+| 5
+| 6
+| 8
+| 9
+Table II. Derivation rules of SELFIES for a semantically restricted graph that represents quantum optical experiments,
+with the derivation starting in X0.
+a computer algorithm), which demonstrates high-dimensional multi-partite quantum entanglement [31]. The
+graph and the corresponding setup can be seen in Figure 7.

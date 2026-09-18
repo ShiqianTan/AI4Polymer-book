@@ -1,0 +1,1652 @@
+THIS WORK HAS BEEN SUBMITTED TO THE IEEE FOR POSSIBLE PUBLICATION
+1
+Focus Quality Assessment of High-Throughput
+Whole Slide Imaging in Digital Pathology
+Mahdi S. Hosseini, Member, IEEE,, Yueyang Zhang, Student member, IEEE, Lyndon Chan, Student
+member, IEEE, Konstantinos N. Plataniotis, Fellow, IEEE, Jasper A. Z. Brawley-Hayes, and Savvas Damaskinos
+Abstract—One of the challenges facing the adoption of digital
+pathology workﬂows for clinical use is the need for automated
+quality control. As the scanners sometimes determine focus
+inaccurately, the resultant image blur deteriorates the scanned
+slide to the point of being unusable. Also, the scanned slide
+images tend to be extremely large when scanned at greater or
+equal 20X image resolution. Hence, for digital pathology to be
+clinically useful, it is necessary to use computational tools to
+quickly and accurately quantify the image focus quality and
+determine whether an image needs to be re-scanned. We propose
+a no-reference focus quality assessment metric speciﬁcally for
+digital pathology images, that operates by using a sum of even-
+derivative ﬁlter bases to synthesize a human visual system-like
+kernel, which is modeled as the inverse of the lens’ point spread
+function. This kernel is then applied to a digital pathology image
+to modify high-frequency image information deteriorated by the
+scanner’s optics and quantify the focus quality at the patch level.
+We show in several experiments that our method correlates better
+with ground-truth z-level data than other methods, and is more
+computationally efﬁcient. We also extend our method to generate
+a local slide-level focus quality heatmap, which can be used for
+automated slide quality control, and demonstrate the utility of
+our method for clinical scan quality control by comparison with
+subjective slide quality scores.
+Index Terms—no-reference focus quality assessment, whole
+slide imaging, digital pathology, out-of-focus heatmap, human
+visual system, MaxPol derivative library
+I. INTRODUCTION
+C
+LINICAL pathology is witnessing a paradigm shift
+by transferring from glass tissue slides (observed by
+optical microscopy) to digital slides scanned with whole
+slide imaging (WSI) systems. WSI scanners generate high
+resolution (submicron) images that can aid in the diagnosis of
+disease by permitting convenient visualization and navigation
+of tissue slide images. In clinical pathology departments,
+hundreds to thousands of tissue slides are processed each
+day and the number of cases has been steadily increasing,
+creating a challenging workload for digital pathology [1].
+Routine diagnosis of pathology slides requires high quality high-
+throughput images, which are directly affected by the dynamic
+environment of the physical optics and sensor electronics of
+the scanner [2]–[4].
+Copyright (c) 2018 IEEE. Personal use of this material is permitted. However,
+permission to use this material for any other purposes must be obtained from
+the IEEE by sending a request to pubs-permissions@ieee.org.
+M. S. Hosseini, Y. Zhang, L. Chan and K. N. Plataniotis are with The
+Edward S. Rogers Sr. Department of Electrical and Computer Engineering,
+University of Toronto, Toronto, ON M5S 3G4, Canada e-mail: mahdi.hosseini@
+mail.utoronto.ca.
+M. S. Hosseini, J. A. Z. Brawley-Hayes, are S. Damaskinos are with Huron
+Digital Pathology Inc., Waterloo, ON N2L 5V4, Canada.
+High quality images from the slides must be displayed
+in a consistent and reliable manner to assist pathologists in
+interpreting these images accurately and efﬁciently. Existing
+digital pathology solutions, however still face challenges. For
+example, many WSI scanners need a manual inspection of
+digital slides for focus quality control (FQC), which is a tedious
+and laborious task. In high-throughput scanning systems, which
+contain hundreds of slides for processing, making it impractical
+to perform a manual FQC check for each individual slide. A
+robust, highly reliable automated solution (one-click mode)
+eliminates the need for manual FQC checking, and makes the
+integrated imaging software user friendly. The computational
+complexity of any automated FQC assessment technique should
+also be compatible with widely available scanning platforms,
+without the requirement of custom hardware. It can be a cost
+effective solution for digital pathology departments.
+In discrete computational modeling, there exist several no-
+reference (NR) focus quality assessment (FQA) (together called
+NR-FQA) metrics that can be applied in synthetic or natural
+imaging applications for sharpness assessment such as using
+gradient map [5]–[9], contrast map [10]–[12], phase coherency
+[13], [14], and deep learning solutions [15]–[17]. Please refer
+to [18] and the references therein for more information on the
+methodologies. The performance accuracy of these metrics is
+usually evaluated by comparison with the subjective scores of
+a test database where the blur level of the image is scored
+by an individual subject. This score is correlated with the
+objective scores provided by NR-FQA metric for accuracy
+measurement. Despite their effectiveness for synthetic blur
+assessment, the correlation accuracy of such methods is usually
+low for naturally blurred images, partly because such images
+are usually captured in different blurring types, various scales,
+and illumination conditions. Beyond such irregularities, high
+accuracy NR-FQAs in the literature are highly complex in
+terms of computational speed, which makes them impractical
+for real-time applications.
+The general application of NR-FQA metrics developed for
+blurred images is different from out-of-focus blur in digital
+pathology. In fact, when it comes to the digital pathology,
+imaging is done in a controlled environment where (a) the
+magniﬁcation is consistent through the image, with most
+manufacturers using a similar pixel pitch, (b) image uniformity
+is controlled by the quality of illumination optics to uniformly
+distribute light at the tissue located at the focal plane of the
+objective lens, and (c) poor focusing is the dominant factor
+of image blur in scanned images while image blur caused by
+motion of slide in the direction of scan is comparatively very
+arXiv:1811.06038v1  [eess.IV]  14 Nov 2018
+
+THIS WORK HAS BEEN SUBMITTED TO THE IEEE FOR POSSIBLE PUBLICATION
+2
+small. Various methods take advantage of the scan control
+environment to employ simpliﬁed approaches for NR-FQA
+development in digital pathology. To meet the needs for
+efﬁciency and fast computational speed, these methods employ
+statistical measurements for feature extraction that are related to
+absolute image blurriness. For detailed review of these methods
+please refer to [19]–[26] and references therein.
+Analysis of blur using such methods is highly effective
+for calculating the relative difference between images where
+structural similarity is preserved across different focus levels,
+known as the in-depth Z-stacks [27]. However, using statistical
+measurements for focus quality assessment of image patches
+at the whole slide level is a challenge. The diversity of both
+structures (tissue morphology patterns) and focus quality levels
+across different positions in WSIs makes NR-FQA metric
+development a hard problem to solve. In fact, very few methods
+exist in the literature to address NR-FQA so as to create a
+local quality map (like a heatmap) to reliably assess the in-
+focus vs out-of-focus regions in a WSI. Recent developments
+tend to solve this problem either by statistical regression
+of blur features [26], [28], [29] or by developing a deep-
+learning solution with convolutional neural networks (CNNs)
+[30]. Unfortunately, the lack of (a) generalization to a broad
+spectrum of tissue types and (b) computational efﬁciency are
+the main drawbacks of such methodologies. This makes the
+NR-FQA still an unresolved problem in digital pathology for
+focus quality assessment in WSI.
+We propose an NR-FQA metric called FQPath 1 which
+extracts focus-related features from a digital pathology image
+that requires no prior knowledge from the user for reliable
+analysis of the blur levels to (a) grade the image quality across
+different patches in a WSI and (b) grade the WSI scan quality
+across slides of different tissue types. The key idea behind
+our solution is the synthesis of a convolution ﬁlter using the
+MaxPol derivative kernel library [31], [32], that mimics the
+human visual system response for microscopy applications in
+order to equalize the frequency spectrum of the image for
+blur feature extraction. We use this feature to develop our
+NR-FQA metric which is a variant of the method detailed in
+a previous paper for general-application NR-FQA [33]. The
+proposed NR-FQA metric i.e. FQPath extracts features with
+this synthesized kernel instead of ﬁxed derivative kernels, and
+accuracy is measured by correlation with scanning z-level
+instead of subjective score.
+In this paper, we make the following contributions to
+improving WSI in digital pathology:
+• We develop a novel method for measuring how close
+the specimen was to the object plane at the time of
+acquisition using a NR-FQA. This method is based on
+the human visual systems characteristic equalization of
+spatial frequency expression in an image, which allows
+us to distinguish between subtle changes in sharpness as
+a result of defocusing.
+• We leverage the NR-FQA metric to generate a focus
+quality heatmap of whole slide images by applying the
+metric on small image patches. We propose an inverse
+1https://github.com/mahdihosseini/FQPath
+Gaussian mapping of the metric scores to further improve
+the usability of the heatmap.
+• We introduce a database of 200 WSI scans of histology
+slides stained with H&E containing a variety of tissue
+types. From these images, we create a subjective scoring
+protocol to grade the focus quality at the WSI level.
+• We conduct two sets of experiments to (a) compare ten
+state-of-the-art NR-FQA metrics based on their correlation
+to actual z-level; and (b) provide a quality control tool to
+aid in rapid grading of the focus level of WSI scans and
+provide the means to deﬁne a pass/fail threshold based
+on subjective scoring of images.
+The work accomplished in this paper is described in sections
+below as follows. In Section II we introduce the concept
+of HVS convolution kernel synthesis based on out-of-focus
+imaging in optical microscopy. In Section III we adopt the
+HVS convolution kernel and propose an NR-FQA metric that
+we apply on digital image patches. In Section IV we construct
+a focus quality heatmap of WSI scans while in Sections
+V and VI we describe two sets of experiments to validate
+the proposed approach of focus quality assessment of digital
+pathology images. Finally, conclusions and recommendations
+are presented in Section VII.
+II. HUMAN VISUAL RESPONSE-MICROSCOPY LIKE
+KERNEL SYNTHESIS
+In this section, we explain our approach to model the out-
+of-focus characteristics of a digital pathology scanner that
+is caused by focal depth offset between the tissue slide and
+the scanner’s objective lens. In particular, we synthesize a
+human visual system (HVS)-like kernel for optical microscopy
+(called HVS-Microscopy, or HVS-M for short) from derivative
+basis ﬁlters. This HVS-M kernel is then used to partly correct
+the high-frequency fall-off in the scanned image’s amplitude
+response caused by the microscope’s optics being out-of-focus
+relative to the plane of the sample. The corrected image is
+used to extract focus quality-related features.
+A. Out-of-Focus in WSI Scanning System
+One common practice in whole slide imaging (WSI) to
+determine the focus map of a tissue specimen on a glass slide
+is to pre-measure the focus positions at several locations on the
+slide and interpolate a surface that passes through the measured
+focus points. This is accomplished with a fast low-resolution
+(≤1X) preview scan of the whole tissue slide. A region or
+regions-of-interest (ROIs) are deﬁned to be scanned at high-
+resolution (≥20X). Within these regions (or a single region), a
+set of focus points are deﬁned on the tissue. At each point, the
+scanner will perform a through-focus scan, typically a volume
+image, from which one lateral dimension may be discarded.
+The resulting xz-scans or xy-scans (one from each focus point)
+are run through an algorithm to determine the row or column
+of the image corresponding to the sample being at best focus.
+Since the image capture was synchronized with a stage encoder,
+the focus positions can be determined from these images. Using
+the known (xi,yi) coordinates of each measurement of zi, a
+surface can be interpolated through all measured points. This
+
+THIS WORK HAS BEEN SUBMITTED TO THE IEEE FOR POSSIBLE PUBLICATION
+3
+interpolated surface is used to compute the optimal z position
+for each frame during ﬁnal high-resolution image acquisition.
+During acquisition, errors may occur, which can lead to
+some or all parts of the image being out of focus. Some of
+these factors may be:
+• thermal effects in the mechanical system, which affect
+the repeatability of the position of the sample in relation
+to the indicated encoder value
+• internally or externally generated vibration
+• errors in the focus determination algorithm
+• errors in the generation of the focus map
+• insufﬁcient number of focus points to deﬁne an accurate
+focus map
+• errors in tissue preparation, such as folds or lifting off
+the slide surface
+These factors cause the sample to pass either above or below
+the object plane of the objective lens, which leads to a blurred
+image at the camera sensor. In our approach, we attempt to
+quantify the image quality deterioration based on defocus,
+which may be caused by any of these factors.
+In optical microscopy, the point spread function (PSF)
+describes a general diffraction model of the optical spreading,
+for both in-focus and out-of-focus behavior, that results when
+a focused imaging lens is (by deﬁnition) aligned with the
+target specimen in the lateral plane, i.e. (X,Y) coordinates,
+but not necessarily along the optical axis, i.e. Z coordinate.
+For different focal depth offsets (Z) from the optimal value,
+a different lateral characteristic will be observed. We chose
+to model the digital pathology scanner optical characteristic
+using the Born & Wolf model [34].
+hP SF (r, z) =
+C
+Z 1
+0
+J0(k NA
+n rρ)e−1
+2 ikρ2z( NA
+n )2ρdρ
+
+2
+(1)
+where,
+r - the radial distance from the optical axis along the lateral
+plane (r =
+p
+x2 + y2, where x and y are the lateral Cartesian
+coordinates)
+z - the distance between the imaging plane and the in-focus
+position along the optical axis
+C - a normalization constant
+J0 - zero-order Bessel function of the ﬁrst kind
+k - angular wavenumber of the lightsource (k = 2π
+λ )
+NA - the numerical aperture of the objective lens
+n - the refractive index of the medium
+i - the imaginary number
+ρ - the normalized coordinate in the exit pupil.
+In Figures 1(a) and 1(b), we show a mathematical model
+of the PSF function using Equation 1 in the axial plane (YZ)
+at two different x-levels. When the objective lens is in focus
+with respect to lateral plane X i.e. x = 0, the extent of the
+frequency domain-PSF is much wider in the y-direction than
+when the x-level is out-of-focus x = 4, shown in Figures 1(e)
+and 1(f). This shows the importance of proper lateral alignment
+of the objective lens to mitigate lateral diffraction.
+In Figures 1(c) and 1(d), we show the PSF in the lateral
+plane (XY) at two different z-levels. Note that the lens is in-
+focus along the optical axis when the z-level is zero, causing
+y-axial
+z-axial
+(a) x = 0
+y-axial
+z-axial
+(b) x = 4
+x-axial
+y-axial
+(c) z = 0
+x-axial
+y-axial
+(d) z = 4
+y
+z
+(e) x = 0
+y
+z
+(f) x = 4
+x
+y
+(g) z = 0
+x
+y
+(h) z = 4
+Fig. 1. 2D Plots of the PSF model deﬁned in 1, displayed at different x- and
+z- cut levels shown in both the spatial i.e. ﬁrst row from (a)-(e) and frequency
+domains i.e. second row from (e)-(h)
+the model to contain only optical aberration (mainly wavefront)
+effects. A non-zero z-level corresponds to an out-of-focus lens
+along the optical axis, causing the model to contain both optical
+aberration and out-of-focus effects. The frequency plots are
+also shown in Figures 1(g) and 1(h).
+The corresponding one-dimensional PSF models are also
+shown in Figure 2 where they are taken along y = 0 (indicated
+by the dotted red line) from the two-dimensional models shown
+in Figure 1. Note how the one-dimensional spatial-domain PSF
+is limited in amplitude for the out-of-focus case (i.e. z̸ = 0)
+compared to the in-focus case (z = 0).
+-10
+-5
+0
+5
+10
+Axial coordinate (X)
+0.05
+0.1
+0.15
+0.2
+Amplitdue
+z=0
+z=4
+(a) hP SF (x, z)|y=0
+-2
+0
+2
+Frequency ( )
+0
+0.5
+1
+Amplitdue
+z=0
+z=4
+(b) ˆhP SF (ωx)|z,y=0
+Fig. 2. The corresponding 1D PSF models taken along y = 0 (see the red
+dashed lines from z- cuts in Figure 1) from the 2D models are: (a) z ∈{0, 4}
+in spatial domain, (b) z ∈{0, 4} in frequency domain.
+B. HVS-M Kernel Design
+In the overall digital pathology process, the PSF described
+in 1 i.e. hPSF can be seen as a low-pass ﬁlter (LPF) applied
+to a natural image, causing its high-frequency components
+to attenuate and appear blurred. It is also known [35]–[37]
+that the human visual system (HVS) uses a visual sensitivity
+response to boost the high frequency response of an image
+that can be seen as a deblurring operation. See Figure 3 for a
+diagram of this process.
+Inspired by the human visual system’s high-frequency-
+boosting behavior, we propose to synthesize a HVS-like kernel
+to reverse the high-frequency attenuating behavior in digital
+pathology images resultant from the PSF of the scanner. We
+hypothesize that, by boosting the high-frequency information of
+a scanned digital pathology image that is known to characterize
+
+THIS WORK HAS BEEN SUBMITTED TO THE IEEE FOR POSSIBLE PUBLICATION
+4
+Human Visual System (HVS)
+In-focus
+Image
+Microscope
+FFT
+Sensitivity of Visual Neurons
+Visual 
+Perception
+Average Response
+to Blurry Image
+FFT
+FFT
+FFT
+FFT
+Out-of-focus
+Image
+Fig. 3. Out-of-focus blurry microscopy image observed by the human visual
+system (HVS). The in-focus image of a tissue specimen has a high frequency
+fall-off characteristic, which is further aggravated by the PSF response of the
+microscope. The human visual system is known to boost the high-frequency
+information and perform a deblurring operation, and our synthesized HVS-M
+kernels are designed to mimic this behavior.
+image focality, we will be able to characterize the overall image
+focus quality.
+Here, we design a frequency-equalizing kernel hHVS-M to
+mimic the behavior of the human visual system in boosting the
+high-frequency information attenuated by the modeled PSF:
+hPSF(r, z∗) ∗hHVS-M(r) = δ(r), r ∈[−rmax, rmax].
+(2)
+Note that z∗is the optimal microscope objective focal length
+where by accurate adjustment of this distance we count for both
+out-of-focus blur and natural image frequency falloff behavior.
+In particular, we are interested in balancing the frequency
+falloff in a bounded Fourier transform domain
+ˆhHVS-M(ω) = ˆhPSF(ω, z∗)−1, ω ∈[−ωc, ωc].
+(3)
+We model such an enhancement by deﬁning the HVS ﬁlter
+as a linear combination of even-derivative operators
+hHVS-M(r, z∗) ≡
+N
+X
+n=1
+cnd2n(r)
+(4)
+where d2n(r) = d2n/dr2n is the 2nth derivative operator. The
+Fourier transform of the model in 4 gives
+ˆhHVS-M(ω, z∗) =
+N
+X
+n=1
+cn ˆd2n(ω) =
+N
+X
+n=1
+(−1)ncnω2n.
+(5)
+The unknown coefﬁcients {cn}N
+n=1 are determined by ﬁtting
+the response 5 to the inverse of the modeled PSF up to a
+threshold frequency ωt
+argmin
+{cn}N
+n=1
+||ˆh−1
+P SF (ω) −
+N
+X
+n=1
+cn(−1)nω2n||2, ω ∈[0, ωt].
+(6)
+This threshold is deﬁned such that to avoid ﬁtting instability
+on high frequency bands (ˆh−1
+P SF (ω) ≤30 in our design case).
+Once the optimum coefﬁcients {c∗
+n}N
+n=1 are obtained from
+6, we construct the discrete model to the ﬁlter design in 5.
+We synthesize the even-order derivative ﬁlters ˆd2n as low-
+pass ﬁlters up to a cutoff frequency ωc (in order to balance
+ﬁtting spurious high-frequency noise and retaining useful high-
+frequency information) using the MaxPol ﬁlter library solution
+[31], [32] which is optimized to approximate
+ˆd2n(ω) ≈
+(
+(−1)nω2n, 0 ≤ω ≤ωc
+0, ω ≥ωc
+.
+(7)
+-2
+0
+2
+Frequency ( )
+0
+5
+10
+Amplitdue
+h-1
+PSF( )
+hHVS-M( )
+(a) ˆhPSF(ω, z∗)−1
+-10
+0
+10
+Discrete domain (k)
+-1
+0
+1
+Amplitdue
+hHVS-M[k]
+(b) hHVS-M
+Fig. 4. Approximation of HVS-M kernel using MaxPol ﬁlter library solution.
+The optimal coefﬁcients {c∗
+n}N
+n=1 are approximated and used to weigh the
+linear combination of MaxPol even derivative kernels for inverse kernel
+reconstruction. The inverse spectrum ˆhPSF(ω, z∗)−1 shown above corresponds
+to the PSF shown in Figure 2 for z = 4.
+Figure 4 demonstrates an example of an approximated HVS-
+M kernel. The inverse proﬁle ˆhPSF(ω, z∗)−1 is ﬁrst ﬁtted by
+the frequency polynomials deﬁned in (6), and the optimal
+coefﬁcients {c∗
+n}7
+n=1 are attained. These coefﬁcients are used
+to combine different MaxPol even-derivative ﬁlters to construct
+the HVS-M kernel. All of the MaxPol ﬁlters are regulated by
+a cutoff frequency ωc = 2 for discrete approximation.
+III. PATCH-BASED LEVEL FOCUS QUALITY ASSESSMENT
+The constructed HVS-M kernel deﬁned in the previous
+section can now be applied as a convolution operation to partly
+modify the frequency amplitudes of an out-of-focus image in
+order to extract sharpness features for focus quality grading in
+WSI image patch. The HVS-M kernel provides a meaningful
+transformation where the edge features across a wide frequency
+spectrum are balanced and become comparable with each other,
+and are known to be related to focus quality. Furthermore, by
+assigning a single focus quality score for each patch enables
+localized focus quality heatmap generation described in the
+next section.
+Our metric requires the input image patch to be a grayscale
+image sized 1024×1024. The focus score procedure is deﬁned
+in Algorithm 1 and a select step-by-step visualization of the
+procedure is shown in Figure 5. The algorithm requires three
+parameters z∗, ω∗
+c, m∗to be tuned as follows:
+
+THIS WORK HAS BEEN SUBMITTED TO THE IEEE FOR POSSIBLE PUBLICATION
+5
+Algorithm 1: Proposed FQPath scoring for WSI patches
+Data: Digital pathology image patch I ∈RN1×N2×3,
+Out-of-Focus Microscopy PSF hP SF (z∗) ∈R2rmax+1,
+optimal parameters {z∗, ω∗
+c, m∗}
+Result: Out-of-focus score s ∈R
+1 Synthesize inverse response of out-of-focus kernel
+{c∗
+n}N
+n=1 ←argmin
+cn
+||ˆhPSF(ω)−1 −
+N
+P
+n=1
+cn(−1)nω2n||2
+for ω ∈[0, ωt]
+2 Construct HVS-M using MaxPol lowpass derivatives
+hHVS-M[k] =
+N
+P
+n=1
+c∗
+nd2n[k]
+3 Decompose grayscale image features using HVS-M
+(Fx, Fy) = I ∗(hT
+HVS-M, hHVS-M)
+4 Activate features F R
+x = max(Fx, 0), F R
+x = max(Fy, 0)
+5 Vectorize only positive features v ≡vec(F R
+x
++, F R
+y
++)
+6 Find 95th percentile of cumulative distribution function of
+the feature vector σ0.95 = CDF(v, 95%)
+7 Find the proportion of features to be retained by
+P = 0.25(1 −tanh(60(σ0.95 −0.095))) + 0.09
+8 Find the #pixels to be retained Npix = PN1N2
+9 Find the ℓ1/2-norm feature vectors F = ||(F R
+x
++, F R
+y
++)|| 1
+2
+10 Retain F = sortdescend(F)k, k ∈{1, . . . , Npix}
+11 Calculate µm∗= E[(F −µ0)m∗], where µ0 = E[F]
+12 Record the score value by s = −log µm∗
+• z-axial PSF coordinate z∗used for the PSF model
+hPSF(z∗) deﬁned in (1)
+• Cutoff frequency ω∗
+c used for setting the cutoff response
+of the MaxPol lowpass derivative basis ﬁlters
+• Central moment m∗used for quantifying the m∗th order
+energy of the focus feature vector
+To tune these parameters, we performed a grid search to
+yield the best correlation accuracy between the subjective
+(ground-truth z-levels) and objective quality scores in our
+tuning database, which was a subset of full-FocusPath database
+introduced in [18].
+In our proposed focus quality scoring in algorithm 1, ﬁrst,
+we ﬁt the inverse PSF in the frequency domain with frequency
+polynomials up to the Nth order to obtain the optimized
+coefﬁcients {c∗
+n}N
+n=1. Then, the coefﬁcients are used to weight
+the linear combination of one-dimensional even-derivative
+MaxPol ﬁlters for synthesizing the HVS-M ﬁlter (this ﬁlter is
+calculated once and ﬁxed for subsequent image scoring). We
+then separate the input image with the HVS-M ﬁlter along
+the horizontal and vertical axes (see Figures 5(f) and 5(g))
+and exclude negative features with the ReLU function to
+avoid blurring adjacent features with redundant information
+(see Figures 5(d) and 5(e)). The feature map is vectorized
+and an adaptive proportion of the largest values are retained,
+using a nonlinear function, based on the 95th percentile of the
+feature vector’s probability distribution function (PDF). This
+ensures that only the most dominant focus-relevant features
+are preserved. The energy of the horizontal and vertical feature
+is taken in ℓ1/2-norm space to promote feature sparsity along
+the horizontal and vertical directions (see Figure 5(b)). Finally,
+we calculate the m∗th central moment of the most dominant
+values from the feature vector (see Figure 5(c)) and take its
+negative logarithm to obtain the ﬁnal focus quality score. Note
+that the focus quality score is inversely proportional to the
+focus quality, i.e. a lower score indicates better focus quality.
+(a) Original Image
+(b) F
+0
+0.5
+1
+1.5
+2
+Number of pixel
+104
+0
+0.02
+0.04
+0.06
+0.08
+0.1
+Amplitdue
+(c) Sorted features ¯F
+(d) F R
+x
+(e) F R
+y
+(f) Fx
+(g) Fy
+Fig. 5. Demo images after each single operation for metric analysis deﬁned in
+Algorithm 1. The input image is decomposed by HVS-M kernel (d) horizontally
+and (e) vertically. The positive features are activated from both decomposed
+images shown in (f) and (g), where the superimposed feature map is shown
+in (b). The features are sorted in (c) and an adaptive threshold is applied to
+keep Npix largest feature values.
+IV. WSI-BASED LEVEL FOCUS QUALITY ASSESSMENT
+Previously, we explained the focus quality measure at the
+WSI patch level, but for this measurement to be useful in a
+routine digital pathology workﬂow, it needs to be conducted
+at the tissue slide level. This way, the focus quality measure
+can be used to generate a local focus quality map (known as a
+heatmap) for an entire scanned slide. For a given whole slide
+image, we propose to divide it into patches of size 1024×1024
+px, calculate the focus quality score for each patch separately,
+apply an inverse Gaussian projection (to linearize the focus
+quality gradation), and combine the patch scores into a slide-
+level focus quality heatmap. In this section, we describe the
+WSI database that we used for testing, our proposed inverse
+Gaussian projection linearization technique, and the subjective
+whole-slide scoring we conducted to validate our generated
+heatmaps.
+A. Inverse Gaussian Projection
+One additional step is used to prepare the patch-based focus
+quality measure discussed in the previous section for slide-
+level heatmap generation - inverse Gaussian projection. This
+ensures that the score-z proﬁle (the relationship between the
+focus quality score and the known ground-truth z-level) is
+accurately linearized, which is important for proper visual
+perception of focus quality gradations and local extrema, since
+a non-linearized scale causes the heatmap to saturate near
+high and low focus quality values. We selected the inverse
+Gaussian projection to be the linearizing operation because we
+
+THIS WORK HAS BEEN SUBMITTED TO THE IEEE FOR POSSIBLE PUBLICATION
+6
+-5
+0
+5
+z-level
+6
+7
+8
+9
+10
+11
+Score
+(a) Train prof.
+-5
+0
+5
+z-level
+0
+2
+4
+6
+Score
+(b) Proj. train prof.
+-5
+0
+5
+z-level
+6
+7
+8
+9
+10
+11
+Score
+(c) Test prof.
+-5
+0
+5
+z-level
+0
+2
+4
+6
+Score
+(d) Proj. test prof.
+Fig. 6. Plots of z-proﬁle scores, showing the individual proﬁles as grey dotted
+lines, the mean proﬁles as red asterisks, and the linear/Gaussian ﬁts as blue
+solid lines, with the central grey region representing the ﬁtting window: (a)
+Regular training z-proﬁle scores, (b) Projected training z-proﬁle scores, (c)
+Regular testing z-proﬁle scores, (d) Projected testing z-proﬁle scores
+noticed that the score-z proﬁles tended to form an inverted
+Gaussian-like bell shape (as seen in Figures 6(a) and 6(c)).
+To implement and validate the inverse Gaussian projection,
+we take the full, unreleased version of the FocusPath database
+[18] (540 lateral proﬁles×16 z-levels=8640 images in total) to
+be the training set for calibrating the projection, and a separate
+set of digital pathology images to be the test set (90 lateral
+proﬁles×16 z-levels=1440 images in total) for validating the
+calibration. All proﬁles have ground-truth z-levels attached
+to them (integer values ranging from -7 to 8, inclusive). To
+train (or calibrate) the inverse Gaussian projection, we obtained
+the regular focus quality scores for these 540 training proﬁles,
+plotted them at their respective ground-truth z-levels, and found
+the mean focus quality score for each z-level (see the grey
+dotted lines and red asterisks respectively in Figure 6(a)). Then,
+we ﬁtted a Gaussian f(z) = ae−(z−b)2/c to the inverse mean
+focus quality score in the middle z-level values (i.e. the central
+grey region z ∈[−3, 3] in Figure 6(a)) to prioritize ﬁtting in the
+high focus quality region (the optimal values were determined
+to be a∗= 5.389, b∗= 0.005248, c∗= 5.301). For testing, we
+ﬁrst inverted the regular focus quality score, passed it through
+a threshold to ensure a non-negative argument to square root,
+and then applied the inverse of the ﬁtted Gaussian to the score.
+See algorithm 5 for details on the training and testing phases
+of the projection.
+Algorithm 2: Inverse Gaussian projection on FQPath scores
+Data: Training set of FQPath scores st(n, z) ∈R, where
+n = {1, · · · , 540} and z = {1, · · · , 16}
+Single test FQPath score s ∈R
+Result: Projected testing FQPath score sP ∈R
+1 Find the mean train set proﬁle ¯st(z) = En[st(n, z)]
+2 Calculate inverse mean proﬁle ¯st inv(z) = max(¯st) −¯st(z)
+3 Fit Gaussian model to inverse mean proﬁle
+{a∗, b∗, c∗} ←argmin
+{a,b,c}
+||¯st inv(z) −ae−( z−b
+c
+)2||2, where
+z ∈{−3, −2, . . . , 2, 3}
+4 Invert and threshold test set score
+sinv = min(max(¯st) −s, a∗)
+5 Map test score by inverse Gauss. sP = c∗p−log sinv
+a∗+ b∗
+As can be seen in Figure 6, the score-z proﬁles are
+signiﬁcantly more linear near inside the grey ﬁtting window
+after projection (Figures 6(b) and 6(d)) than before projection
+0
+1
+2
+3
+4
+5
+6
+7
+8
+(a) Before projection
+0
+1
+2
+3
+4
+5
+6
+7
+8
+(b) After projection
+Fig. 7. Sample heatmap before and after projection. Note the greater visual
+saliency of low focus quality regions in the heatmap after projection.
+(Figures 6(a) and 6(c)). Note that, in both the training and
+testing after-projection proﬁles, a minority of individual proﬁles
+undesirably stagnate near zero within the range z ∈[−2, 2].
+This is caused by the threshold operation required for the
+inverse Gaussian. When applied to an entire slide for heatmap
+generation, as shown in Figure 7, it is clear that the inverse
+Gaussian projection linearizes the heatmap colour scale, en-
+abling better visual perception of focus quality gradations and
+local extrema.
+B. 200-WSI Scan Database
+For the purpose of focus quality assessment at the WSI level,
+we have collected a slide database consisting of 200 different
+WSIs scanned at 40X magniﬁcation (0.25µm/pixel resolution)
+without compression using a TissueScope LE1.2 scanner. This
+database is selected from a larger set of 500 anonymized H&E
+tissue glass slides (sized 1”× 3”, 1.0 mm in thickness) mainly
+provided by Southlake Regional Hospital and made available
+to the authors courtesy of Huron Digital Pathology. The slides
+were speciﬁcally selected to cover the entire histopathological
+colour range and to exclude slides with excessive preparation
+imperfections, such as air bubbles and tissue folding. The tissue
+sections vary in thickness, organ of origin (e.g. brain, kidney,
+breast, liver, heart), and diagnosis (e.g. healthy, tuberculosis,
+cancer).
+C. Subjective Whole-Slide Scoring
+In order to validate the accuracy of the generated focus
+quality heatmaps, comparison must be made to a subjective
+score. Hence, we trained three human focus quality assessors
+to score the subjective quality of each slide at WSI-based level
+and compare these scores with the generated heatmaps. The
+assessors were trained on ground-truth views of in-focus and
+out-of-focus WSI regions displayed at 100% pixel resolution.
+A region was labeled focus-rejected when more than half of the
+screen view area was out-of-focus. Accordingly, the following
+procedure was followed:
+1) Open the WSI in the HuronViewer program 2
+2) Increase the zoom level to 100% pixel resolution
+2HuronViewer is freely available at http://www.hurondigitalpathology.com/
+resources/
+
+THIS WORK HAS BEEN SUBMITTED TO THE IEEE FOR POSSIBLE PUBLICATION
+7
+3) Using the thumbnail view, mentally plan the slide naviga-
+tion pattern of assessment points to cover as much of the
+tissue regions and as evenly as possible (for example see
+Figure 8 (left plot))
+4) Start a one-minute countdown within view of the slide
+5) Using the thumbnail view, navigate the ﬁeld of view to
+the ﬁrst assessment point
+6) Determine the ﬁeld-of-view (FOV) around the ﬁrst assess-
+ment point to be in-focus (pass) or out-of-focus (fail)
+7) Increment the count of passing and failing focus quality
+assessment points accordingly
+8) Proceed to the next assessment point (according to the
+pre-planned slide navigation pattern) and repeat steps 6
+to 8 until either one minute has passed or the pre-planned
+slide navigation pattern has been completed early
+0.2
+0.4
+0.6
+0.8
+Acceptance Ratio (subjective)
+0
+20
+40
+60
+80
+Number of WSI
+Subject #1
+Subject #2
+Subject #3
+Fig. 8. Left plot: Sample pre-planned navigation pattern of assessment points
+through a slide. The assessor navigates through different positions within the
+tissue thumbnail at 100% image resolution and records each as pass/fail. The
+ratio of pass points to total points determines the acceptance ratio of WSI
+sharpness. Right plot: Statistical distribution of acceptance ratio across 200
+WSI database and three different subjective ratings.
+As a result, each of the 200 slides was assigned two numbers
+(pass and fail counts) by the three assessors and an acceptance
+ratio (number of pass points divided by total points) was
+calculated from these counts. The statistical distribution of the
+slide acceptance ratios in the 200-WSI database is shown in
+Figure 8 (right plot). It shows the assessor subjective scores
+differ due to their varying expertise and quality criteria. One
+can obtain the mean opinion score (as is standard practice
+in image quality assessment [38], [39]) to create the relative
+subjective scoring of the whole slide image.
+V. EXPERIMENT NO.1: PATCH-LEVEL ANALYSIS
+In this section, we describe the design, implementation and
+execution of several experiments at the WSI patch level to eval-
+uate our proposed FQ metric in terms of accuracy, processing
+speed, and computational complexity. We compare our metric
+against 10 state-of-the-art NR-FQA metrics, including S3 [40],
+MLV [5], ARISMC [41], GPC [14], SPARISH [6], RISE [8],
+MaxPol [33], HVS-1 and HVS-2 [18], and MIFQ [30].
+A. Degree of Accuracy Correlation
+We perform the accuracy analysis on the regular version
+of the digital pathology database FocusPath3 introduced in
+3https://sites.google.com/view/focuspathuoft
+[18]. The database contains 864 naturally-blurred patches
+(sized 1024×1024 px) extracted from whole-slide scans. All
+11 candidate metrics are assessed to determine their correlation
+with the known ground-truth z-level of each patch, which
+is measured using the Pearson linear correlation coefﬁcient
+(PLCC), Spearman rank order correlation (SRCC), Kendall
+rank correlation coefﬁcient (KRCC) and root mean square
+error (RMSE). For more information on these four accuracy
+measures, please refer to [38], [39]. PLCC measures linear
+correlation, SRCC measures the strength and direction of
+monotonicity, KRCC indicates the ordinal association, and
+RMSE measures the difference in value. MIFQ by default
+operates on patches sized 84×84 (a variant of deep-learning
+solution), so for a fair comparison, each FocusPath patch was
+divided into 84×84 smaller patches and their average was
+computed as the overall patch-level focus score. The results
+of the accuracy measures are provided in Table V-A. The top-
+three methods for each accuracy measure are shown in bold.
+FQPath achieves the highest overall performance across all
+four different measurements, ahead of the next best metrics
+HVS-2 and MIFQ. When the scores are plotted relative to the
+absolute value of the ground-truth z-levels, as in Figure 9, it
+is clear that FQPath is by far the most correlated with the
+ground-truth.
+TABLE I
+PLCC, SRCC, KRCC, AND RMSE PERFORMANCE OF DIFFERENT FQA
+METRICS ON FOCUSPATH DATABASE. THE TOP THREE METRICS FOR EACH
+ACCURACY MEASURE ARE SHOWN IN BOLD. THE STATISTICAL
+SIGNIFICANCE (SS) OF PLCC, SRCC, AND KRCC ACCURACY RESULTS
+ARE ALSO SHOWN ON RIGHT COLUMN. ’+1’ INDICATES THAT FQPATH IS
+SIGNIFICANTLY MORE ACCURATE, ’-1’ INDICATES FQPATH IS
+SIGNIFICANTLY LESS ACCURATE, AND ’0’ INDICATES THAT THERE IS NO
+SIGNIFICANT DIFFERENCE.
+Methods
+PLCC
+SRCC
+KRCC
+RMSE
+SS
+S3 [40]
+0.7906
+0.7914
+0.6181
+1.5141
+0
+MLV [5]
+0.3201
+0.3296
+0.2347
+2.3409
++1
+ARISMC [41]
+0.2263
+0.3043
+0.2195
+2.4068
++1
+GPC [14]
+0.7499
+0.7811
+0.6020
+1.6346
+0
+SPARISH [6]
+0.3459
+0.3566
+0.2626
+2.3184
++1
+RISE [8]
+0.6509
+0.6566
+0.4903
+1.8758
++1
+MaxPol [33]
+0.7056
+0.7191
+0.5910
+1.7508
+0
+HVS-MaxPol-1 [18]
+0.8212
+0.8144
+0.6383
+1.4100
+0
+HVS-MAxPol-2 [18]
+0.8538
+0.8574
+0.6852
+1.2865
+0
+MIFQ [30]
+0.8286
+0.8200
+0.6397
+1.3834
+0
+FQPath (proposed)
+0.8556
+0.8606
+0.6888
+1.2789
+N/A
+B. Signiﬁcance of Accuracy Correlation
+To determine the statistical signiﬁcance of the PLCC and
+SRCC accuracy results, we also conducted a one-sided T-test
+with a 95% conﬁdence level between the proposed metric and
+all other metrics. As shown in Table V-A (right column), the
+proposed metric is signiﬁcantly more accurate than 4 other
+metrics and not signiﬁcantly different from the other 6 metrics.
+The overall results from both the accuracy and signiﬁcance
+tests indicate that the proposed FQPath metric outranks the
+competing methods and provides a reliable FQ measure for
+WSI quality control at the patch level.
+C. Computational Complexity Analysis
+Another characteristic of a good focus quality metric for
+digital pathology is a low computational complexity, since
+
+THIS WORK HAS BEEN SUBMITTED TO THE IEEE FOR POSSIBLE PUBLICATION
+8
+0
+2
+4
+6
+8
+10
+Ground-truth z-level
+-0.2
+-0.15
+-0.1
+-0.05
+0
+Objective score
+(a) S3 [40]
+0
+2
+4
+6
+8
+10
+Ground-truth z-level
+-50
+-45
+-40
+-35
+-30
+-25
+-20
+-15
+Objective score
+(b) MLV [5]
+0
+2
+4
+6
+8
+10
+Ground-truth z-level
+2.5
+2.6
+2.7
+2.8
+2.9
+3
+3.1
+3.2
+3.3
+Objective score
+(c) ARISMC [41]
+0
+2
+4
+6
+8
+10
+Ground-truth z-level
+-1200
+-1000
+-800
+-600
+-400
+-200
+Objective score
+(d) GPC [14]
+0
+2
+4
+6
+8
+10
+Ground-truth z-level
+2
+4
+6
+8
+10
+12
+14
+Objective score
+(e) SPARISH [6]
+0
+2
+4
+6
+8
+10
+Ground-truth z-level
+-20
+-15
+-10
+-5
+0
+5
+10
+Objective score
+(f) RISE [8]
+0
+1
+2
+3
+4
+5
+6
+7
+Ground-truth z-level
+10
+20
+30
+40
+50
+Objective score
+(g) MaxPol [33]
+0
+2
+4
+6
+8
+10
+Ground-truth z-level
+4
+5
+6
+7
+8
+9
+Objective score
+(h) HVS-1 [18]
+0
+2
+4
+6
+8
+10
+Ground-truth z-level
+22
+24
+26
+28
+30
+32
+34
+Objective score
+(i) HVS-2 [18]
+0
+2
+4
+6
+8
+10
+Ground-truth z-level
+-0.5
+-0.4
+-0.3
+-0.2
+-0.1
+Objective score
+(j) MIFQ [30]
+0
+2
+4
+6
+8
+10
+Ground-truth z-level
+6
+7
+8
+9
+10
+11
+Objective score
+(k) FQPath
+Fig. 9. Plots of each competing focus score with the absolute value of their
+associated ground-truth z-level for each image patch in FocusPath. Note how
+the plot for FQPath shows a consistent linear trend between z-level and score
+which is not paralleled by the other metrics.
+digital pathology images are usually extremely large in size.
+For example, a 1cm×1cm tissue specimen scanned at 40X
+resolution is 4.8 GB in size. We designed and executed two
+experiments for computational complexity analysis: (1) to
+compare the times required by the competing metrics for
+images of different sizes, and (2) to compare the competing
+metrics by their PLCC accuracy and their run-time per pixel (on
+2048×2048 images). Both experiments are done on a Windows
+station with an AMD FX-8370E 8-Core CPU 3.30 GHz.
+64x64
+128x128
+256x256
+512x512
+1024x1024
+2048x2048
+10-2
+10-1
+100
+101
+102
+Computation time (sec)
+ARISM
+SPARISH
+RISE
+S3
+MIFQ
+MLV
+MaxPol
+GPC
+HVS MaxPol-2
+FQPath
+HVS MaxPol-1
+10-8
+10-6
+10-4
+CPU Time/Pixel (sec)
+0.2
+0.3
+0.4
+0.5
+0.6
+0.7
+0.8
+0.9
+plcc
+S3
+MLV
+ARISM
+GPC
+SPARISH
+RISE
+HVS-1
+HVS-2
+MaxPol
+MIFQ
+FQPath
+Fig. 10.
+Left plot: Computational complexity analysis using run time vs.
+image size for different FQ methods. Right plot: PLCC vs. run time per pixel
+using different methods. Ideal methods (high accuracy, high computational
+speed) are found at the top-left corner.
+Figure 10 (left plot) demonstrates the computational com-
+plexity of all 11 FQ metrics with respect to different image
+sizes. We selected 20 sample images of different patch sizes
+i.e. {64, 128, 256, 512, 1024, 2048} and average the the CPU
+time over all 20 trials to report the computation time. Note
+that the test rank of HVS-MaxPol-1 and FQPath are consistent
+over different image sizes. For a 1024 × 1024 patch, FQPath
+takes 0.06626 s, HVS-MaxPol-2 takes double the time (0.1905
+s), and MIFQ takes 74 times (4.234 s).
+Figure 10 (right plot) demonstrates the relationship between
+PLCC performance and CPU run time. A large y- (vertical)
+axis value indicates high accuracy performance and low x-
+(horizontal) axis value indicates high speed. Therefore, an ideal
+method would be located at the top-left corner, such as FQPath,
+HVS-MaxPol-1, and HVS-MaxPol-2. Overall, FQPath performs
+excellently in terms of both accuracy and speed, proving to be
+highly reliable for digital pathology FQ assessment.
+VI. EXPERIMENT NO.2: WSI-LEVEL ANALYSIS
+At the whole-slide level, FQPath can be applied (with the
+inverse Gaussian projection) to construct a slide focus quality
+heatmap and visualize the regions of high and low focus quality.
+In this section, we propose two experiments to show the validity
+of our approach to whole-slide-level focus quality assessment:
+(1) display the FQ heatmaps generated for some select whole
+slide images, and (2) correlate the FQ heatmaps with the
+subjective slide quality scores.
+TABLE II
+RAW PYRAMID IMAGES AND HEAT MAPS. (A)-(F) SHOW THE RAW PYRAMID
+IMAGES, (G)-(L) SHOW THE CORRESPONDING FOCUS QUALITY HEATMAPS,
+AND (M)-(R) SHOW THE CORRESPONDING HEATMAP SCORE CUMULATIVE
+SUMMATION CURVES (FASTER-RISING CURVES INDICATING BETTER
+OVERALL SLIDE QUALITY). A 10-BIN HISTOGRAM OF ALL THE HEATMAPS
+IS TAKEN AND ONE EXAMPLE PATCH TAKEN FROM EACH BIN OF THE SLIDE
+(INDICATED BY THE RED ARROWS, WITH LARGER BIN NUMBERS
+INDICATING BETTER FOCUS QUALITY). SEE THE PATCHES THEMSELVES
+INSIDE FIGURE III.
+Slide-1
+Slide-2
+Slide-3
+Slide-4
+Slide-5
+WSI
+FQ-Heatmap
+Cumsum Curve
+0
+2
+4
+6
+8
+Threshold
+0
+0.2
+0.4
+0.6
+0.8
+1
+Proportion
+0
+2
+4
+6
+8
+Threshold
+0
+0.2
+0.4
+0.6
+0.8
+1
+Proportion
+0
+2
+4
+6
+8
+Threshold
+0
+0.2
+0.4
+0.6
+0.8
+1
+Proportion
+0
+2
+4
+6
+8
+Threshold
+0
+0.2
+0.4
+0.6
+0.8
+1
+Proportion
+0
+2
+4
+6
+8
+Threshold
+0
+0.2
+0.4
+0.6
+0.8
+1
+Proportion
+A. Heat Map Analysis
+In Table II, we show the FQ heatmaps generated for ﬁve
+select slides. The shade of colors in heatmaps are demonstrated
+from blue to red corresponding from low to high focus quality,
+respectively. Note how local regions of low focus quality are
+easily visible in shades of blue and cyan, and vertical scan
+
+THIS WORK HAS BEEN SUBMITTED TO THE IEEE FOR POSSIBLE PUBLICATION
+9
+artifacts in slides 1 and 3 show as stripe-like patterns. The
+distribution of patch quality scores in these focus quality
+heatmaps is indicative of overall scan quality and decide
+whether to accept or reject the scan.
+In Table III, we show example patches for each of ﬁve
+histogram bins for each heatmap. Note how the patches vary in
+focus quality from crisp tissue scans to increasing degrees
+of blur. This supports the validity of our proposed focus
+quality heatmap where the processing metric provides a reliable
+and robust analysis of focus measures within intraclass and
+interclass of tissue types across different slide images.
+TABLE III
+EXAMPLE IMAGE PATCHES FROM FIVE SLIDE IMAGES.
+Slide-1
+Slide-2
+Slide-3
+Slide-4
+Slide-5
+Bin-1
+Bin-2
+Bin-3
+Bin-4
+Bin-5
+Bin-6
+B. Subjective Whole-Slide Scoring
+In order to correlate our FQ heatmaps with our subjective
+slide quality scores, we considered the heatmap patch quality
+scores independently and generated cumulative summation
+curves to determine their distribution. In Figure II (third row),
+we show these cumulative summation curves for ﬁve different
+WSIs. In Figures 11 (left plot) we show the PLCC between the
+heatmap scores with the subjective slide scores, and determined
+the optimal heatmap score threshold to be 1.7688 based on the
+PLCC plot. And in Figure 11 (right plot), we plot the optimally-
+thresholded heatmap acceptance ratio with the subjective slide
+scores. As can be seen, the objective heatmap acceptance ratios
+form a linear relationship with the subjective acceptance ratios,
+thus indicating the feasibility of using FQPath for slide-level
+quality control.
+VII. CONCLUSION
+This paper presented an accurate and computationally
+efﬁcient automated no-reference focus quality assessment (NR-
+FQA) technique that is currently needed for digital pathology
+0
+1
+2
+3
+4
+5
+6
+7
+8
+Threshold
+0
+0.1
+0.2
+0.3
+0.4
+0.5
+0.6
+0.7
+0.8
+0.9
+PLCC
+1.7688
+Subjective FQ Score
+Subjective FQ Score (smoothed)
+0
+0.2
+0.4
+0.6
+0.8
+1
+Subjective Score
+0
+50
+100
+150
+200
+Patch Cumulative Summation AUC
+data
+fitted curve
+Fig. 11. Left plot: PLCC across different threshold values, between the slide-
+level FQPath objective score and the subjective acceptance ratio. Smoothed
+plot shown as solid line with objective acceptance threshold of 1.7688
+that maximizes correlation between the objective and subjective slide-level
+acceptance ratio. Right plot: Objective Acceptance Ratio (using acceptance
+threshold of 1.7688) vs. Subjective Acceptance Ratio. Red line indicates IQA
+ﬁt through data
+workﬂows. It provides a practical solution for high-throughput
+scanning tasks that can be utilized in both image patch (aka
+block) and whole slide image (WSI) levels for focus quality
+evaluation of image scans. The method estimates the point
+spread function corresponding to the out-of-focus of the scanner
+imaging optics and synthesizes its inverse response as a sum of
+even-derivative ﬁlter bases. This kernel behaves similarly to the
+human visual system by modifying attenuated high-frequency
+image information. A set of digital pathology images are
+convolved with this synthesized ﬁlter to extract focus quality-
+related features and quantiﬁed these features to determine the
+quality score. The accuracy and computational efﬁciency of
+the proposed method are demonstrated in two fold: (a) the
+metric is evaluated at patch level and compared to ten other
+state-of-the-art NR-FQA metrics; and (b) the application of the
+proposed metric is demonstrated at WSI level to generate local
+focus quality maps (heatmaps), which are showed to be usable
+for automatically quantifying a slide’s overall focus quality.
+The proposed NR-FQA metric retains both accuracy and
+speed that can favorably extended in different medical imaging
+applications for better engineering of QC control in helping
+clinicians/physicians to better serve the public health. Modali-
+ties include but not limited to brightﬁeld microscopy, darkﬁeld
+microscopy, ﬂuorescence microscopy, confocal microscopy, etc.
+The metric could also be used to analyze the relevance of out-
+of-focus for developing automated diagnosis tools that have
+recently gained attention in computational pathology [42]–[44].
+VIII. ACKNOWLEDGMENT
+The authors would like to greatly thank Huron Digital
+Pathology, for providing valuable discussion and a database for
+developing the experiments conducted in this paper. The ﬁrst,
+second, and third authors’ research was partially supported by
+an NSERC Collaborative Research and Development Grant
+(contract CRDPJ-486583-15).
+REFERENCES
+[1] Victor Sanchez and Miguel Hern´andez-Cabronero, “Graph-based rate
+control in pathology imaging with lossless region of interest coding,”
+IEEE Transactions on Medical Imaging, 2018.
+[2] Liron Pantanowitz, Paul N Valenstein, Andrew J Evans, Keith J Kaplan,
+John D Pfeifer, David C Wilbur, Laura C Collins, and Terence J Colgan,
+“Review of the current state of whole slide imaging in pathology,” Journal
+of pathology informatics, vol. 2, 2011.
+
+THIS WORK HAS BEEN SUBMITTED TO THE IEEE FOR POSSIBLE PUBLICATION
+10
+[3] Navid Farahani, Anil V Parwani, and Liron Pantanowitz, “Whole slide
+imaging in pathology: advantages, limitations, and emerging perspectives,”
+Pathol Lab Med Int, vol. 7, pp. 23–33, 2015.
+[4] Gloria Bueno, M Milagro Fern´andez-Carrobles, Oscar Deniz, and Marcial
+Garc´ıa-Rojo, “New trends of emerging technologies in digital pathology,”
+Pathobiology, vol. 83, no. 2-3, pp. 61–69, 2016.
+[5] Khosro Bahrami and Alex C. Kot, “A fast approach for no-reference
+image sharpness assessment based on maximum local variation,” IEEE
+Signal Processing Letters, vol. 21, no. 6, pp. 751–755, 2014.
+[6] Leida Li, Dong Wu, Jinjian Wu, Haoliang Li, Weisi Lin, and Alex C.
+Kot, “Image sharpness assessment by sparse representation,” IEEE
+Transactions on Multimedia, vol. 18, no. 6, pp. 1085–1097, 2016.
+[7] Leida Li, Weisi Lin, Xuesong Wang, Gaobo Yang, Khosro Bahrami, and
+Alex C. Kot, “No-reference image blur assessment based on discrete
+orthogonal moments,” IEEE Transactions on Cybernetics, vol. 46, no. 1,
+pp. 39–50, 2016.
+[8] Leida Li, Wenhan Xia, Weisi Lin, Yuming Fang, and Shiqi Wang, “No-
+reference and robust image sharpness evaluation based on multiscale
+spatial and spectral features,” IEEE Transactions on Multimedia, vol. 19,
+no. 5, pp. 1030–1040, 2017.
+[9] Yutao Liu, Ke Gu, Guangtao Zhai, Xianming Liu, Debin Zhao, and Wen
+Gao, “Quality assessment for real out-of-focus blurred images,” Journal
+of Visual Communication and Image Representation, vol. 46, pp. 70–80,
+2017.
+[10] Anmin Liu, Weisi Lin, and Manish Narwaria, “Image quality assessment
+based on gradient similarity,” IEEE Transactions on Image Processing,
+vol. 21, no. 4, pp. 1500–1512, 2012.
+[11] Jingwei Guan, Wei Zhang, Jason Gu, and Hongliang Ren,
+“No-
+reference blur assessment based on edge modeling,” Journal of Visual
+Communication and Image Representation, vol. 29, pp. 1–7, 2015.
+[12] Goran Gvozden, Sonja Grgic, and Mislav Grgic, “Blind image sharpness
+assessment based on local contrast map statistics,” Journal of Visual
+Communication and Image Representation, vol. 50, pp. 145–158, 2018.
+[13] Rania Hassen, Zhou Wang, and Magdy M. A. Salama, “Image sharpness
+assessment based on local phase coherence,” IEEE Transactions on
+Image Processing, vol. 22, no. 7, pp. 2798–2810, 2013.
+[14] Arthur Leclaire and Lionel Moisan,
+“No-reference image quality
+assessment and blind deblurring with sharpness metrics exploiting fourier
+phase information,” Journal of Mathematical Imaging and Vision, vol.
+52, no. 1, pp. 145–172, 2015.
+[15] Le Kang, Peng Ye, Yi Li, and David Doermann, “Convolutional neural
+networks for no-reference image quality assessment,” in Proceedings
+of the IEEE Conference on Computer Vision and Pattern Recognition,
+2014, pp. 1733–1740.
+[16] Shaode Yu, Fan Jiang, Leida Li, and Yaoqin Xi, “Cnn-grnn for image
+sharpness assessment,” in Asian Conference on Computer Vision. Springer,
+2016, pp. 50–61.
+[17] Shaode Yu, Shibin Wu, Lei Wang, Fan Jiang, Yaoqin Xie, and Leida
+Li, “A shallow convolutional neural network for blind image sharpness
+assessment,” PloS One, vol. 12, no. 5, pp. e0176632, 2017.
+[18] Mahdi S Hosseini, Yueyang Zhang, and Konstantinos N Plataniotis,
+“Focus quality metric based on visual sensitivity,”
+arXiv preprint
+arXiv:1808.00617, 2018.
+[19] Rafael Redondo, Gabriel Crist´obal, Gloria Bueno Garcia, Oscar Deniz,
+Jesus Salido, Maria del Milagro Fernandez, Juan Vidal, Juan Carlos
+Valdiviezo, Rodrigo Nava, Boris Escalante-Ram´ırez, et al., “Autofocus
+evaluation for brightﬁeld microscopy pathology,” Journal of biomedical
+optics, vol. 17, no. 3, pp. 036008, 2012.
+[20] Xavier Moles Lopez, Etienne D’Andrea, Paul Barbot, Anne-Sophie
+Bridoux, Sandrine Rorive, Isabelle Salmon, Olivier Debeir, and Christine
+Decaestecker, “An automated blur detection method for histological
+whole slide imaging,” PloS one, vol. 8, no. 12, pp. e82710, 2013.
+[21] Maria Jo˜ao M Vasconcelos and Lu´ıs Rosado,
+“No-reference blur
+assessment of dermatological images acquired via mobile devices,” in
+International Conference on Image and Signal Processing. Springer,
+2014, pp. 350–357.
+[22] Ana Jim´enez, Gloria Bueno, Gabriel Crist´obal, Oscar D´eniz, David
+Toomey, and Catherine Conway,
+“Image quality metrics applied to
+digital pathology,” in Optics, Photonics and Digital Technologies for
+Imaging Applications IV. International Society for Optics and Photonics,
+2016, vol. 9896, p. 98960S.
+[23] Sami Koho, Elnaz Fazeli, John E Eriksson, and Pekka E H¨anninen,
+“Image quality ranking method for microscopy,” Scientiﬁc reports, vol.
+6, pp. 28962, 2016.
+[24] Alma Roc´ıo Cabazos-Mar´ın and Josu´e ´Alvarez-Borrego, “Automatic
+focus and fusion image algorithm using nonlinear correlation: Image
+quality evaluation,” Optik, vol. 164, pp. 224–242, 2018.
+[25] Rom´an Hurtado-P´erez, Carina Toxqui-Quitl, Alfonso Padilla-Vivanco,
+J F´elix Aguilar-Valdez, and Gabriel Ortega-Mendoza, “Focus measure
+method based on the modulus of the gradient of the color planes for
+digital microscopy,” Optical Engineering, vol. 57, no. 2, pp. 023106,
+2018.
+[26] Gabriele Campanella, Arjun R Rajanna, Lorraine Corsale, Peter J
+Sch¨ufﬂer, Yukako Yagi, and Thomas J Fuchs, “Towards machine learned
+quality control: A benchmark for sharpness quantiﬁcation in digital
+pathology,” Computerized Medical Imaging and Graphics, vol. 65, pp.
+142–151, 2018.
+[27] Mark-Anthony Bray, Adam N Fraser, Thomas P Hasaka, and Anne E
+Carpenter, “Workﬂow and metrics for image quality control in large-scale
+high-content screens,” Journal of biomolecular screening, vol. 17, no. 2,
+pp. 266–274, 2012.
+[28] Bernd Lahrmann, Nektarios A Valous, Urs Eisenmann, Nicolas
+Wentzensen, and Niels Grabe, “Semantic focusing allows fully automated
+single-layer slide scanning of cervical cytology slides,” PloS one, vol. 8,
+no. 4, pp. e61441, 2013.
+[29] Mark-Anthony Bray and Anne E Carpenter, “Quality control for high-
+throughput imaging experiments using machine learning in cellproﬁler,”
+in High Content Screening, pp. 89–112. Springer, 2018.
+[30] Samuel J Yang, Marc Berndl, D Michael Ando, Mariya Barch, Arunacha-
+lam Narayanaswamy, Eric Christiansen, Stephan Hoyer, Chris Roat, Jane
+Hung, Curtis T Rueden, et al., “Assessing microscope image focus
+quality with deep learning,” BMC bioinformatics, vol. 19, no. 1, pp. 77,
+2018.
+[31] M. S. Hosseini and K. N. Plataniotis, “Derivative kernels: Numerics and
+applications,” IEEE Transactions on Image Processing, vol. 26, no. 10,
+pp. 4596–4611, Oct 2017.
+[32] Mahdi S. Hosseini and Konstantinos N. Plataniotis, “Finite differences in
+forward and inverse imaging problems: Maxpol design,” SIAM Journal
+on Imaging Sciences, vol. 10, no. 4, pp. 1963–1996, 2017.
+[33] Mahdi S Hosseini and Konstantinos N Plataniotis, “Image sharpness
+metric based on maxpol convolution kernels,”
+in 2018 25th IEEE
+International Conference on Image Processing (ICIP). IEEE, 2018, pp.
+296–300.
+[34] Max Born and Emil Wolf, Principles of optics: electromagnetic theory
+of propagation, interference and diffraction of light, Elsevier, 2013.
+[35] David J.Field, “Relations between the statistics of natural images and
+the response properties of cortical cells,” Josa a, vol. 4, no. 12, pp.
+2379–2394, 1987.
+[36] Nuala Brady and David J.Field, “What’s constant in contrast constancy?
+the effects of scaling on the perceived contrast of bandpass patterns,”
+Vision Research, vol. 35, no. 6, pp. 739–756, 1995.
+[37] David J.Field and Nuala Brady, “Visual sensitivity, blur and the sources
+of variability in the amplitude spectra of natural scenes,” Vision Research,
+vol. 37, no. 23, pp. 3367–3383, 1997.
+[38] Zhou Wang, A.C. Bovik, H.R. Sheikh, and E.P. Simoncelli, “Image
+quality assessment: From error visibility to structural similarity,” IEEE
+Transactions on Image Processing, vol. 13, no. 4, pp. 600–612, 2004.
+[39] H.R. Sheikh, M.F. Sabir, and A.C. Bovik,
+“A statistical evaluation
+of recent full reference image quality assessment algorithms,” IEEE
+Transactions on Image Processing, vol. 15, no. 11, pp. 3440–3451, 2006.
+[40] Vu CT, Phan TD, and Chandler DM, “S3: A spectral and spatial measure
+of local perceived sharpness in natural images,” IEEE Transactions on
+Image Processing, vol. 21, no. 3, pp. 934–945, 2012.
+[41] Ke Gu, Guangtao Zhai, Weisi Lin, Xiaokang Yang, and Wenjun Zhang,
+“No-reference image sharpness assessment in autoregressive parameter
+space,” IEEE Transactions on Image Processing, vol. 24, no. 10, pp.
+3218–3231, 2015.
+[42] Can Taylan Sari and Cigdem Gunduz-Demir, “Unsupervised feature
+extraction via deep learning for histopathological classiﬁcation of colon
+tissue images,” IEEE transactions on medical imaging, 2018.
+[43] Caner Mercan, Selim Aksoy, Ezgi Mercan, Linda G Shapiro, Donald L
+Weaver, and Joann G Elmore, “Multi-instance multi-label learning for
+multi-class classiﬁcation of whole slide breast histopathology images,”
+IEEE transactions on medical imaging, vol. 37, no. 1, pp. 316–325,
+2018.
+[44] Jon N Marsh, Matthew K Matlock, Satoru Kudose, Ta-Chiang Liu,
+Thaddeus S Stappenbeck, Joseph P Gaut, and S Joshua Swamidass,
+“Deep learning global glomerulosclerosis in transplant kidney frozen
+sections,” bioRxiv, p. 292789, 2018.

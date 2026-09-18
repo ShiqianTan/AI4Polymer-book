@@ -1,0 +1,891 @@
+Neural Network-based Classiﬁcation of Crystal Symmetries from X-Ray Diffraction Patterns
+Pascal Marc Vecsei,1 Kenny Choo,1 Johan Chang,1 and Titus Neupert1
+1Department of Physics, University of Zurich, Winterthurerstrasse 190, 8057 Zurich, Switzerland
+(Dated: December 17, 2018)
+Machine learning algorithms based on artiﬁcial neural networks have proven very useful for a variety of clas-
+siﬁcation problems. Here we apply them to a well-known problem in crystallography, namely the classiﬁcation
+of X-ray diffraction patterns (XRD) of inorganic powder specimens by the respective crystal system and space
+group. Over 105 theoretically computed powder XRD patterns were obtained from inorganic crystal structure
+databases and used to train a deep dense neural network. For space group classiﬁcation, we obtain an accuracy
+of around 54% on experimental data. Finally, we introduce a scheme where the network has the option to refuse
+the classiﬁcation of XRD patterns that would be classiﬁed with a large uncertainty. This enhances the accuracy
+on experimental data to 82% at the expense of having half of the experimental data unclassiﬁed. With further
+improvements of neural network architecture and experimental data availability, machine learning constitutes a
+promising complement to classical structure determination methodology.
+I.
+INTRODUCTION
+Elastic scattering of plane waves is a powerful technique
+to reveal the structure of translationally invariant systems.
+Diffraction has been successfully applied to atomic [1], mag-
+netic [2], superconducting vortex [3] and even protein lat-
+tices [4] to uncover their crystal structures. Such structure
+determination can have far reaching implications and promi-
+nent examples are: (i) The correct helical DNA structure was
+ﬁrst inferred from interpretation of diffraction patterns [5, 6].
+(ii) For the production of widely used carbon steel avoiding
+certain crystal structures by thermal quenching is imperative
+for high-quality material properties [7]. (iii) In drug design,
+diffraction determination of protein structures is crucial [8].
+The determination of crystal structures based on diffraction
+experiments is therefore an important activity. A sub-problem
+is the determination of crystal symmetries. As there is a ﬁnite
+number of space groups, interpretation of diffraction patterns
+is then in essence a classiﬁcation problem. A prevalent strat-
+egy is to model the diffracted Bragg reﬂections through the
+form and structure factors [1]. Crystal structure determination
+is then settled by the best ﬁt to the experimental data. The
+recent broad dissemination of machine learning algorithms in
+science, game theory and technology is driven, for a large part,
+by the ability of neural networks to – after training – classify
+data [9–25]. There, neural networks are able to acquire im-
+plicit knowledge through which classiﬁcation can be achieved
+without prior information about which features in the data are
+relevant for the classiﬁcation. It is thus of great interest to
+apply these algorithms to the interpretation of diffraction pat-
+terns [23].
+In this work, we study the problem of space group determi-
+nation from powder X-ray diffraction (XRD) patterns using
+artiﬁcial neural networks. We restrict ourselves to inorganic
+nonmagnetic materials and employ a fully supervised learn-
+ing scheme for this classiﬁcation task. To train the network,
+we generate a large amount of data theoretically, by com-
+puting diffraction patterns based on crystal structure informa-
+tion of real crystals obtained from various databases [26–32].
+The trained network is then tested on both theoretical and ex-
+perimental data, the latter being obtained from the RRUFF
+database [33]. A recent study [23] reported, using a convolu-
+tional neural network architecture, a remarkable classiﬁcation
+accuracy of over 80% on theoretical data despite failing to cor-
+rectly classify the few experimental data they obtained. We
+contrast the performance of this convolutional network with a
+simple dense network and demonstrate that the dense network
+performs signiﬁcantly better on experimental data. Further-
+more, it is found that when the network misclassiﬁes a struc-
+ture, the wrongly predicted space group often differs from
+the correct one by only a few symmetry elements. Finally,
+we show that a classiﬁcation accuracy of above 80% can be
+achieved for experimental data, if about half of the data is left
+unclassiﬁed because the network is not certain about it. This is
+practically relevant since it is better to know that a network is
+uncertain than for the network to give a wrong classiﬁcation.
+Our results demonstrate that neural networks can be useful
+in classifying experimental XRD patterns by the space group
+of the crystal even when training is done only with theoreti-
+cally computed data. While the accuracy achieved in this clas-
+siﬁcation is not sufﬁcient to rely on this method alone, it may
+be used to enhance and complement existing algorithms. In
+any case, the classiﬁcation accuracy of 50% we obtain for ex-
+perimental data is already a considerable achievement given
+that (i) there are 230 space groups to differentiate, (ii) the ex-
+perimental data is not perfect due to ﬁnite counting statistics
+and backgrounds, crystal defects, and minority phases, (iii) no
+prior knowledge about the task is used in training the network
+and the data is not pre-processed.
+The paper is structured as follows: In Sec. II we explain in
+more detail the problem that the neural network is set out to
+solve. Section III introduces the structure of the neural net-
+works that we use as well as the training algorithm.
+Sec-
+tion IV shows how the theoretical training data is prepared,
+and Sec. V discusses all the results including the performance
+comparison between the convolutional and the dense network.
+II.
+X-RAY DIFFRACTION AND CRYSTAL SYMMETRIES
+The goal of our machine learning task is to predict crys-
+tal symmetry (crystal system and space group) from powder
+arXiv:1812.05625v1  [cond-mat.dis-nn]  13 Dec 2018
+
+2
+XRD patterns. There are seven crystal systems and 230 space
+groups. In an XRD experiment, the photons scatter off the
+atoms in the crystal, interfere and produce Bragg diffraction
+patterns which are collected by a detector. Since the sam-
+ple is powdered, all crystal orientations are represented and
+hence the diffraction pattern shows rings centred about the
+beam axis, i.e., the intensity pattern S(2θ) is a function of the
+scattering angle 2θ with respect to the beam axis. In Fig. 1, ex-
+amples of such diffraction patterns are shown. Since the inter-
+ference depends on the relative positions of the atoms within
+the crystal, information regarding the crystal symmetries is
+contained within the XRD pattern.
+(a)
+(b)
+Experimentally obtained 
+XRD pattern
+Theoretically computed 
+ XRD pattern
+FIG. 1. Typical samples of powder XRD patterns. (a) XRD pat-
+tern for Borax Na2[B4O5(OH)4] · 8H2O (obtained from the RRUFF
+database); (b) Theoretically computed XRD pattern for C2(Si6Cl14)
+including noise and background.
+Both compounds belong to the
+space group 15.
+Conventional methods [34–39] for obtaining the space
+group from the XRD pattern generally involve performing
+some peak ﬁnding algorithm. Our objective is to train a neu-
+ral network such that it learns the relevant features of the
+interference pattern in order to correctly predict the crystal
+symmetry without relying on preprocessing of the data to
+identify peaks. The XRD pattern, i.e., the Bragg peak posi-
+tions in 2θ, depends on the wavelength of the photons. Gen-
+erally, the patterns can be expressed in terms of scattering
+wavevectors q = 4π sin(θ)/λ. However, for direct compar-
+ison with Ref.[23], we ﬁxed the wavelength at the copper Kα-
+line (λ = 1.54 ˚A) and hence we display our results as a func-
+tion of 2θ. Since a neural network takes a ﬁnite number of in-
+puts, we express the intensity function S(2θ) as a vector. We
+set the range from 5◦< 2θ < 90◦with a spacing of 0.01◦. In
+addition, we normalize the functions such that its largest value
+is one.
+III.
+NEURAL NETWORK AND TRAINING ALGORITHM
+Artiﬁcial neural networks are variational approximations
+to arbitrary functions. Many variants and architectures ex-
+ist. Here, we consider the so-called feedforward neural net-
+works (FFNN). They consist of a series of successively ap-
+plied maps. Each map constitutes a “layer” of the network.
+By deﬁnition, the ﬁrst layer is the input layer and the last layer
+is the output layer of the network.
+Let vn be the output of layer n and deﬁne the input to the
+network to be v0. The output of layer n is then the input
+for layer n + 1. At each layer, we perform a transformation
+to go from one layer to the next. The most important layer
+consists of an afﬁne map followed by a non-linear function
+(or activation function) gn, i.e.,
+vn →vn+1 = gn(Wnvn + bn),
+(1)
+where Wn is the so-called weight matrix and bn is the bias
+vector. When no further constraints are imposed on the weight
+matrix and bias vector, the layer is called a dense layer. In
+a so-called convolutional layer, by contrast, not all elements
+of the weight matrix can be freely chosen. There is a set of
+constraints which reduces the number of learnable parameters.
+This allows one to effectively use networks for much larger
+dimensions of the input vectors and to build both “deeper”
+and “wider” networks consisting of more layers. There are
+other types of layers with speciﬁc purpose, such as pooling
+layers and dropout layers [40].
+An important freedom in the setup of the network is the
+choice of activation function gn. For all layers apart from
+the ﬁnal output layer, we use the rectiﬁed linear unit (ReLU)
+deﬁned by
+ReLU(z) = max(0, z) ,
+(2)
+which is applied element wise to the vector vn. For the output
+layer, we use the softmax function given by
+SoftMax(vn)i =
+exp(vn,i)
+P
+j exp(vn,j).
+(3)
+This softmax function is positive deﬁnite and normalized to 1
+such that the output layer can be interpreted as a probability
+distribution.
+In this paper, we consider two different network architec-
+tures, a convolutional network (this is the same architecture
+as in Ref. [23]) and a dense network. We use a one-hot encod-
+ing for representing the different possible classiﬁcation cate-
+gories. This means that the ﬁnal layer of the network has as
+many nodes as there are categories for a certain classiﬁcation
+of the input data, i.e., 7 nodes if we are classifying crystal
+
+3
+input
+8500
+dense
+4000
+relu
+dropout, 0.6
+dense
+3000
+relu
+dropout, 0.5
+dense
+1000
+relu
+dropout, 0.4
+dense
+800
+relu
+dropout, 0.3
+dense
+230
+softmax
+input
+10001
+convolution
+f: 80, k: 100, s: 5
+relu
+dropout, 0.3
+Average Pooling
+p: 3, s: 2
+convolution
+f: 80, k: 50, s: 5
+relu
+dropout,0.3
+Average Pooling
+p: 3
+convolution
+f: 80, k: 25, s: 2
+relu
+dropout,0.3
+Average Pooling
+p: 3
+Flatten
+dense
+2300
+relu
+dropout, 0.5
+dense
+1150
+relu
+dropout, 0.5
+dense
+230
+softmax
+(a)
+(b)
+FIG. 2. Network architectures used for classifying space groups from powder XRD patterns. (a) Convolutional neural network as used in
+Ref. [23]; (b) Dense network. Blue layers represents convolutional layers with f ﬁlters of size k and stride s, green layers correspond to
+dense layers with the number of nodes given by the value within and yellow layers are dropout layers with the indicated dropout rate. The
+gray layers are the input layers with the number denoting the corresponding input size. The XRD patterns are zero padded to match the input
+size. Evaluated on the experimental samples from the RRUFF database, we achieved a accuracy of 42% for the convolutional network and an
+accuracy of 54% for the dense network.
+systems and 230 if we are classifying space groups. A fully
+conﬁdent classiﬁcation into category i then corresponds to an
+output vector equal to the unit vector in i direction. More gen-
+erally, the network’s prediction is taken to be the category with
+the largest component of the output vector. The precise net-
+work architectures we used for space group classiﬁcation are
+shown in Fig. 2. Notice that the ﬁnal layer contains 230 nodes
+corresponding to different possible space groups. The net-
+works used for classifying crystal systems are nearly identical
+apart from the ﬁnal few layers since the output layer should
+have only 7 nodes.
+We now proceed to explain how the network is trained. For
+that, we use a labelled dataset {(x, lx)} where x is the sample
+input (the XRD pattern) and lx is the correct label (the space
+group or crystal system to which the pattern belongs). Let
+the network output distribution corresponding to the input x
+be given by yx, and that corresponding to the correct label
+is deﬁned via its components yc
+x,i = δi,lx. The network is
+trained by minimizing the following cost functions: the mean-
+squared-error or quadratic cost
+Cquad = 1
+n
+X
+x
+|yx −yc
+x|2
+(4)
+and the categorical cross entropy
+Ccross = −1
+n
+X
+x
+[yc
+x · ln yx + (1 −yc
+x) · ln(1 −yx)] , (5)
+where the sum is over the training dataset. To minimize the
+cost function, we use a gradient decent type optimizer called
+adaptive moment estimation (Adam) [41] which proceeds as
+follows. We denote by αr the collection of all network param-
+eters, i.e., all the entries of weight matrices and bias vectors,
+where r indexes all these quantities.
+1. At step t, compute the gradient of the cost function C
+with respect to the network parameters,
+gr;t = ∇αrC
+(6)
+2. Compute the decaying ﬁrst and second moments of the
+past gradients
+mr;t = β1mr;t−1 + (1 −β1)gr;t,
+vr;t = β2vr;t−1 + (1 −β2)g2
+r;t,
+(7)
+where β1 and β2 are the hyperparameters controlling
+the decay rate.
+3. Because these moments are initialized to zero (mr;0 =
+vr;0 = 0), there is a bias towards zero. To counteract
+this, we deﬁne the bias-corrected moments
+ˆmr;t =
+mr;t
+1 −βt
+1
+,
+ˆvr;t =
+vr;t
+1 −βt
+2
+.
+(8)
+4. Update the parameters of the network as
+αr →αr −
+η
+p
+ˆvr;t + ϵ ˆmr;t,
+(9)
+where η is the learning rate and ϵ is a smoothing term
+to prevent division by zero.
+We used the standard values for the hyperparameters of the
+Adam optimizer: η = 0.001, β1 = 0.9, β2 = 0.999 and
+ϵ = 10−8.
+In order to speed up the training, instead of summing over
+the entire dataset in the cost functions C, we can perform the
+
+4
+sum over a randomly selected batch of samples. This intro-
+duces noise in the computation of the derivative. The smaller
+the batch size, the larger the noise. It is thus necessary to ﬁnd
+a trade-off between speed and accuracy. However, it should be
+noted that a certain amount of noise can be useful to prevent
+the network from getting trapped in local minima.
+In each iteration, a batch of samples from the training data
+is fed to the network and the parameters are updated according
+to the algorithm above. An epoch is the number of iterations
+needed to transverse the entire dataset. During the training,
+we alternate between the quadratic cost Cquad on even epochs
+and the cross entropy Ccross on odd epochs. The reason for this
+is that the categorical cross entropy helps to speed up conver-
+gence while the quadratic error is necessary for the network
+to produce a more meaningful output distribution. Without
+the quadratic error, the output of the dense network is always
+close to a one-hot encoded vector even for wrong predictions.
+IV.
+DATA PREPARATION
+The XRD patterns used for training the networks were
+computed theoretically from the crystal structure informa-
+tion obtained from the Inorganic Crystal Structure Database
+(ICSD) [26] which provides the crystallographic information
+ﬁle (CIF) of many inorganic substances. We removed du-
+plicates (some crystal structures appeared more than once in
+the database) from the training data. With this restriction, a
+dataset of 128404 samples was obtained.
+The CIF contains the necessary information required to
+compute XRD patterns. Using the Python pymatgen library
+[42], we computed the theoretical XRD pattern in terms of
+peak heights and positions from the CIF. The peak heights
+and positions are then convolved with a Gaussian function of
+variable standard deviation σ to mimic the ﬁnite experimental
+resolution.
+However, these theoretically computed patterns still lack
+counting statistics and background signals present in real ex-
+perimental data. A network trained using only such data may
+interpret the experimental noise as Bragg peaks potentially
+causing a misclassiﬁcation. To simulate statistical noise, we
+augment our XRD patterns with a random signal drawn from a
+uniform distribution. In addition, we add a background signal
+f(θ) which is the sum of the following functions:
+1. Smooth step functions:
+fstepup(θ) = h
+
+1
+1 + exp[a(θ −θstep)]
+
+fstepdown(θ) = h
+
+1 −
+1
+1 + exp[a(θ −θstep)]
+
+(10)
+where h, a and θs gives the height, steepness, and posi-
+tion of the step, respectively.
+2. Fourth-order polynomials
+fp(θ) =
+
+4
+X
+n=0
+anθn
+
+(11)
+where the coefﬁcient an are chosen randomly.
+3. To mimic enhanced background near the direct beam
+(small scattering angles 2θ), but before the beam-stop,
+we used
+fbump(θ) = h(nθ)2e−nθ
+(12)
+where h is setting the magnitude and n is a measure of
+the steepness.
+The exact details of how these background and noise parame-
+ters are chosen is given in the appendix.
+In Fig. 1, we compare the XRD pattern produced using
+the above procedure with a true experimental data from the
+RRUFF database. The noise and background signals in the
+two patterns are relatively similar suggesting that the method
+we used to create the data could help the network generalize
+better to experimental conditions. As a side note, it can be
+seen that although both crystals in Fig. 1 correspond to space
+group 15, their XRD patterns barely have any similarities that
+can be easily picked out by the naked eye. This illustrates
+the signiﬁcant difﬁculty in the classiﬁcation problem that the
+network faces.
+The full dataset is then divided into three sets: test, valida-
+tion and training. The test and validation sets have a size of
+7000 each, leaving us with 114404 samples in the training set.
+V.
+RESULTS AND DISCUSSION
+A.
+Training
+Using the dataset described in the previous section, we train
+the network architectures shown in Fig. 2. The evolution of
+the classiﬁcation accuracies of the networks over both the test
+set and the RRUFF database (real experimental data) during
+the training are shown in Fig. 3. The accuracies were averaged
+over ten trained networks initialized with a different random
+seed. For the ﬁnal prediction, the output of the network was
+averaged over the ensemble of ten networks. The ﬁnal accu-
+racies of the network ensembles are summarized in Table I.
+Figure 3 (a) and (b) shows the results for the crystal systems
+and space groups, respectively.
+Crystal systems Space groups
+Test set RRUFF Test set RRUFF
+Convolutional
+85%
+56%
+76%
+42%
+Dense
+73%
+70%
+57%
+54%
+TABLE I. Obtained classiﬁcation accuracies of the convolutional and
+dense networks for the theoretically computed test set data and for
+the experimental RRUFF data.
+As expected, the networks are clearly more accurate in clas-
+sifying the theoretical test data (which has the same noise and
+background structure as the training data) than the experimen-
+tal data (which contains noise and background structures not
+present in the training data). This suggests that despite the
+
+5
+(a)
+(b)
+(c)
+FIG. 3. Network classiﬁcation accuracies. (a) and (b) show the evolution of the network accuracies evaluated over the test set and the RRUFF
+database, which consists of experimentally obtained XRD patterns, for (a) the classiﬁcation of crystal systems and (b) the classiﬁcation of
+space groups. The accuracies are averaged over ten networks initialized with a different random seeds. While the convolutional network
+performs better on the training data in both cases, the dense network generalizes better to the experimental RRUFF database. (c) Histogram of
+the distances between network’s prediction and correct space group classiﬁcation. This distance is deﬁned on the maximal subgroup graph.
+addition of background and noise there are still important sys-
+tematic differences between the theoretical and experimental
+data which may be one of the main obstacles for obtaining
+a higher classiﬁcation accuracy on the experimental data. We
+also note that the correct classiﬁcation may not be possible for
+instance in the case of non-centrosymmetric crystals in which
+the experiment averages over twin domains. However, it is
+remarkable that this discrepancy is much larger in the convo-
+lutional network as compared to the dense network. In fact
+this discrepancy is so large that, even though the former had a
+higher accuracy over the test set, the RRUFF database is sig-
+niﬁcantly better classiﬁed by the dense network. This means
+that the dense network generalizes better to imperfect data.
+B.
+Classiﬁcation Accuracy of Individual Space Groups
+Next, we look at the classiﬁcation accuracies of individual
+space groups. Since the distribution of space groups within the
+training set is highly non-uniform, we expect that the trained
+network would perform better at classifying the more com-
+mon space groups. As can be seen in Fig. 4, this is indeed the
+case. Moreover, we also observed that the larger space groups
+(i.e., space groups with more symmetry elements) are more
+accurately classiﬁed. This is not surprising since with more
+symmetry elements there are more constraints on the struc-
+ture factors giving rise to simpler XRD patterns with fewer
+Bragg peaks.
+C.
+Maximal Subgroup Distance
+To further elucidate the classiﬁcation quality of the net-
+work, we consider the distance measure on the set of space
+groups to assess how far a wrong classiﬁcation by the net-
+work is off the correct classiﬁcation. This distance measure is
+deﬁned through the concept of maximal subgroups. A maxi-
+mal subgroup B of A is a proper subgroup such that no other
+proper subgroups C strictly contains B. This allows us to con-
+0
+50
+100
+150
+200
+Space group
+0.0
+0.2
+0.4
+0.6
+0.8
+1.0
+Accuracy
+2
+12
+14
+15
+62
+139
+194
+225
+227
+FIG. 4.
+Classiﬁcation accuracy of individual space groups.
+The
+colours denote the corresponding crystal system and the area of the
+circle indicates its relative abundance in the training set.
+Space
+groups corresponding to larger indices tend to contain more sym-
+metry elements. For instance, space group 1 contains no point group
+symmetries whereas space group 230 contains the full set of cubic
+symmetries. Depicted here are the accuracies for the theoretically
+obtained test set, because the RRUFF database is too small to pro-
+vide meaningful statistics for individual space groups. (There are
+around 800 samples for 230 space groups in the RRUFF database.)
+struct a graph where the nodes represent the space group and
+two nodes are connected by an edge if one of the correspond-
+ing space groups is a maximal subgroup of the other. We
+can then deﬁne the maximal subgroup distance between two
+space groups to be the shortest path connecting their respec-
+tive nodes. Intuitively, one may expect that A and B differ by
+a few symmetry elements such that their respective XRD pat-
+terns should be relatively similar and the network may con-
+fuse them more easily. Figure 3 (b) shows the histogram of
+distances in the maximal subgroup graph for the network’s
+prediction over both the test set and the RRUFF database. It
+clearly illustrates that even when the network’s prediction is
+incorrect, it is far from random. It often lies closer to the cor-
+
+6
+rect prediction than one would expect from a random choice.
+This also suggest a possible alternative to interpret the clas-
+siﬁcation output of the network: A space group prediction X
+indicates with high probability that the corresponding crystal
+is in X or in one of the neighbouring space groups in the max-
+imal subgroup graph.
+D.
+Analysis of the Full Output Distribution of the Network
+So far, we have only considered the space group/crystal sys-
+tem that corresponds to the maximum of the output vector y
+as the classiﬁcation result of the network. However, the net-
+work’s output y is in fact a probability distribution over the
+possible categories that contains much more information. We
+deﬁne the network’s ﬁrst prediction (this is the same as the
+network’s prediction result) as the most probable category, the
+second prediction as the next most probable and so on.
+In Fig. 5 (e), we show the ﬁrst 10 predictions of neural net-
+works evaluated on the test set and RRUFF database. As ex-
+pected, we can see from the decreasing distance between con-
+secutive data points that the ﬁrst prediction is more often cor-
+rect than the second prediction, the second prediction is more
+often correct than the third and so on. This shows that there is
+additional useful information contained within the network’s
+output on top of just its prediction which corresponds to its
+ﬁrst prediction. Therefore, if we ﬁnd that the network’s pre-
+diction is wrong, the next most likely correct answer is indeed
+the second prediction. In other words, the probability distri-
+bution over the various categories as given by the network’s
+output vector y is a good prior.
+E.
+Network Certainty
+Finally, we consider how to use network’s certainty of its
+prediction to enhance the classiﬁcation accuracies. Given a
+network output y, the certainty is then deﬁned by the proba-
+bility of the network’s prediction, i.e.,
+certainty = max
+i
+yi,
+(13)
+where i runs over all space groups/crystal systems.
+In Fig. 5 (a) and (b), we show the classiﬁcation certain-
+ties of both the convolutional and dense networks evaluated
+over the RRUFF dataset. The ﬁgures show that for the dense
+network, when the prediction is correct, the certainty is high.
+This result can be used to increase the accuracy of network
+classiﬁcations, if one allows the network to not classify inputs
+with low certainty, as follows: Let y be the network’s out-
+put for some input XRD pattern that is to be classiﬁed. If the
+networks certainty is above a certain threshold, we accept the
+classiﬁcation. Otherwise we say that the network is uncertain
+and leave the input unclassiﬁed. Figure 5 (c) and (d), shows
+the result of such a scheme: Placing the certainty threshold
+at 0.45, we get a classiﬁcation accuracy of around 82% for
+the dense network on the RRUFF database at the cost of hav-
+ing half of the data unclassiﬁed. The rationale behind such
+a tradeoff is that it is better to know that the network is un-
+certain about a (possibly low-quality) input rather than for the
+network to give a wrong classiﬁcation.
+It is imperative to use Fig. 5 for a comparison between the
+convolutional and the dense network. Whereas the dense net-
+work’s prediction is often correct when it is certain, the cor-
+relation between certainty and correct classiﬁcation is much
+weaker in the convolutional network. For instance, if we im-
+pose the same certainty threshold of 0.45 on the convolutional
+network, we would have around 69% unclassiﬁed data, and if
+we impose a threshold such that only half of the data is un-
+classiﬁed, the ﬁnal classiﬁcation accuracy is only 65%. This
+once again suggests that the convolutional network is not gen-
+eralizing well to the experimental data.
+VI.
+CONCLUSION
+We have trained neural networks for the purpose of classi-
+fying powder XRD patterns by the respective crystal system
+and space group of the crystal. The training was performed
+with theoretically computed training data based on real crystal
+structures. In order for the trained network to classify exper-
+imentally obtained data, we added noise and artiﬁcially con-
+structed background signals to the training data.
+In particular, we compared the performance of a convolu-
+tional network that was previously introduced in Ref. [23] for
+the same purpose and a deep dense neural network. We ﬁnd
+that although the convolutional network classiﬁes theoretical
+data much more accurately, it generalizes poorly to experi-
+mental data. This is consistent with the results in Ref. [23],
+where it was found that even though the network had above
+80% accuracy on theoretical data, it failed on all of three ex-
+perimental samples studied. We ﬁnd that the deep dense net-
+work has a higher classiﬁcation accuracy (54%) on experi-
+mental data than the convolutional network (42%).
+Next, to better understand the quality of the network’s pre-
+diction, we used the concept of maximal subgroups to provide
+a distance measure on the set of space groups. We found that
+even though the network might give a wrong prediction, this
+predicted space group is not random but instead lies close to
+the correct answer.
+Finally, we analyzed the network’s certainty to enhance the
+classiﬁcation accuracy. By allowing the network to be un-
+decided about a subset of the predictions, we were able to
+enhance the classiﬁcation accuracy of the dense network (on
+experimental data) to 82% at the expense of leaving around
+half of the samples unclassiﬁed. This could be considered an
+improvement since it is helpful to know beforehand that a net-
+work’s prediction is wrong. For the convolutional network, in
+contrast, we ﬁnd that the certainty is not as good an indicator
+of correctness of the network’s prediction.
+Several routes for future improvements on our results
+present themselves and may lead to broad applications of ma-
+chine learning techniques for crystallography. For one, the
+models we employ for artiﬁcial noise and background signals
+may be improved to increase the accuracy. Second, perfor-
+mant algorithms may be obtained by employing traditional
+
+7
+(d)
+(e)
+(a)
+(b)
+(c)
+FIG. 5. (a) Ratio of samples which are correctly classiﬁed by the n highest outputs. (b) and (c) are histograms showing the number of samples
+in the RRUFF database which are classiﬁed correctly or wrongly with a given certainty of the network. (b) Convolutional network. (c) Dense
+network. (d) and (e) depicts how the accuracy (fraction of correctly classiﬁed samples on the RRUFF database) of the network changes as
+the certainty cut-off is varied. The orange line gives the ratio of unclassiﬁed samples as the cut-off is varied while the blue lines shows the
+accuracy of the network given a certain ratio of unclassiﬁed samples. The dotted lines indicate the accuracy when 50% of the samples are
+unclassiﬁed. At this cut-off level, the accuracies are 65% and 82% for the (d) convolutional network and the (e) dense network, respectively.
+and machine-learning algorithms, for instance to pre-process
+the training data. Finally, a growing experimental database of
+XRD samples may provide better, experimental training data.
+ACKNOWLEDGMENTS
+We would like to thank Ruggero Frison, Antonio Cervel-
+lino, Denis Cheptiakov, Ekaterina Pomjakushina, Pascal
+Puphal, and Ann-Christin Dippel for discussions as well as
+comments on the manuscript, and for sharing of their diffrac-
+tion data. KC was supported by the European Unions Horizon
+2020 research and innovation program (ERC-StG-Neupert-
+757867-PARATOP). JC acknowledge support from the Swiss
+National Science Foundation.
+The machine learning tech-
+niques were implemented using Keras [43] with a Tensorﬂow
+backend [44].
+APPENDIX: DATA PREPARATION
+The XRD patterns used for training the networks were com-
+puted theoretically from the crystal structures information ob-
+tained from the Inorganic Crystal Structure Database [26]. We
+denote the theoretically computed XRD pattern by ftheory(θ)
+which is deﬁned on the domain θmin < θ < θmax and takes
+values in the codomain 0 ≤ftheory(θ) ≤1 . However, these
+patterns still lack the noise and background signals present in
+real experimental data. A network trained using only such
+data may interpret the experimental noise as Bragg peaks po-
+tentially causing a misclassiﬁcation. To introduce noise, we
+augment our XRD patterns with a random signal drawn from a
+uniform distribution U(0.002, 0.02) between 0.002 and 0.02.
+Next, to simulate a background we add a signal which is
+composed of four different functions. These four functions
+are selected with a 50% probability each, i.e., not all four
+functions have to appear in our background signal. We also
+deﬁne a threshold T given by
+T =
+0.1
+number of different background functions chosen,
+which controls the amplitude of each background function.
+For convenience, we also deﬁne the relative angle θrel =
+θ−θmin
+θmax−θmin . The four background functions are given by:
+1. Smooth step functions
+fstepup(θ) = h
+
+1
+1 + exp[a(θrel −θrel,step)]
+
+,
+fstepdown(θ) = h
+
+1 −
+1
+1 + exp[a(θrel −θrel,step)]
+
+,
+(14)
+where h, a and θrel,step gives the height, steepness, and
+position of the step, respectively. These parameters are
+chosen as follows: h is drawn a truncated normal dis-
+tribution h ∈[0, T] with mean µ = T/3 and standard
+deviation σ = T/7, a is sampled from a uniform distri-
+bution U(10, 60) and θrel,step for the step-up (step-down)
+function is taken from a uniform distribution, with a
+width of W = 1/7, at the left edge (right edge) of
+the domain, i.e., U(0, W) for the step-up function and
+U(1 −W, 1) for the step-down function.
+2. Polynomials (up to fourth order)
+fp(θ) =
+
+nmax
+X
+n=0
+anθn
+rel
+ ,
+(15)
+where nmax is a a random integer between 0 and 4. The
+coefﬁcient an are chosen according to:
+an =
+(
+0
+with probability 0.5
+3T
+2(nmax+1)U(−1, 1)
+with probability 0.5
+(16)
+
+8
+3. Bumps near the left edge of the XRD pattern (near θmin),
+to mimic the enhanced background near the direct beam
+fbump(θ) = h(nθrel)2e−nθrel
+(17)
+where h is the height of the bump and n is a measure
+of the steepness. h is drawn from a truncated normal
+distribution h ∈[0, 3T/5] with mean µ = 2T/5 and
+standard deviation σ = 3T/35 and n is taken from a
+uniform distribution U(40, 70).
+The full augmented XRD pattern is then given by
+f(θ) =ftheory(θ) + fstepup(θ) + fstepdown(θ)
++ fp(θ) + fbump(θ)
++ noise,
+(18)
+where the parameters of the individual functions are chosen
+independently according to the procedure described above.
+1 H. M. Rietveld, Journal of Applied Crystallography 2, 65 (1969).
+2 J. Rodrguez-Carvajal, Physica B: Condensed Matter 192, 55
+(1993).
+3 M. R. Eskildsen, E. M. Forgan, and H. Kawano-Furukawa, Re-
+ports on Progress in Physics 74, 124504 (2011).
+4 J. C. Kendrew, G. Bodo, H. M. Dintzis, R. G. Parrish, H. Wyckoff,
+and D. C. Phillips, Nature 181, 662 EP (1958).
+5 R. E. Franklin and R. G. Gosling, Nature 171, 740 EP (1953).
+6 J. D. Watson and F. H. C. Crick, Nature 171, 737 EP (1953).
+7 J. Chipman, Metallurgical and Materials Transactions B 3, 55
+(1972).
+8 C. M. Song, S. J. Lim, and J. C. Tong, Brieﬁngs in Bioinformatics
+10, 579 (2009).
+9 V. Stanev, C. Oses, A. G. Kusne, E. Rodriguez, J. Paglione,
+S. Curtarolo, and I. Takeuchi, npj Computational Materials 4, 29
+(2018).
+10 Y. Zhang, A. Mesaros, K. Fujita, S. Edkins, M. Hamidian,
+K. Ch’ng, H. Eisaki, S. Uchida, J. Davis, E. Khatami, et al., arXiv
+preprint arXiv:1808.00479 (2018).
+11 G. Pilania, A. Mannodi-Kanakkithodi, B. Uberuaga, R. Ram-
+prasad, J. Gubernatis,
+and T. Lookman, Scientiﬁc Reports 6,
+19375 (2016).
+12 O. Isayev, C. Oses, C. Toher, E. Gossett, S. Curtarolo,
+and
+A. Tropsha, Nature Communications 8, 15679 (2017).
+13 A. Seko, T. Maekawa, K. Tsuda, and I. Tanaka, Physical Review
+B 89, 054303 (2014).
+14 P. V. Balachandran, J. Theiler, J. M. Rondinelli, and T. Lookman,
+Scientiﬁc Reports 5, 13285 (2015).
+15 G. Carleo and M. Troyer, Science 355, 602 (2017).
+16 K. Ch’ng, J. Carrasquilla, R. G. Melko, and E. Khatami, Physical
+Review X 7, 031038 (2017).
+17 E. P. Van Nieuwenburg, Y.-H. Liu,
+and S. D. Huber, Nature
+Physics 13, 435 (2017).
+18 J. Carrasquilla and R. G. Melko, Nature Physics 13, 431 (2017).
+19 G. Torlai and R. G. Melko, Physical Review Letters 119, 030501
+(2017).
+20 P. B. Wigley, P. J. Everitt, A. van den Hengel, J. Bastian, M. A.
+Sooriyabandara, G. D. McDonald, K. S. Hardman, C. Quinlivan,
+P. Manju, C. C. Kuhn, et al., Scientiﬁc Reports 6, 25890 (2016).
+21 P. Baldi, P. Sadowski, and D. Whiteson, Nature Communications
+5, 4308 (2014).
+22 F. Schindler, N. Regnault, and T. Neupert, Physical Review B 95,
+245134 (2017).
+23 W. B. Park, J. Chung, J. Jung, K. Sohn, S. P. Singh, M. Pyo,
+N. Shin, and K.-S. Sohn, IUCrJ 4, 486 (2017).
+24 D. Silver, T. Hubert, J. Schrittwieser, I. Antonoglou, M. Lai,
+A. Guez, M. Lanctot, L. Sifre, D. Kumaran, T. Graepel, T. Lil-
+licrap, K. Simonyan, and D. Hassabis, Science 362, 1140 (2018),
+http://science.sciencemag.org/content/362/6419/1140.full.pdf.
+25 A. Ziletti, D. Kumar, M. Schefﬂer, and L. M. Ghiringhelli, Nature
+Communications 9, 2775 (2018).
+26 G. Bergerhoff, I. Brown, F. Allen, et al., International Union of
+Crystallography, Chester 360, 77 (1987).
+27 R. T. Downs and M. Hall-Wallace, American Mineralogist 88, 247
+(2003).
+28 S. Graˇzulis, D. Chateigner, R. T. Downs, A. F. T. Yokochi,
+M. Quir´os, L. Lutterotti, E. Manakova, J. Butkus, P. Moeck, and
+A. Le Bail, Journal of Applied Crystallography 42, 726 (2009).
+29 S. Graˇzulis, A. Dakevi, A. Merkys, D. Chateigner, L. Lut-
+terotti, M. Quirs, N. R. Serebryanaya, P. Moeck, R. T. Downs,
+and A. Le Bail, Nucleic Acids Research 40, D420 (2012),
+http://nar.oxfordjournals.org/content/40/D1/D420.full.pdf+html.
+30 A. Merkys, A. Vaitkus, J. Butkus, M. Okuli-Kazarinas, V. Kairys,
+and S. Graˇzulis, Journal of Applied Crystallography 49 (2016),
+10.1107/S1600576715022396.
+31 S. Graˇzulis, A. Merkys, A. Vaitkus,
+and M. Okuli-Kazarinas,
+Journal of Applied Crystallography 48, 85 (2015).
+32 A. Jain, S. P. Ong, G. Hautier, W. Chen, W. D. Richards, S. Dacek,
+S. Cholia, D. Gunter, D. Skinner, G. Ceder, and K. A. Persson,
+APL Materials 1, 011002 (2013).
+33 B. Lafuente, R. Downs, H. Yang,
+and N. Stone, “The power
+of databases: The rruff project,” in Highlights in Mineralogical
+Crystallography (Walter de Gruyter GmbH, 2016) pp. 1–29.
+34 P.-E. Werner, L. Eriksson, and M. Westdahl, Journal of Applied
+Crystallography 18, 367 (1985).
+35 J. Visser, Journal of Applied Crystallography 2, 89 (1969).
+36 A. Boultif and D. Lou¨er, Journal of Applied Crystallography 24,
+987 (1991).
+37 A. Le Bail, Powder Diffraction 19, 249 (2004).
+38 A. Altomare, M. Camalli, C. Cuocci, C. Giacovazzo, A. Moliterni,
+and R. Rizzi, Journal of Applied Crystallography 42, 1197 (2009).
+39 M. A. Neumann, Journal of Applied Crystallography 36, 356
+(2003).
+40 I. Goodfellow, Y. Bengio, and A. Courville, Deep Learning (MIT
+Press, 2016) http://www.deeplearningbook.org.
+41 D. Kingma and J. Ba, International Conference on Learning Rep-
+resentations (2014).
+42 S. P. Ong, W. D. Richards, A. Jain, G. Hautier, M. Kocher, S. Cho-
+lia, D. Gunter, V. L. Chevrier, K. A. Persson, and G. Ceder, Com-
+putational Materials Science 68, 314 (2013).
+43 F. Chollet et al., “Keras,” (2015).
+44 M. Abadi, A. Agarwal, P. Barham, E. Brevdo, Z. Chen, C. Citro,
+G. S. Corrado, A. Davis, J. Dean, M. Devin, S. Ghemawat,
+I. Goodfellow, A. Harp, G. Irving, M. Isard, Y. Jia, R. Jozefow-
+icz, L. Kaiser, M. Kudlur, J. Levenberg, D. Man´e, R. Monga,
+S. Moore, D. Murray, C. Olah, M. Schuster, J. Shlens, B. Steiner,
+I. Sutskever, K. Talwar, P. Tucker, V. Vanhoucke, V. Vasudevan,
+F. Vi´egas, O. Vinyals, P. Warden, M. Wattenberg, M. Wicke,
+
+9
+Y. Yu, and X. Zheng, “TensorFlow: Large-scale machine learn-
+ing on heterogeneous systems,” (2015), software available from
+tensorﬂow.org.

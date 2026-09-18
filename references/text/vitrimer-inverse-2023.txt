@@ -1,0 +1,1691 @@
+AI-guided inverse design and discovery of recyclable
+vitrimeric polymers
+Yiwen Zheng1, Prakash Thakolkaran2, Agni K. Biswal1, Jake A. Smith3,4, Ziheng Lu3,
+Shuxin Zheng3, Bichlien H. Nguyen3,4*, Siddhant Kumar2*, and Aniruddh Vashisth1*
+1Department of Mechanical Engineering, University of Washington, Seattle, WA, USA
+2Department of Materials Science and Engineering, Delft University of Technology, Delft, The Netherlands
+3Microsoft Research AI4Science
+4Paul G. Allen School of Computer Science and Engineering, University of Washington, Seattle, WA, USA
+*bnguy@microsoft.com, sid.kumar@tudelft.nl, vashisth@uw.edu
+ABSTRACT
+Vitrimer is a new, exciting class of sustainable polymers with the ability to heal due to their dynamic covalent adaptive network
+that can go through associative rearrangement reactions. However, a limited choice of constituent molecules restricts their
+property space, prohibiting full realization of their potential applications. To overcome this challenge, we couple molecular
+dynamics (MD) simulations and a novel graph variational autoencoder (VAE) machine learning model for inverse design of
+vitrimer chemistries with desired glass transition temperature (Tg) and synthesize a novel vitrimer polymer. We build the first
+vitrimer dataset of one million chemistries and calculate Tg on 8,424 of them by high-throughput MD simulations calibrated
+by a Gaussian process model. The proposed novel VAE employs dual graph encoders and a latent dimension overlapping
+scheme which allows for individual representation of multi-component vitrimers. By constructing a continuous latent space
+containing necessary information of vitrimers, we demonstrate high accuracy and efficiency of our framework in discovering
+novel vitrimers with desirable Tg beyond the training regime. To validate the effectiveness of our framework in experiments, we
+generate novel vitrimer chemistries with a target Tg = 323 K. By incorporating chemical intuition, we synthesize a vitrimer with
+Tg of 311-317 K, and experimentally demonstrate healability and flowability. The proposed framework offers an exciting tool for
+polymer chemists to design and synthesize novel, sustainable vitrimer polymers for a facet of applications.
+Introduction
+Polymers are essential to a broad range of applications from cars and wind turbines to smartphones, medical devices
+and more; however their performance decreases over their life-cycle initiated by bond breaking at the molecular
+scale due to high stress, oxidation, or other factors. Mechanical damage due to the rupturing of covalent bonds in
+traditional thermosets and thermoplastics is irreversible, resulting in crack formation and finally failure1. In such
+circumstances, plastics end up in waste streams due to the inability to serve the desired purpose, which presents two
+key challenges for sustainability. First, failure in repairing mechanical damage means polymer parts and often entire
+assemblies must be replaced, resulting in high economic cost and further increasing the 430 million tons of plastic
+produced annually. Second, the inability of polymers to repair molecular damage poses a fundamental challenge
+preventing recycling of thermosets altogether and the degradation of thermoplastics such as PET water bottles into
+highly degraded secondary raw materials.
+Healable polymers, particularly a new class called vitrimers, offer a potential solution to the plastic waste problem.
+Combining durability with end-of-life recyclability, vitrimers have the potential to greatly reduce the amount of
+plastic production and waste2. The defining molecular feature of vitrimers is associative dynamic covalent adaptive
+network (CAN) which allows the constituents of polymer chains to attach to and detach from each other while
+conserving crosslinking density under an external stimulus such as heat. This gives vitrimers the ability of self-healing
+without loss of viscosity3 (Figure 1a). This exchange of constituents is termed a rearrangement reaction, and polymer
+scientists have found multiple reaction chemistries on which to base vitrimers, including transesterification, disulfide
+exchange, and imine exchange4. However, available vitrimers have restricted thermo-mechanical properties due
+to limited commercially available monomers (i.e., building blocks) for synthesizing these polymers, which is a key
+impediment to widespread applications of vitrimers.
+The structure-property relationships of polymers have been primarily investigated in a forward manner: given
+a set of polymers, one queries their properties by experiments and simulations5,6. At the early stage, most of
+arXiv:2312.03690v4  [cond-mat.mtrl-sci]  6 Sep 2024
+
+Molecular design space of vitrimers
+a
+Carboxylic acid
+Epoxide
+1 million 
+vitrimers
+50,000 acids
+…
+…
+50,000 epoxides
+b
+Molecular dynamics – machine learning 
+framework
+Tg
+Tg = 381 K
+Tg = 486 K
+Tg = 308 K
+c
+Discovery of novel vitrimers with 
+desirable Tg
+Tg = 248 K
+Tg = 569 K
+d
+Synthesis with chemical intuition
+Target Tg = 323 K
+Chemical
+intuition
+Experimental
+synthesis
+Experimental
+Tg = 311 - 317 K
+Figure 1. Schematic overview of this work. (a) A transesterification vitrimer comprises a carboxylic acid and
+an epoxide. The reversible covalent bond between acid and epoxide allows them to detach from and attach to each
+other, thus healing the polymer. The design space for vitrimers is defined as all possible combinations of 50,000
+carboxylic acids and 50,000 epoxides and a vitrimer dataset is built by sampling from the design space. (b) We use
+calibrated MD simulations to calculate Tg on a subset of vitrimers. The vitrimer dataset and Tg are inputs to the
+VAE model. (c) By optimizing latent vectors according to desirable Tg, novel vitrimers with Tg = 569 K and 248 K
+are discovered. (d) Synthesis of novel vitrimer chemistry proposed by the framework for target Tg of 323 K (50 °C).
+the novel polymers are discovered and synthesized based on chemical intuition in a trial-and-error fashion7. As
+chemical synthesis of polymers is expensive and time consuming, virtual specimen fabrication and characterization
+of desired chemical structures using molecular dynamics (MD) simulations may be employed to reduce the cost
+of experimentation. MD is a simulation technique situated at the interface of quantum mechanics and classical
+mechanics and has been widely employed to assist the discovery process8. Virtual characterization using MD has
+helped in gaining insights about the effect of polymer molecular structures on mechanical properties9, glass transition
+temperature10 and self-healing11. However, scaled computational screens assisted by MD or other simulation methods
+remain costly, even with the development of high-performance computing12. As a result, the searchable design space
+is limited to the order of 103 to 105 compositions.
+Advances in machine learning (ML) algorithms offer an opportunity to accelerate polymer discovery by learning
+from available data, revealing hidden patterns in material properties13 and reducing the need for costly experiments
+and simulations14. Various ML methods have been employed to design organic molecules and polymers, including
+forward predictive models15–18, generative adversarial networks19–21, variational autoencoders (VAEs)22–26, diffusion
+models27,28 and large language models29. The trained ML models can be further used for high-throughput screening
+or conditioned upon physical properties to achieve the inverse design of polymers from properties of interest, such as
+glass transition temperature (Tg)16,17, thermal conductivity18,30,31, bandgap25 and gas-separation properties18,32.
+The success in these ML models depends on the choice of suitable representations, which is challenging due to
+the discrete and undefined degrees of freedom of molecules and polymers. To date, researchers have employed
+strings33,34, molecular fingerprints35 and graphs36 to represent molecules and monomers in ML models. In this work,
+we propose a graph VAE model employing dual graph encoders and overlapping latent dimensions37,38 which enable
+representation of multi-component vitrimers and controlled design of selective components simultaneously.
+Last few years have seen an increased contribution to structures and properties databases of polymers and
+molecules such as ZINC1539, ChemSpider40 and PubChem41. However, a dataset of vitrimers to train such a deep
+generative model is lacking. Furthermore, part of the dataset needs to be associated with the property of interest to
+enable property-guided inverse design. Vitrimers are characterized by two key thermal properties: glass transition
+temperature (Tg) and topology freezing temperature (Tv). Tg describes the transition from glassy state to rubbery
+state while Tv describes the transition from viscoelastic solids to viscoelastic liquids. At service temperatures,
+vitrimers perform like traditional polymers, but when heated to Tv, the chains gain mobility and carry out exchange
+2/16
+
+reactions at the reactive sites. Traditionally, vitrimer polymers exhibit Tv > Tg11,42; this makes their future
+application easier since Tg dictates design protocols, and healing in vitrimers happens at temperatures higher than
+Tg. Therefore, in this work, we focus our efforts on designing vitrimers with targeted Tg. We build the first vitrimer
+dataset derived from the online database ZINC1539 and calculate Tg by calibrated MD simulations on a subset of
+vitrimers (Figure 1a,b).
+Leveraging this vitrimer dataset, we build an integrated MD-ML framework for discovery of bifunctional
+transesterification vitrimers with desirable properties specifically targeted Tg for the scope of this work (Figure 1b).
+Each vitrimer contains two reactive constituents (i.e., carboxylic acid and epoxide). Furthermore, the discrete nature
+of the molecules prohibits a smooth and continuous design space. For example, while molecules are interpretable to
+human, they are not interpretable to a numerical optimizer for design of vitrimers. To this end, we develop a VAE
+that receives as input a vitrimer represented by graphs and subgraphs of the constituents and produces a smooth
+and continuous latent space. In such a latent space, two similar vitrimers are located close to each other while an
+optimizer can traverse the space of all possible vitrimers. Our unique VAE framework offers both constituent-specific
+and joint latent spaces of the chemical constituents, i.e., continuous screening and optimization can be performed
+on just one or both of the constituents. This enables interpretability on the effects of optimizing over, e.g., acid
+only, epoxide only, or simultaneously acid and epoxide molecules. The efficacy of the framework is demonstrated by
+discovering novel vitrimers with Tg both within and well beyond the dataset. Specifically, while the Tg in the training
+data ranges from 250 K to 500 K, we discover vitrimers with Tg around 569 K and 248 K (Figure 1c). To validate
+the framework predictions, we generate vitrimer chemistries with a Tg of 323 K (50 °C). We choose this Tg range to
+develop vitrimers comparable to commonly used polyamides that find applications in transportation, electronics,
+consumer goods, and packaging. We examine the top candidates suggested by framework and use chemical intuition
+to further ensure simpler synthesizability and thermodynamic stability (Figure 1d). The novel, synthesized vitrimer
+is characterized and experimental Tg is in good agreement with inverse design target Tg. This validates the proposed
+framework, which is sufficiently general to be applied to different types of vitrimers and their properties, as a tool
+for polymer chemists to discover and synthesize novel vitrimer chemistries with desirable properties.
+Results
+Design space and data generation
+We begin by creating a vitrimer dataset to train the VAE model. Since there are only a few available bifunctional
+transesterification vitrimers recorded in literature, we create a dataset of hypothetical vitrimers by combining
+carboxylic acids and epoxides. We first build two datasets by collecting available bifunctional carboxylic acids
+and epoxides from the online chemical compound database ZINC1539. To further broaden the chemical space,
+we augment the datasets by adding hypothetical carboxylic acids and epoxides derived from available alcohols,
+olefins and phenols in the ZINC15 database. In both datasets, molecules satisfying all following rules are kept: (i)
+Carboxylic acid and epoxide-containing monomers have exactly two occurrences of their defining functional group (to
+restrict compositions to linear chains). (ii) Molecules with molecular weight smaller than 500 g/mol (to restrict the
+sizes of the molecular graphs and facilitate training of the graph VAE). (iii) Molecules with C, H, N, O elements only
+(to emulate the existing transesterification vitrimers). After filtering, two datasets of around 322,000 carboxylic acids
+and 625,000 epoxides are constructed. To ensure synthesizability, we select the 50,000 acids and 50,000 epoxides with
+lowest synthetic accessibility (SA) scores43 (i.e., those predicted to be easiest to synthesize). The final dataset is
+built by randomly sampling one million vitrimers from the design space of 2.5 billion possible combinations between
+the selected acids and epoxides, as shown in Figure 2a.
+To achieve property-guided inverse design, we further compute Tg of the vitrimers. Since MD simulations of the
+entire one-million dataset are computationally intractable, we calculate Tg of 8,424 vitrimers randomly sampled
+from the dataset. The quantity can cover a sufficient amount of vitrimers in the design space as well as keep the
+computational cost to a reasonable level. For each vitrimer, we create a virtual specimen then minimize and anneal
+the structure to remove local heterogeneities by slowly heating it to 800 K. A snapshot of the annealed system of an
+example vitrimer (adipic acid and bisphenol A diglycidyl ether) is shown in Figure 2a. The annealed structure is
+held at 800 K for an additional 50 ps and five specimens separated by 10 ps are obtained. To measure densities at
+different temperatures for Tg calculation, each specimen is cooled down from 800 K to 100 K linearly in steps of 10
+K. By fitting a bilinear regression to the density-temperature profile, we calculate Tg as the intersection point of the
+two linear regressions (Figure 2a). Five replicate simulations are carried out from each specimen to reduce the noise
+due to the stochastic nature of MD. The distributions of average Tg and coefficient of variation (i.e., ratio of the
+standard deviation to the mean) in Tg of the vitrimers calculated by the five replicate MD simulations are shown
+in Supplementary Figures 2a and 2b, respectively. The coefficients of variation in Tg of most of the vitrimers are
+3/16
+
+a
+Vitrimer dataset
+1 million 
+vitrimers
+50,000 acids
+…
+…
+50,000 epoxides
+MD simulations
+C
+O
+H
+8,424 vitrimers
+randomly
+sampled
+Generating vitrimer Tg data
+b
+Training GP model
+...
+...
+Gaussian
+Process
+ΔTg
+c
+Calibrating vitrimer Tg data
+...
+Trained
+GP
+ΔTg
++
+ΔTg
+before calibration
+mean 423 K
+after calibration
+mean 373 K
+Figure 2. Data generation by MD simulations and calibration by GP model. (a) The vitrimer dataset is
+obtained by randomly sampling one million combinations between 50,000 bifunctional carboxylic acids and 50,000
+epoxides derived from the ZINC15 database. MD simulations are carried out to calculate Tg on a subset of 8,424
+vitrimers. (b) We train a GP model to predict experiment-MD difference ∆Tg with a training set of 295 polymers
+with experimental Tg in literature. (c) Using the trained GP model, we calibrate MD-calculated Tg of the vitrimer
+dataset. The calibrated Tg, serving as a proxy of experimental Tg, is the design target of this work.
+below 0.1 with only a few around 0.15, indicating the low uncertainty in our MD simulations. More details on MD
+simulations are provided in Supplementary Note 1.
+Due to the large difference in the cooling rate between MD simulations and experiments, MD-calculated Tg is
+typically overestimated compared with experimental measurements. Compensating for this artifact, Afzal et al.
+have achieved good correlation between MD-simulated Tg and experimental Tg on 315 polymers using ordinary least
+squares44. However, we find empirically that a simple two-parameter linear fit is insufficient to reduce the effect of
+larger noise in our MD simulations with smaller systems and fewer replicates (see Supplementary Figure 3c). Instead,
+we employ a Gaussian process (GP) regression model to calibrate MD calculations against available experimental
+data. GP is a probabilistic model that uses a kernel (covariance) function to make probabilistic predictions based on
+the distance between the queried data point and a training set45. In order to construct a training dataset for the GP
+model, we gather 292 polymers from the Bicerano Handbook46 and the Chemical Retrieval on the Web (CROW)
+polymer database47, each with documented experimental Tg. If the same polymer appears in both literature sources
+with different recorded Tg, the average of both values is calculated as final Tg. The available experimental data
+of three bifunctional transesterification vitrimers11,48,49 is also included and the dataset contains 295 polymers in
+total. We compute Tg for this experimental polymer dataset using the MD protocols described above and calculate
+the experiment-MD difference ∆Tg for each of these polymers. To numerically represent both the polymers within
+the training set and the vitrimers to be calibrated as inputs for the GP model, we apply extended-connectivity
+fingerprints (ECFPs)35 to the repeating units of the polymers, where asterisks (*) indicate connection points. We
+train the GP model to predict ∆Tg from molecular fingerprints, as shown in Figure 2b. The calibrated Tg is defined
+as
+Tg = T MD
+g
++ ∆T GP
+g
+,
+(1)
+where T MD
+g
+is the MD-calculated Tg and ∆T GP
+g
+is the experiment-MD Tg difference predicted by the GP model.
+4/16
+
+Acid: 𝒢a
+Epoxide: 𝒢e
+Graph encoders:
+𝒬𝜙a
+a , 𝒬𝜙𝑒
+𝑒
+Probabilistic latent space
+Graph decoders:
+𝒫𝜃a
+a , 𝒫𝜃𝑒
+𝑒
+Acid: 𝒢𝑎′
+Epoxide: 𝒢𝑒′
+Properties: Tg
+Property
+predictor:
+ℱ𝜔
+𝒛a
+𝒛e
+𝝁e
+(log 𝝈e2)
+𝝁a
+(log 𝝈a2)
+𝝁
+(log 𝝈2)
+𝒛
+ 
+ 
+ 
+  
+ 
+  
+ 
+ 
+  
+  
+ 
+  
+ 
+ 
+  
+  
+ 
+ 
+ 
+  
+Figure 3. Illustration of the VAE model. The encoders convert acid and epoxide molecules into latent vectors z
+in a continuous latent space. The latent vectors z are further decoded into acid and epoxide molecules by the
+decoders. A property predictor is added to predict Tg from z.
+More details on molecular fingerprints and the kernel function are provided in Supplementary Note 2.
+To evaluate the performance of our GP model, we implement leave-one-out cross validation (LOOCV). In this
+process, we train our GP model on all data points in the training set except one point and predict its calibrated Tg.
+We repeat this process for all 295 polymers in the training set and compare the calibrated Tg with experimental Tg
+recorded in literature. The mean absolute error (MAE) is 28.07 K (Supplementary Figure 3), which is comparable to
+the results by Afzal et al.44 (MAE = 27.35 K) with larger systems and longer simulation time. The error is partially
+attributed to inconsistencies in recorded experimental Tg between the two literature sources46,47. Experimentally
+measured Tg values for some polymers (such as polypropylene, polyvinylcyclohexane, etc.) differ by approximately 30
+K gathered from two literature sources46,47. By utilizing the comprehensive GP model trained on the entire training
+dataset without LOOCV, we proceed to calibrate Tg of the vitrimer dataset calculated by MD simulations. The
+distributions of Tg of the vitrimers before and after GP calibration are shown in Figure 2c and both distributions
+approach Gaussian. The average Tg before and after calibration is 423 K and 373 K, respectively. Since the cooling
+rate in our MD simulations is 12 orders of magnitude higher than typical experiments, the difference of 50 K is
+consistent with the Williams–Landel–Ferry theory that estimates an increase in Tg of 3 to 5 K per order of magnitude
+increase in the cooling rate50. Ten vitrimers with highest and lowest calibrated Tg are shown in Supplementary
+Figure 4, indicating the wide chemical and property space covered by the dataset. In this work, we denote Tg as the
+calibrated value from MD simulations, which serves as a proxy of the true experimental Tg. It is also the input to
+the variational autoencoder and target of inverse design.
+Variational autoencoder
+The discrete nature of molecules makes it challenging for the generative model to learn a continuous latent space
+from discrete data of vitrimers. Any two molecules can have different degrees of freedom (e.g., number of atoms
+and bonds) and extra attention needs to be paid to the choice of representations. Here we adopt the hierarchical
+graph representation of molecules developed by a Jin et al.24. A molecule is first represented as a graph G = (V, E)
+with atoms as nodes V and bonds as edges E. We decompose the molecule G into n motifs M1, ..., Mn. Each motif
+Mi = (Vi, Ei) where i ∈{1, ..., n} is a subgraph with atoms Vi and edges Ei. The ensuing step involves a three-level
+hierarchical graph representation (see Supplementary Figure 5 for a schematic illustration). The motif level GM
+establishes macroscopic connections in a tree-like structure, the attachment level GA encodes inter-motif connectivity
+via shared atoms, and the atom level G captures finer atomic relationships. More details about the hierarchical
+graph representation are presented in Supplementary Note 3.1.
+We use a variational autoencoder (VAE) comprising two pairs of hierarchical encoders and decoders associated
+with the hierarchical representations of acid and epoxide molecules, respectively. A schematic of the framework is
+presented in Figure 3. Each of the hierarchical encoder uses three message passing networks (MPNs) to encode
+the graphs from each of the three levels. The acid encoder Qa
+ϕa (with trainable parameters ϕa) maps the molecular
+graph of the acid molecule Ga into a pair of vectors µa ∈Rda and log σa2 ∈Rda of dimension da, which are the
+mean and logarithm variance of a Gaussian distribution. Similarly, µe ∈Rde and log σe2 ∈Rde of dimension de are
+converted from the epoxide molecule Ge by the epoxide encoder Qe
+ϕe.
+5/16
+
+We employ the attributed network embedding method37,38 to obtain the unified mean µ and log variance log σ2
+of dimension d embedding information of the acid and epoxide as well as their unified effects as follows. We define
+dae = da + de −d denoting the overlapping dimensions of µa and µe and calculate µ by
+µ =
+
+
+µa
+1
+...
+µa
+da−dae
+
+
+|
+{z
+}
+acid-specific
+⊕1
+2
+
+
+
+
+
+µa
+da−dae+1
+...
+µa
+da
+
++
+
+
+µe
+1
+...
+µe
+dae
+
+
+
+
+
+|
+{z
+}
+shared
+⊕
+
+
+µe
+dae+1
+...
+µe
+de
+
+
+|
+{z
+}
+epoxide-specific
+,
+(2)
+where ⊕denotes vector concatenation. The unified log variance vector log σ2 is obtained similarly. Partially
+overlapping latent dimensions enable both independent and joint control as well as interpretability of embeddings of
+acid and epoxide. When exploring the latent space and optimizing latent vectors for new vitrimers later, it also
+allows us to change one part of the vitrimer but keep the other one unaltered.
+The unified mean µ and variance σ2 together describe a diagonal multivariate Gaussian distribution
+z ∼N
+ µ1, ..., µd
+⊺, diag
+ σ2
+1, ..., σ2
+d
+⊺
+,
+(3)
+where z is the latent vector (representation) of dimension d encoding necessary information of both input graphs Ga
+and Ge. To keep differentiability and facilitate the training of VAE, the reparameterization trick51 is used to sample
+the latent vector z from µ and σ2 by
+z = µ + ϵ ⊙
+
+σ2
+1, ..., σ2
+d
+⊺,
+(4)
+where ϵ ∼N(0, I) is a vector of dimension d and ⊙denotes element-wise multiplication. The acid decoder Pa
+θa
+(with trainable parameters θa) is used to output the acid molecule Ga′ from the acid-specific and shared dimensions
+of z. Similarly, the epoxide decoder Pe
+θe is used to output the epoxide molecule Ge′ from the epoxide-specific and
+shared dimensions of z. More specifically, the decoders iteratively expand the graphs at three hierarchical levels. At
+step t, three multilayer perceptrons (MLPs) are used to predict the probability distributions of each motif node
+p′
+Mt, attachment node p′
+At and atoms to be attached p′
+(u,v)t (see Supplementary Note 3.2 for more details). An
+additional MLP is used to predict the probability of backtracing p′
+bt, i.e., when there will be no new neighbors to
+add to the motif node. Both decoders are optimized to accurately reconstruct the molecules, i.e., Ga′ ≈Ga and
+Ge′ ≈Ge. Practically this is achieved by minimizing the error between all four predicted probability distributions
+with respect to the one-hot encoded ground truth, i.e., pMt, pAt, p(u,v)t and pbt for t = 1, ..., tmax where tmax
+is the maximum number of iterations based on depth-first search of the input molecule (here for simplicity we
+omit superscripts a and e denoting acid and epoxide). Encoding input vitrimers as described here introduces an
+information bottleneck52 within the latent representation. This bottleneck selectively retains necessary information
+required for accurate vitrimer reconstruction while largely reducing the dimensionality and complexity of original
+data. As a result, vitrimers with similar compositions occupy proximate positions in the latent space.
+In order to achieve data-driven design and uncover novel vitrimers with the interested property, we establish a
+connection between the latent space and Tg. This is accomplished by employing a neural network surrogate model
+that takes the latent vectors as inputs and outputs Tg. Consequently, we modify the original VAE architecture and
+establish a projection from the latent space to Tg by incorporating the latent vectors z into a property prediction
+model Fω (with trainable parameters ω). Thereby, the predicted property is
+T ′
+g = Fω(z).
+(5)
+We collect two subsets from the vitrimer dataset, one with N vitrimers lacking property labels D = {(Ga(i), Ge(i)) :
+i = 1, ..., N}, and one with Nprop vitrimer and Tg pairs Dprop = {(Ga(i), Ge(i), T (i)
+g ) : i = 1, ..., Nprop}. Due to the
+large difference between N and Nprop (999,000 vs. 7,424), we first train the VAE on an unsupervised basis with D
+and the property predictor is not optimized. Specifically,
+θa, θe, ϕa, ϕe ←arg min
+θa,θe,ϕa,ϕe
+N
+X
+i=1
+
+CE
+
+p(i)
+M
+′, p(i)
+M
+
++ CE
+
+p(i)
+A
+′, p(i)
+A
+
++ CE
+
+p(i)
+(u,v)
+′, p(i)
+(u,v)
+
++ BCE
+
+p(i)
+b
+′, p(i)
+b
+
+|
+{z
+}
+reconstruction loss
++ λKL
+1
+N
+N
+X
+i=1
+DKL
+
+N
+h
+µ(i)
+1 , ..., µ(i)
+d
+i⊺
+, diag
+h
+σ(i)
+1
+2, ..., σ(i)
+d
+2i⊺
+∥N (0, I)
+
+|
+{z
+}
+Kullback–Leibler divergence
+,
+(6)
+6/16
+
+where CE and BCE denote cross entropy loss and binary cross entropy loss53, respectively. For simplicity, the
+subscript t and superscripts a and e are omitted and all terms in reconstruction loss represent the sum over all
+decoding steps and over acid and epoxide. λKL > 0 is the regularization weight for Kullback–Leibler divergence.
+Training the VAE with D aims to construct well-trained encoders and decoders capable of accommodating a diverse
+array of vitrimers. The reconstruction loss ensures the accurate reconstruction of the encoded vitrimers with respect
+to both acid and epoxide molecules by the VAE. The Kullback–Leibler divergence (KLD)54 is a statistical measure to
+quantify how different two distributions are from each other. Hence, by employing it as a loss term51, we minimize
+the difference between the probability distribution of the latent space created by the encoder and the standard
+Gaussian distribution N(0, I). This helps in constructing a seamless and continuous latent space from which new
+samples can be generated using standard Gaussian distribution and allows us to discover and design novel vitrimers
+not present in the training set. The KLD is calculated as
+DKL
+ N
+ µ1, ..., µd
+⊺, diag
+ σ2
+1, ..., σ2
+d
+⊺
+∥N (0, I)
+
+= 1
+2
+d
+X
+j=1
+[µ2
+j + σ2
+j −log(σ2
+j ) −1].
+(7)
+Subsequently, we use Dprop to jointly train encoder, decoder and property predictor at the same time, i.e.,
+θa, θe, ϕa, ϕe, ω ←
+arg min
+θa,θe,ϕa,ϕe,ω
+Nprop
+X
+i=1
+
+CE
+
+p(i)
+M
+′, p(i)
+M
+
++ CE
+
+p(i)
+A
+′, p(i)
+A
+
++ CE
+
+p(i)
+(u,v)
+′, p(i)
+(u,v)
+
++ BCE
+
+p(i)
+b
+′, p(i)
+b
+
+|
+{z
+}
+reconstruction loss
++ λKL
+1
+Nprop
+Nprop
+X
+i=1
+DKL
+
+N
+h
+µ(i)
+1 , ..., µ(i)
+d
+i⊺
+, diag
+h
+σ(i)
+1
+2, ..., σ(i)
+d
+2i⊺
+∥N (0, I)
+
+|
+{z
+}
+Kullback–Leibler divergence
++
+1
+Nprop
+Nprop
+X
+i=1
+
+T (i)
+g
+′ −T (i)
+g
+2
+|
+{z
+}
+property prediction loss
+.
+(8)
+The additional property prediction loss ensures accurate prediction of Tg from latent vectors. This joint training
+process reorganizes the latent space and places vitrimers with similar Tg in close proximity to each other. More
+details about hierarchical encoder and decoder, network architecture, training protocols and hyperparameters are
+presented in Supplementary Notes 3.1 and 3.2.
+Performance of the VAE
+We first evaluate the ability of the VAE to reconstruct a given vitrimer. We encode the vitrimers in the test set into
+mean vectors of latent distribution µ then decode µ back to vitrimers. The ratio of successfully reconstructed (i.e.,
+both carboxylic acid and epoxide decoded from µ are identical to input molecules) is 85.4%, which demonstrates
+well-trained encoders and decoders capable of accommodating and reconstructing vitrimers unseen by the VAE.
+Examples of ten vitrimers from the test set and the corresponding reconstructions are presented in Supplementary
+Figure 6. Eight vitrimers are perfectly reconstructed, while one component of vitrimers is decoded into different but
+similar molecules in the two unsuccessful examples.
+We then assess the performance of the VAE to generate vitrimers. We sample 1,000 latent vectors z from standard
+Gaussian distribution and decode them into the carboxylic acid and epoxide molecules constituting vitrimers. 85.2%
+of the sampled vitrimers are valid, i.e., the composing acid and epoxide molecules are chemically valid and contain
+exactly two carboxylic acid and epoxide groups. Even though the decoders are not explicitly coded to only output
+carboxylic acids and epoxides (e.g., by making the decoders build up molecules based on two carboxylic acid and
+epoxide functional groups), most of the randomly sampled latent vectors are decoded to molecules containing the
+desired functionality. Examples of sampled vitrimers are shown in Supplementary Figure 7. Components of the
+three invalid sampled vitrimers are also carboxylic acids and epoxides but do not have exactly two functional groups.
+Apart from validity, we are also interested in novelty and uniqueness of the generated vitrimers, which are defined
+as the ratio of sampled vitrimers which are not present in the training set and the expected fraction of unique
+vitrimers per sampled vitrimers, respectively. Results show that all of the 1,000 vitrimers sampled from the latent
+space are novel and unique, which greatly benefits the discovery of vitrimers by exploring the latent space.
+7/16
+
+We further examine the effect of joint training with the small dataset Dprop containing a limited number of
+labeled vitrimers. All four metrics of the model before and after joint training are presented in Supplementary Table
+3. The improved reconstruction accuracy and sample validity show that the second-step joint training enhances the
+performance of the model and that the encoders and decoders are not biased to the limited data in Dprop.
+The property predictor maps latent space encoded from vitrimers to Tg and serves as a surrogate model for
+estimating Tg without the need for costly MD simulations. We evaluate the predictive power of the property
+predictor network by encoding the vitrimers in the test set into mean vectors µ and predicting the associated Tg.
+The predicted Tg and true Tg are compared in Supplementary Figure 8. A mean absolute error of 13.53 K indicates
+accurate prediction of Tg by the property predictor which facilitates the inverse design process.
+The VAE jointly trained with the property predictor organizes the latent space such that vitrimers exhibiting
+similar properties are positioned in the vicinity of each other. We examine the distribution of latent vectors and
+corresponding Tg of the labeled datasets using principal component analysis (PCA). As shown in Supplementary
+Figure 9a and 9b, the distribution of the latent vectors shows an obvious gradient in both training and test sets,
+where vitrimers with higher Tg cluster in the lower left region. Such a well-structured latent space based on properties
+benefits discovery of novel vitrimers with desired Tg. For comparison, the latent vector distribution before joint
+training is presented in Supplementary Figure 9c and 9d. The much less obvious trend confirms the effect of joint
+training on latent space organization.
+Interpretable exploration of the latent space
+The well trained, continuous latent space enables us to discover new vitrimers by exploring the latent space through
+modifications of latent vectors z. For example, we start with the latent vector z0 of a known vitrimer (adipic
+acid and bisphenol A diglycidyl ether) as origin and sample latent vectors in the neighborhood by perturbing z0.
+Previous works that employ multi-component VAEs (i.e., VAEs with multiple encoders and decoders) simply add
+embedding or mean (log variance) vectors from encoders to derive the unified latent vector z32. The effect of
+different components is not considered individually and a change in z leads to potential changes in all components.
+The partially overlapping latent dimensions (Equation 2) allow us to explore the vicinity of the origin z0 along
+different axes by adding noise to acid-specific latent dimensions (first da dimensions of z0), epoxide-specific latent
+dimensions (last de dimensions of z0) and all latent dimensions of z0 (details are provided in Supplementary Note
+3.4). Consequently, novel vitrimers with changes in only acid, only epoxide and both components are identified by
+decoding the latent vectors modified along three axes, as shown in Figures 4a-c. The decoded vitrimers present
+variety in molecular structures without significant changes in Tg (Figure 4f) due to limited search region in latent
+space, which opens an opportunity to tailor a specific vitrimer to its novel variants with different molecular structures
+but preserve certain property similarity.
+Besides neighborhood search, we perform an interpolation between two points in the latent space and identify
+a series of new vitrimers along the path. Figure 4d presents an example of spherical interpolation (SLERP)55
+between vitrimers with highest and lowest Tg in the training set. As opposed to linear interpolation (LERP), we
+use SLERP because Gaussian distribution in high dimensions closely follows the surface of a hypersphere. The
+decoded vitrimers show a smooth transition from the low-Tg vitrimer with linear structure to the high-Tg vitrimer
+with more aromatic nature. The continuous transition between molecular structures and Tg (Figure 4f) evidences
+the smoothness of the latent space with associated Tg. The vitrimers discovered by LERP and their associated Tg
+are shown in Supplementary Figure 10. More details on spherical and linear interpolation schemes are presented in
+Supplementary Note 3.4.
+Inverse design by Bayesian optimization
+The VAE together with the property predictor succeeds in learning the hidden relationships between latent space
+and Tg of vitrimers, which allows us to tailor vitrimer compositions to desirable Tg even beyond the training regime.
+Although we have achieved forward projection from the vitrimer space (or latent space) to property space, the
+inverse mapping is more challenging due to the fact that multiple distinct vitrimers could have a similar Tg. To
+achieve inverse design of vitrimers with optimal or desirable Tg, we employ batch Bayesian optimization to identify
+the latent vectors z that have the potential to be decoded into vitrimers with target Tg. The proposed candidates
+are further validated by MD simulations with GP calibration, and the optimal solutions with desirable Tg are found.
+Due to the discrete nature of molecules, the latent vectors proposed by the optimization process may lead to invalid
+molecules. Furthermore, since the discrete molecules are projected onto a continuous latent space by the VAE, it is
+inevitable that multiple distinct latent vectors in the neighborhood can be decoded into the same vitrimer but are
+associated with different Tg predicted by the property predictor. This severely limits the accuracy and efficiency of
+the optimization process. To this end, we add an additional decoding-encoding step before passing z to the property
+8/16
+
+Origin
+Acid-specific
+Origin
+Epoxide-specific
+Origin
+All
+Start
+SLERP
+End
+a
+b
+c
+d
+e
+f
+Start
+End
+Origin
+Start
+End
+Origin
+Figure 4. Exploration in the latent space to discover novel vitrimers. (a)(b)(c) Starting with a known
+vitrimer as origin (adipic acid and bisphenol A diglycidyl ether), vitrimers are discovered by perturbing its latent
+vector in (a) acid-specific dimensions, (b) epoxide-specific dimensions and (c) all dimensions. (d) Novel vitrimers
+are identified along the interpolation path between two vitrimers in the training set. (e) The distribution of
+discovered vitrimers is visualized in the latent space by PCA. (f) Tg of discovered vitrimers. All presented Tg values
+of are validated by MD simulations and GP calibration.
+9/16
+
+Tg = 530 K
+Tg = 569 K
+Tg = 564 K
+Tg = 542 K
+Tg = 373 K
+Tg = 373 K
+Tg = 373 K
+Tg = 373 K
+Tg = 248 K
+Tg = 250 K
+Tg = 247 K
+Tg = 247 K
+a
+b
+c
+Figure 5. Inverse design of novel vitrimers by Bayesian optimization based on three targets of
+desirable Tg: (a) Maximum Tg, (b) Tg = 373 K and (c) Tg = 248 K. All presented Tg values of proposed
+vitrimers are validated by MD simulations and GP calibration.
+10/16
+
+predictor to predict Tg (Supplementary Figure 11). More specifically, when evaluating the Tg of a point of interest z
+in the latent space during the optimization process, z is first decoded into a carboxylic acid and an epoxide. If both
+molecules are valid, they are passed to the encoders to obtain the reconstructed mean vector µrecon, which is further
+passed to the property predictor to evaluate the Tg. In this way, the Bayesian optimization algorithm is able to
+search for potential candidates with desirable Tg efficiently without proposing the same vitrimer for a large number
+of iterations. More details about Bayesian optimization are provided in Supplementary Note 3.5.
+To demonstrate the effectiveness of our inverse design framework, we use Bayesian optimization to discover novel
+vitrimers with three different targets: maximum Tg, Tg = 373 K and Tg = 248 K. Tg of the proposed candidates is
+validated by MD simulations and GP calibration. For each target, four examples of discovered vitrimers are presented
+in Figure 5. For the first target (maximum Tg), our VAE model generates novel vitrimers with MD-validated Tg
+beyond the upper bound of Tg in the training data (500 K) and thereby expands the limits in thermal properties of
+bifunctional transesterification vitrimers. The Bayesian optimization procedures are able to probe the latent space
+outside of the training domain and propose novel vitrimers with extreme properties, which is difficult for traditional
+forward modeling methods to find. For the second target, the Bayesian optimization algorithm effectively searches
+the latent space and successfully proposes vitrimers with the exact target Tg of 373 K. The corresponding latent
+vectors are spread out in the latent space and the vitrimer compositions present significant molecular variety. For the
+third target which is the lower bound of the training domain (248 K), the proposed vitrimers (especially carboxylic
+acids) are more similar to each other and occupy a small region in the latent space. This can be attributed to the
+fact that there are not many linear molecules with more aliphatic nature in the 50,000 acids or epoxides making the
+training set. As a result, the distribution of these vitrimers with low Tg is insufficiently captured by the VAE and
+the proposed candidates of low-Tg vitrimers are restrained by the limited training data.
+The Tg distributions of the dataset and around 100 designed vitrimers for each target are presented in Supple-
+mentary Figure 12. For the target of maximum Tg, our model efficiently discovers novel vitrimer chemistries beyond
+the training property space. For the other two targets of 373 K and 248 K, the distributions are centered around the
+design target. Ten examples of novel vitrimers discovered by Bayesian optimization for each target are presented in
+Supplementary Figure 13. For the first target, all ten proposed vitrimers have validated Tg larger than 500 K, which
+indicates the effective extrapolation beyond the training domain by our framework. For the other two targets of
+finding vitrimers with exact target Tg, the discovered vitrimers present Tg within a range of 2 K around the target
+and maintain considerable molecular diversity, proving the high accuracy in the inverse design process. We further
+examine the stability of the proposed molecules by minimizing them by reactive molecular dynamics (ReaxFF)
+using the CHON2017_weak_bb force field9. All molecules remain stable during minimization and the minimized
+structures are presented in Supplementary Figure 14.
+We carry out further analysis based on the molecular descriptors of ten proposed vitrimers for each target. The
+molecular descriptors except density are calculated from the vitrimer repeating units (Supplementary Figure 1a with
+n = 1) by the Modred package56. Density of each vitrimer at 300 K is extracted from MD simulations. The relevant
+descriptors of designed low, medium and high temperature vitrimers are presented in Supplementary Figure 15. The
+vitrimers with higher Tg have larger molecular weight, higher density, more heavy atoms and multiple bonds and
+fewer rotatable bonds. Consequently, the chains in these vitrimers are more rigid and less mobile, which agrees with
+the common knowledge of structure-Tg relationships in polymers.
+We compare Tg of the designed vitrimers with nine commonly used polymers in Supplementary Figure 16. The
+proposed vitrimers cover a wide range of Tg suitable for various applications from coating materials to aerospace
+polymers. With further tuning of the target, our framework has the potential to discover vitrimer compositions
+with any Tg within an expanded range and expedite the widespread applications of sustainable polymers in various
+industries.
+Experimental synthesis of novel vitrimer designed with chemical intuition
+To experimentally validate the effectiveness of the VAE model, we perform Bayesian optimization to propose novel
+vitrimers with a target Tg of 323 K. Since epoxides are typically more difficult to synthesize, the epoxide molecule is
+fixed as bisphenol A diglycidyl ether (DGEBA) during optimization to improve synthesizability of the vitrimer. In
+other words, the shared and epoxide-specific dimensions are fixed while we only optimize acid-specific dimensions in
+Equation 2. Out of the carboxylic acids proposed by the VAE model, four acids with low SA scores (2.39 to 2.61) and
+symmetric structures are further analyzed for synthesis feasibility. Additionally, some of these acid molecules have
+an amine group that can react with epoxide rings to form irreversible covalent bonds, thereby reducing the adaptive
+nature of the macromolecular network. Keeping these thermodynamical stability issues in polymer synthesis and
+resulting crosslinked network through chemical intuition, we make slight modifications to the proposed structures to
+achieve a symmetric acid molecule with a lower SA score (2.23) that can be synthesized using off-the-shelf chemicals.
+11/16
+
+a
+Cut
+Pristine
+Healed
+d
+c
+Tg = 317 K
+Tg = 311 K
+Tv = 489 K
+Proposed acids
+DGEBA (fixed)
+Chemical intuition
+Thermodynamically
+favorable vitrimer
+b
+SA = 2.39
+SA = 2.61
+SA = 2.40
+SA = 2.53
+SA = 2.23
+Figure 6. Synthesis and characterization of novel vitrimer designed by ML framework. (a) Four
+vitrimers (epoxide fixed as DGEBA) are proposed by Bayesian optimization with a target Tg = 323 K. Driven by
+chemical intuition, a symmetric and thermodynamically stable vitrimer are selected. (b) Reaction scheme for
+synthesis of the acid and consequent crosslinking with DGEBA to form a novel vitrimer. (c) Experimental
+characterization of the synthesized vitrimer to measure Tg and Tv. The measured Tg ranges from 311 K to 317 K,
+which agrees well with the design target. (d) Images of pristine, cut and healed vitrimer specimens, confirming
+healability of the synthesized vitrimer.
+12/16
+
+This acid is crosslinked with DGEBA epoxide to form a stable polymer, demonstrating inverse design and synthesis
+of novel vitrimer chemsitry (Figure 6a).
+The synthesis of the novel vitrimer chemistry is carried out by the ring opening reaction of succinic anhydride by
+glycerol followed by immediate crosslinking with DGEBA. The reaction of beta-hydroxy groups of glycerol with
+succinic anhydride opens the ring and creates carboxylic functional groups. The resultant acid is crosslinked with
+DGEBA in presence of catalyst triazabicyclodecene (TBD) to yield the final vitrimer product (Figure 6b). The
+cured vitrimer is verified using Fourier transform infrared (FTIR) spectroscopy, as shown in Supplementary Figure
+17. The characteristic peaks for carbonyl groups at 1728 cm−1 and for aromatic epoxide chains at 1033 to 1028 cm−1
+are observed. In addition, other peaks at 1400 to 1608 cm−1 indicate the formation of ester linkages between acids
+and epoxides. We further characterize the thermal properties of the synthesized vitrimer using differential scanning
+calorimetry (DSC) and thermomechanical analysis (TMA), as shown in Figure 6c. DSC result shows one transition
+temperature (Tg) at 317 K, indicating complete curing of crosslinked vitrimer. TMA result presents two thermal
+transitions, first at 311 K for Tg and second at 489 K for Tv. The difference in Tg from DSC and TMA arises due to
+different physical phenomena and sensitivities measured by each technique. DSC measures heat flow associated with
+the glass transition, which reflects changes in heat capacity as the polymer transitions from a glassy to a rubbery
+state, it therefore provides an average Tg. TMA on the other hand measures the mechanical response of the polymer
+to non-isothermal creep and the machine detects subtle changes in molecular mobility through dimensional changes.
+Experimental Tg from DSC and TMA agrees well with the design target (323 K) and demonstrates the capability of
+our framework to design novel vitrimers with desired experimental Tg. The second transition indicates flowability of
+the vitrimer at elevated temperature when dynamic exchange reactions start to occur and enhance polymer chain
+mobility. To confirm healability of the vitrimer, we cut a pristine specimen and heal it at temperature around Tv.
+The surfaces of pristine, cut, and healed samples are examined under the microscope (Figure 6d). The complete
+removal of damage shows healability and recyclability of the synthesized novel vitrimer chemistry.
+Conclusion
+We develop an integrated MD-ML framework for inverse design of bifunctional transesterification vitrimers with
+desirable Tg. A diverse vitrimer dataset is built for the first time from the ZINC15 database39. High-throughput
+MD simulations with a GP calibration model are employed to calculate Tg on a subset of vitrimers. The dataset
+is used to train a VAE model with dual graph encoders and decoders which enables representation and design of
+the desired vitrimer components. This further provides flexibility by exploring the latent space and optimizing
+latent vectors of different components for novel vitrimers. We demonstrate the high accuracy and efficiency of our
+framework in discovering novel vitrimers with three different targets of Tg even beyond the training distribution. The
+proposed vitrimers achieve both molecular variety and desirable Tg within 2 K range around the target, which make
+them ideal candidates for sustainable polymers for different applications. To validate our framework in experiments,
+we synthesize and characterize a novel vitrimer designed by the model. This vitrimer is proposed by optimizing
+acid-specific dimensions of latent vector while fixing epoxide as DGEBA. Driven by chemical intuition, we then
+slightly modify the proposed acids to a thermodynamically favorable derivative. The experimentally measured Tg
+(311 to 317 K) agrees well with the design target (323 K), which validates effectiveness of the VAE model. With slight
+adjustment to the VAE architecture and established computational methods to generate property data, the proposed
+framework can be extended to a wide range of properties (for example, Young’s modulus, thermal conductivity,
+and topology freezing temperature) and other types of polymers. The complete workflow of computational design
+and experimental validation opens an opportunity for polymer scientists to achieve high-fidelity inverse design of
+multi-component polymeric materials with desirable properties.
+Methods
+Details of MD simulations (Section 1), GP calibration model (Section 2), hierarchical representation of molecules
+(Section 3.1), VAE architecture and training protocols (Section 3.2), VAE performance (Section 3.3), exploration of
+the latent space (Section 3.4), Bayesian optimization (Section 3.5), estimate of computational efficiency (Section 4)
+and experiments (Section 5) are provided in Supplementary Information.
+Data and code availability
+The code and data used for the GP calibration model and code used for the VAE framework and Bayesian
+optimization have been uploaded to GitHub (https://github.com/yiwenzheng98/VitrimerVAE). The
+13/16
+
+generated vitrimer data (molecules in SMILES, density-temperature profiles and calculated Tg) will be made openly
+available at the time of publication.
+Acknowledgements
+Y. Zheng and A. Vashisth would like to thank Microsoft Climate Research Initiative and University of Washington,
+Seattle for funding. The research design, GPU for machine learning, and molecular simulations used in this study
+were partially provided by the HYAK supercomputer system of University of Washington. P. Thakolkaran and S.
+Kumar acknowledge the research funding by the Dutch Research Council (NWO): OCENW.XS22.2.103.
+Authors contributions
+Y.Z.: Methodology, Software, Validation, Data Curation, Visualization, Writing, Reviewing and Editing; P.T.:
+Methodology, Software, Visualization, Reviewing and Editing; A.K.B.: Methodology, Experiment, Reviewing and
+Editing; J.A.S.: Conceptualization, Methodology, Software, Reviewing and Editing; Z.L.: Software, Reviewing
+and Editing; S.Z.: Reviewing and Editing; B.H.N.: Conceptualization, Reviewing and Editing, Supervision; S.K.:
+Conceptualization, Methodology, Reviewing and Editing, Supervision; A.V.: Conceptualization, Methodology,
+Reviewing and Editing, Supervision.
+Competing interests
+J.A.S., Z.L., S.Z. and B.H.N. are employees of Microsoft Corporation. Y.Z., P.T., A.K.B., S.K. and A.V.
+declare no competing interests.
+References
+1. Young, R. J. & Lovell, P. A. Introduction to polymers (CRC press, 2011).
+2. Krishnakumar, B. et al. Vitrimers: Associative dynamic covalent adaptive networks in thermoset polymers.
+Chem. Eng. J. 385, 123820 (2020).
+3. Montarnal, D., Capelot, M., Tournilhac, F. & Leibler, L. Silica-like malleable materials from permanent organic
+networks. Science 334, 965–968 (2011).
+4. Jin, Y., Lei, Z., Taynton, P., Huang, S. & Zhang, W. Malleable and recyclable thermosets: the next generation
+of plastics. Matter 1, 1456–1493 (2019).
+5. Valavala, P. & Odegard, G.
+Modeling techniques for determination of mechanical properties of polymer
+nanocomposites. Rev. on Adv. Mater. Sci. 9, 34–44 (2005).
+6. Vashisth, A., Ashraf, C., Bakis, C. E. & van Duin, A. C. Effect of chemical structure on thermo-mechanical
+properties of epoxy polymers: Comparison of accelerated reaxff simulations and experiments. Polymer 158,
+354–363 (2018).
+7. Hoogenboom, R., Meier, M. A. & Schubert, U. S. Combinatorial methods, automated synthesis and high-
+throughput screening in polymer research: past and present. Macromol. rapid communications 24, 15–32
+(2003).
+8. Hansson, T., Oostenbrink, C. & van Gunsteren, W. Molecular dynamics simulations. Curr. opinion structural
+biology 12, 190–196 (2002).
+9. Vashisth, A., Ashraf, C., Zhang, W., Bakis, C. E. & Van Duin, A. C. Accelerated reaxff simulations for
+describing the reactive cross-linking of polymers. The J. Phys. Chem. A 122, 6633–6642 (2018).
+10. Yu, K.-q., Li, Z.-s. & Sun, J. Polymer structures and glass transition: A molecular dynamics simulation study.
+Macromol. theory simulations 10, 624–633 (2001).
+11. Kamble, M. et al. Reversing fatigue in carbon-fiber reinforced vitrimer composites. Carbon 187, 108–114 (2022).
+12. Kranenburg, J. M., Tweedie, C. A., van Vliet, K. J. & Schubert, U. S. Challenges and progress in high-throughput
+screening of polymer mechanical properties by indentation. Adv. Mater. 21, 3551–3561 (2009).
+13. Guo, K., Yang, Z., Yu, C.-H. & Buehler, M. J. Artificial intelligence and machine learning in design of mechanical
+materials. Mater. Horizons 8, 1153–1172 (2021).
+14/16
+
+14. Barnett, J. W. et al. Designing exceptional gas-separation polymer membranes using machine learning. Sci.
+advances 6, eaaz4301 (2020).
+15. Jørgensen, P. B. et al. Machine learning-based screening of complex molecules for polymer solar cells. The J.
+chemical physics 148 (2018).
+16. Tao, L., Chen, G. & Li, Y. Machine learning discovery of high-temperature polymers. Patterns 2 (2021).
+17. Tao, L., Varshney, V. & Li, Y. Benchmarking machine learning models for polymer informatics: an example of
+glass transition temperature. J. Chem. Inf. Model. 61, 5395–5413 (2021).
+18. Yang, J., Tao, L., He, J., McCutcheon, J. R. & Li, Y. Machine learning enables interpretable discovery of
+innovative polymers for gas separation membranes. Sci. Adv. 8, eabn9545 (2022).
+19. Kadurin, A., Nikolenko, S., Khrabrov, K., Aliper, A. & Zhavoronkov, A. drugan: an advanced generative
+adversarial autoencoder model for de novo generation of new molecules with desired molecular properties in
+silico. Mol. pharmaceutics 14, 3098–3104 (2017).
+20. Sanchez-Lengeling, B., Outeiral, C., Guimaraes, G. L. & Aspuru-Guzik, A. Optimizing distributions over
+molecular space. an objective-reinforced generative adversarial network for inverse-design chemistry (organic).
+ChemRxiv (2017).
+21. Prykhodko, O. et al. A de novo molecular generation method using latent vector based generative adversarial
+network. J. Cheminformatics 11, 1–13 (2019).
+22. Gómez-Bombarelli, R. et al. Automatic chemical design using a data-driven continuous representation of
+molecules. ACS central science 4, 268–276 (2018).
+23. Jin, W., Barzilay, R. & Jaakkola, T. Junction tree variational autoencoder for molecular graph generation. In
+International conference on machine learning, 2323–2332 (PMLR, 2018).
+24. Jin, W., Barzilay, R. & Jaakkola, T. Hierarchical generation of molecular graphs using structural motifs. In
+International conference on machine learning, 4839–4848 (PMLR, 2020).
+25. Batra, R. et al. Polymers for extreme conditions designed using syntax-directed variational autoencoders. Chem.
+Mater. 32, 10489–10500 (2020).
+26. Jiang, S., Dieng, A. B. & Webb, M. A. Property-guided generation of complex polymer topologies using
+variational autoencoders. npj Comput. Mater. 10, 139 (2024).
+27. Xu, M. et al. Geodiff: A geometric diffusion model for molecular conformation generation. arXiv preprint
+arXiv:2203.02923 (2022).
+28. Hoogeboom, E., Satorras, V. G., Vignac, C. & Welling, M. Equivariant diffusion for molecule generation in 3d.
+In International conference on machine learning, 8867–8887 (PMLR, 2022).
+29. Jablonka, K. M., Schwaller, P., Ortega-Guerrero, A. & Smit, B. Leveraging large language models for predictive
+chemistry. Nat. Mach. Intell. 6, 161–169 (2024).
+30. Wu, S. et al. Machine-learning-assisted discovery of polymers with high thermal conductivity using a molecular
+design algorithm. Npj Comput. Mater. 5, 66 (2019).
+31. Zhu, M.-X., Song, H.-G., Yu, Q.-C., Chen, J.-M. & Zhang, H.-Y. Machine-learning-driven discovery of polymers
+molecular structures with high thermal conductivity. Int. J. Heat Mass Transf. 162, 120381 (2020).
+32. Yao, Z. et al. Inverse design of nanoporous crystalline reticular materials with deep generative models. Nat.
+Mach. Intell. 3, 76–86 (2021).
+33. Weininger, D. Smiles, a chemical language and information system. 1. introduction to methodology and encoding
+rules. J. chemical information computer sciences 28, 31–36 (1988).
+34. Krenn, M., Häse, F., Nigam, A., Friederich, P. & Aspuru-Guzik, A. Self-referencing embedded strings (selfies):
+A 100% robust molecular string representation. Mach. Learn. Sci. Technol. 1, 045024 (2020).
+35. Rogers, D. & Hahn, M. Extended-connectivity fingerprints. J. chemical information modeling 50, 742–754
+(2010).
+36. Kearnes, S., McCloskey, K., Berndl, M., Pande, V. & Riley, P. Molecular graph convolutions: moving beyond
+fingerprints. J. computer-aided molecular design 30, 595–608 (2016).
+15/16
+
+37. Lerique, S., Abitbol, J. L. & Karsai, M. Joint embedding of structure and features via graph convolutional
+networks. Appl. Netw. Sci. 5, 1–24 (2020).
+38. Zheng, L., Karapiperis, K., Kumar, S. & Kochmann, D. M. Unifying the design space and optimizing linear and
+nonlinear truss metamaterials by generative modeling. Nat. Commun. 14, 7563 (2023).
+39. Sterling, T. & Irwin, J. J. Zinc 15–ligand discovery for everyone. J. chemical information modeling 55, 2324–2337
+(2015).
+40. Pence, H. E. & Williams, A. Chemspider: an online chemical information resource (2010).
+41. Kim, S. et al. Pubchem 2023 update. Nucleic acids research 51, D1373–D1380 (2023).
+42. Van Zee, N. J. & Nicolaÿ, R. Vitrimers: Permanently crosslinked polymers with dynamic network topology.
+Prog. Polym. Sci. 104, 101233 (2020).
+43. Ertl, P. & Schuffenhauer, A. Estimation of synthetic accessibility score of drug-like molecules based on molecular
+complexity and fragment contributions. J. cheminformatics 1, 1–11 (2009).
+44. Afzal, M. A. F. et al. High-throughput molecular dynamics simulations and validation of thermophysical
+properties of polymers for various applications. ACS Appl. Polym. Mater. 3, 620–630 (2020).
+45. Deringer, V. L. et al. Gaussian process regression for materials and molecules. Chem. Rev. 121, 10073–10141
+(2021).
+46. Bicerano, J. Prediction of polymer properties (cRc Press, 2002).
+47. Chemical retrieval on the web (crow). http://www.polymerdatabase.com/.
+48. Ran, Y., Zheng, L.-J. & Zeng, J.-B. Dynamic crosslinking: An efficient approach to fabricate epoxy vitrimer.
+Materials 14, 919 (2021).
+49. Wu, J. et al. Natural glycyrrhizic acid: improving stress relaxation rate and glass transition temperature
+simultaneously in epoxy vitrimers. Green Chem. 23, 5647–5655 (2021).
+50. Ediger, M. D., Angell, C. A. & Nagel, S. R. Supercooled liquids and glasses. The journal physical chemistry
+100, 13200–13212 (1996).
+51. Kingma, D. P. & Welling, M. Auto-encoding variational bayes. arXiv preprint arXiv:1312.6114 (2013).
+52. Tishby, N., Pereira, F. C. & Bialek, W. The information bottleneck method. arXiv preprint physics/0004057
+(2000).
+53. Good, I. J. Rational decisions. J. Royal Stat. Soc. Ser. B (Methodological) 14, 107–114 (1952).
+54. Kullback, S. & Leibler, R. A. On information and sufficiency. The annals mathematical statistics 22, 79–86
+(1951).
+55. Shoemake, K. Animating rotation with quaternion curves. In Proceedings of the 12th annual conference on
+Computer graphics and interactive techniques, 245–254 (1985).
+56. Moriwaki, H., Tian, Y.-S., Kawashita, N. & Takagi, T.
+Mordred: a molecular descriptor calculator.
+J.
+cheminformatics 10, 1–14 (2018).
+16/16
+
+AI-guided inverse design and discovery of recyclable
+vitrimeric polymers
+Supplementary Information
+Yiwen Zheng1, Prakash Thakolkaran2, Agni K. Biswal1, Jake A. Smith3,4, Ziheng Lu3,
+Shuxin Zheng3, Bichlien H. Nguyen3,4*, Siddhant Kumar2*, and Aniruddh Vashisth1*
+1Department of Mechanical Engineering, University of Washington, Seattle, WA, USA
+2Department of Materials Science and Engineering, Delft University of Technology, Delft, The Netherlands
+3Microsoft Research AI4Science
+4Paul G. Allen School of Computer Science and Engineering, University of Washington, Seattle, WA, USA
+*bnguy@microsoft.com, sid.kumar@tudelft.nl, vashisth@uw.edu
+1 Molecular dynamics simulations
+We perform MD simulations on 8,424 vitrimers sampled from the large dataset of one million to calculate their
+Tg. The simulations are conducted by Large-scale Atomic/Molecular Massively Parallel Simulator (LAMMPS)1
+and Polymer Consistent Force Field (PCFF)2 to describe the potential energy of atoms. PCFF has been applied
+to simulate the behavior of various polymeric systems including vitrimers3,4. We build the polymer chains in an
+alternating copolymer manner. For each vitrimer composition (i.e., one carboxylic acid molecule and one epoxide
+molecule), we connect the acid molecule and opened epoxide molecule alternately to form one vitrimer chain of
+around one thousand atoms. The reaction scheme is shown in Supplementary Figure 1a. Four of these chains
+are placed in a cubic simulation box with a density of 0.5 g/cm3 (Supplementary Figure 1b). The connection
+and placement of atoms in the simulation box are done by Enhanced Monte Carlo package5, which creates input
+structures for MD simulations using the Monte Carlo method with energetically favored orientations.
+The initial configuration is minimized using the conjugate gradient method and annealed to remove local
+heterogeneities. Specifically, the minimized structure is first relaxed under NVT ensemble (300 K) for 50 ps and
+under NPT ensemble (300 K and 1 atm) for 100 ps. We further heat the virtual specimen from 300 K to 800 K
+under NPT (1 atm) in 500 ps. The dimension of the simulation box is reduced and the density is taken to a realistic
+level after annealing. Two snapshots of the virtual specimens of an example vitrimer (adipic acid and bisphenol
+A diglycidyl ether) before and after annealing are presented in Supplementary Figure 1b. We hold the annealed
+system at 800 K for an additional 50 ps to obtain five independent specimens separated by 10 ps, which is proved to
+be sufficient to eliminate the effect of initial structures and ensure better statistics6. For production period, each of
+these specimens is cooled from 800 K to 100 K in a 10 K step. Each cooling step takes 25 ps under NPT followed by
+a 25-ps holding at constant temperature, during which the density is calculated as the average from 25 frames. We
+fit a bilinear regression to the density-temperature profile from 800 K to 100 K and the intersection point is defined
+as the T MD
+g
+(Figure 2a in the manuscript). All T MD
+g
+results from five virtual specimens are averaged to reduce the
+uncertainty due to the stochastic nature of MD simulations. The distributions of mean MD-calculated T MD
+g
+and
+coefficient of variation (i.e., mean divided by standard deviation) from five replicates of 8,424 vitrimers are presented
+in Supplementary Figure 2.
+2 Gaussian process model for calibration of Tg
+To compensate for the overestimation in T MD
+g
+due to the larger cooling rate compared with experiments, a calibration
+procedure is required. Afzal et al.7 calibrate T MD
+g
+against experimental Tg by linear regression. However, we
+find it insufficient due to the effect of increased uncertainty associated with smaller systems in our simulations
+(Supplementary Figure 3c). Instead, we calibrate T MD
+g
+from MD simulations against available experimental data in
+literature using a Gaussian process (GP) regression model. 2048-bit extended-connectivity fingerprints (ECFPs)8
+with radius 3 are used as input to the GP model to represent the repeating units of polymers. For vitrimers (i.e.,
+combinations of carboxylic acids and epoxides), we obtain the repeating units by the reaction scheme depicted in
+Supplementary Figure 1a with n = 1. For the GP model, we employ the Tanimoto kernel9,10, which relies on the
+1
+arXiv:2312.03690v4  [cond-mat.mtrl-sci]  6 Sep 2024
+
+packing x4
+ 
+  
+ 
+ 
+  
+  
+ 
+ 
+ 
+  
+  
+ 
+  
+ 
+ 
+ 
+ 
+ 
+  
+ 
+ 
+a
+b
+C
+O
+H
+4.5 nm
+3.7 nm
+annealing
+minimization
+Supplementary Figure 1. Molecular dynamics simulations to calculate Tg of vitrimers. (a) A virtual
+vitrimer chain is made by connecting carboxylic acids and opened epoxides in an alternating manner. (b) Four
+chains of ∼1,000 atoms are placed in a simulation box. The system is annealed to remove local heterogeneities
+before production.
+a
+b
+Supplementary Figure 2. Distributions of (a) mean Tg and (b) coefficient of variation in Tg from five replicate
+MD simulations of 8,424 vitrimers.
+Tanimoto similarity measure extensively used in cheminformatics. Unlike the traditional kernels (e.g., the radial
+basis function kernel used by Jinich et al.11) which are more suitable for continuous spaces (Supplementary Figure
+3b), Tanimoto kernel allows for swift and accurate comparison between molecular fingerprints as bit vectors. The
+Tanimoto kernel in the GP model is defined as follows:
+k(x, x′) =
+σ⟨x, x′⟩
+∥x∥2 + ∥x′∥2 −⟨x, x′⟩,
+(1)
+where x, x′ are fingerprints of two molecules, σ is the variance of the kernel, ⟨x, x′⟩is the inner product and ∥x∥2 is
+the square of norm. Calibrated and experimental Tg from leave-one-out cross validation (LOOCV) with different
+calibration methods are compared in Supplementary Figure 3 and GP calibration with Tanimoto kernel achieves the
+best accuracy with a mean absolute error of 28.07 K. We proceed to calibrate T MD
+g
+of all 8,424 vitrimers by the
+trained GP model. Ten vitrimers with highest and lowest calibrated Tg are presented in Supplementary Figure 4.
+2/16
+
+a
+b
+c
+Supplementary Figure 3. Calibrated Tg vs. experimental Tg by (a) GP with Tanimoto kernel, (b) GP
+with RBF kernel and (c) linear regression.
+a
+b
+Tg = 501 K
+Tg = 497 K
+Tg = 496 K
+Tg = 494 K
+Tg = 488 K
+Tg = 486 K
+Tg = 485 K
+Tg = 484 K
+Tg = 483 K
+Tg = 483 K
+Tg = 248 K
+Tg = 253 K
+Tg = 261 K
+Tg = 262 K
+Tg = 266 K
+Tg = 268 K
+Tg = 272 K
+Tg = 274 K
+Tg = 274 K
+Tg = 274 K
+Highest Tg in the dataset
+Lowest Tg in the dataset
+Supplementary Figure 4. Ten example vitrimers with highest and lowest Tg in the dataset.
+3/16
+
+Atom level
+Motif level
+Attachment level
+Encode
+Decode
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+Supplementary Figure 5. Schematic illustration of the three-level hierarchical graph representation.
+The shared atoms between motifs are highlighted in grey blocks on the attachment level.
+3 Machine learning framework
+3.1 Hierarchical representation of molecules
+We follow the hierarchical representation of molecules proposed by Jin et al.12. A molecule G = (V, E) is preprocessed
+by decomposing it into n motifs (subgraphs) M1, ..., Mn using the following procedures. First, we identify all bonds
+between atom pair u and v with more than two connections and either u or v belongs to a ring. We then break all
+these bonds and convert G into a series of detached graphs. For each detached graph, if it appears more than a
+threshold frequency f during decomposition of all molecules in the training set, it is selected as a motif. Otherwise it
+is further decomposed into single rings and bonds (i.e., one bond with two atoms) which are selected as motifs. In this
+way, chemical validity is preserved and the union of all motifs covers the entire graph. We preprocess all molecules in
+the training set by the same procedures and a motif vocabulary VM is obtained. We empirically find that the VAE
+model works better when the motifs are constrained to single rings and bonds, i.e., f →∞. This can be attributed
+to the fact that all molecules in the dataset are relatively small and limited to a maximum molecular weight of 500
+g/mol. Larger motifs with more than one bonds can be used to accommodate larger molecules if necessary. Two
+vocabularies with sizes of 124 and 104 motifs are constructed for acid and epoxide molecules, respectively.
+We further represent G as a combination of hierarchical graphs at three levels (see Supplementary Figure 5 for
+a schematic illustration of the three-level hierarchical representation). The motif level GM captures how motifs
+M1, ..., Mn are connected, i.e., GM = (VM, EM) with motifs as nodes and bonds connecting motifs as edges.
+In addition, the attachment level GA represents connection between motifs through shared atoms. Each node
+Ai = (Mi, {vj}) at this level defines a connection site of Mi with {vj} as all possible atoms shared by Si and its
+neighbors. Since the possible connection sites of Mi are finite, a vocabulary of attachment nodes VA(Mi) that
+depends on each motif Mi is constructed. Finally, the atom level G encodes the graph at the atomic level. Each node
+4/16
+
+is an atom and each edge is a bond of the molecule. This representation scheme captures necessary information of
+molecules at three levels with different resolutions and ensures chemical validity. As a result, the associative encoder
+and decoder can achieve accurate reconstruction and efficient generation of valid vitrimers in the VAE framework.
+3.2 VAE architecture and training protocols
+We adopt the hierarchical encoder and decoder associated with the hierarchical graph representation12. We use
+PyTorch13 to implement and train the model, and RDKit14 for cheminformatics operations.
+3.2.1 Encoder
+The hierarchical encoder encodes a molecule G (which can be either acid or epoxide; superscripts omitted for
+simplicity) from the finer level to the coarser level. The encoder contains three message passing networks (MPNs) as
+detailed by Jin et al.12. At the atom level, each node is an atom v and each edge is a bond euv between atoms u and
+v. The node features consist of atomic charge and atom type and the edge feature is bond type. All atom and bond
+types are represented as one-hot encodings. The node and edge features are first converted into embedding vectors
+before passing to the MPN:
+{hv} = MPN (G, {E(v)}, {E(euv)}) ,
+(2)
+where {hv} is the atom-level encoding for each atom v and E(·) denotes embedding vector of (·). At the attachment
+level, the node feature is a concatenation of its embedding E(Ai) and the sum of all atom-level encodings of its
+constituent atoms:
+f Ai = MLP
+ 
+E(Ai) ⊕
+X
+v∈Mi
+hv
+!
+.
+(3)
+The edge feature between attachment nodes Ai and Aj is an embedding of a parameter xij denoting their parent-child
+relation based on depth-first search:
+xij =
+(
+0,
+if Aj is the parent;
+k,
+if Ai is the k-th child of Aj.
+(4)
+The attachment-level encodings are calculated as
+{hAi} = MPN
+ GA, {f Ai}, {E(xij)}
+
+.
+(5)
+The encoding at the motif level is similar to attachment level with nodes as motifs Mi, i.e.,
+f Mi = MLP (E(Mi) ⊕hAi) .
+(6)
+and
+{hMi} = MPN
+ GM, {f Mi}, {E(xij)}
+
+.
+(7)
+Two linear neural networks are used to output mean vector µ and log variance vector log σ2 from the encoding of
+the root motif hM1. The root motif is the first motif to be generated during decoding.
+3.2.2 Decoder
+The decoder attempts to iteratively build the hierarchical graph based on latent vector z of the original molecule.
+Here for simplicity we refer to z as the concatenation of acid-specific dimensions (or epoxide-specific dimensions)
+with shared dimensions (see Equation 2 in the manuscript). At t-th step of generation, we denote Mk as the motif
+whose neighbor will be generated in the next step. Motifs are generated in a depth-first order. We use the same
+hierarchical MPN architecture to encode all the motifs and atoms in the partially generated graph and obtain motif
+encodings hMk and atom encodings hv for each existing motif and atom. At the motif level, the next motif Mt to
+be connected to Mk is predicted based on the entire motif vocabulary VM:
+pMt = softmax (MLP (hMk ⊕z)) .
+(8)
+At the attachment level, we predict which attachment At of motif Mt is used, which is classified over the attachment
+vocabulary VA(Mt):
+pAt = softmax (MLP (hMk ⊕z)) .
+(9)
+5/16
+
+Hyperparameters
+Encoder Qϕ
+Decoder Pθ
+Property predictor Fω
+Input dimensions
+none
+da = de = 112
+d = 128
+Embedding dimensions
+250
+250
+none
+Hidden dimensions
+250
+250
+64
+Output dimensions
+da = de = 112
+none
+1
+Supplementary Table 1. Hyperparameters of the network architecture.
+Hyperparameters
+Step one
+Step two
+λKL
+0.005
+0.005
+Batch size
+32
+32
+Optimizer
+Adam15
+Adam15
+Learning rate
+constant 0.001
+0.001 × 0.9i−1 at epoch i
+Number of epochs
+10
+50
+Supplementary Table 2. Hyperparameters of the training protocols.
+At the atom level, the detailed atomic attachment configuration (u, v) is decided, where u and v are atoms from Ak
+and At, respectively. The probability of a certain attachment configuration (u, v)t is calculated as
+p(u,v)t = softmax (MLP (hu ⊕hv) · z) .
+(10)
+An additional MLP is used to predict the probability of backtracing, i.e., there are no new neighbors to be generated
+for Mk:
+pbt = softmax (MLP (hMk ⊕z)) .
+(11)
+3.2.3 Training
+The one million vitrimer dataset is divided into two subsets: 999,000 vitrimers without Tg as unlabeled training
+set D = {(Ga(i), Ge(i)) : i = 1, ..., 999000} and 1,000 vitrimers with Tg as test set Dtest = {(Ga(i), Ge(i), T (i)
+g ) :
+i = 1, ..., 1000}. We randomly sample a subset of 8,424 vitrimers from the whole dataset and calculate their
+Tg by MD simulations and GP calibration. A subset of 7,424 vitrimers is denoted as the labeled training set
+Dprop = {(Ga(i), Ge(i), T (i)
+g ) : i = 1, ..., 7424} and the rest 1,000 vitrimers constitute the test set Dtest. D and Dprop
+are used to train the VAE on a two-step basis (see Equation 6 and Equation 8 in the manuscript) and Dtest allows
+for evaluation of the reconstruction and property prediction capabilities on unseen data. The network dimensions
+and hyperparameters of the VAE framework are presented in Supplementary Tables 1 and 2, respectively. Note that
+we do not differentiate between the acid and epoxide encoders (decoders) because the network architectures are
+identical.
+3.3 VAE performance
+The metrics of the VAE model before and after joint training with the small dataset Dprop are presented in
+Supplementary Table 3. The improved metrics show that the model is not biased to Dprop and is able to accommodate
+and generate a wide range of vitrimers. Examples of ten vitrimers from the test set and their reconstructions are
+shown in Supplementary Figure 6. Two out of ten vitrimers are not successfully reconstructed due to mismatch of
+one of the components. Supplementary Figure 7 presents examples of 20 vitrimers sampled from the latent space
+based on standard Gaussian distribution. The three invalid vitrimers have chemically valid acids or epoxides which
+are not bifunctional. The predicted Tg by the property predictor is compared with calibrated Tg for 1,000 vitrimers
+in the test set, as shown in Supplementary Figure 8. A low MAE of 13.53 K indicates high accuracy of the trained
+property predictor. The distributions of latent vectors encoded from the labeled training set Dprop and test set
+Dtest after joint training are shown in Supplementary Figure 9a,b. Compare with the distributions before joint
+training (Supplementary Figure 9c,d), the gradient in Tg is much more recognizable, proving the effect of latent
+space organization by joint training the VAE with property predictor.
+6/16
+
+Metrics
+Before joint training
+After joint training
+Reconstruction accuracy
+81.8%
+85.4%
+Sample validity
+82.8%
+85.2%
+Sample novelty
+100.0%
+100.0%
+Sample uniqueness
+100.0%
+100.0%
+Supplementary Table 3. Metrics of the VAE before and after joint training.
+Input
+Reconstructed
+Input
+Reconstructed
+Supplementary Figure 6. Examples of input and reconstructed vitrimers from the test set. Unsuccessful
+reconstructions are highlighted in red boxes.
+3.4 Exploration of latent space
+Starting with the latent vector of a know vitrimer z0 as origin, we can find novel vitrimers by adding noise, i.e.,
+z = z0 + β · ϵ,
+(12)
+where β determines the magnitude of the noise and ϵ ∼N(0, I). The partial overlapping method enables us to
+explore the neighborhood along three axes: acid-specific (first da dimensions of ϵ are non-zero), epoxide-specific (last
+de dimensions of ϵ are non-zero) and both (all dimensions of ϵ are non-zero).
+We define a spherical interpolation (SLERP) path between two latent representations z1 and z2:
+SLERP(z1, z2; α) = sin((1 −α)θ)
+sin θ
+z1 + sin(αθ)
+sin θ z2,
+(13)
+where α ∈[0, 1] is the interpolation parameter and θ is the angle between z1 and z2. This is different from the linear
+7/16
+
+Sampled vitrimers from VAE
+Supplementary Figure 7. Examples of vitrimers sampled from the latent space according to standard
+Gaussian distribution. Invalid vitrimer components are highlighted in red boxes.
+Supplementary Figure 8. Predicted Tg by the property predictor vs. true Tg.
+interpolation (LERP) that has been used in previous works16,17:
+LERP(z1, z2; α) = (1 −α)z1 + αz2.
+(14)
+We choose SLERP over LERP since LERP operates on the presumption of a linear connection between points which
+disregards the inherent structure of the multi-dimensional Gaussian distribution. Moreover, LERP calculates the
+8/16
+
+a
+b
+c
+d
+Supplementary Figure 9. Distributions of latent vectors of (a) training set after joint training, (b) test
+set after joint training, (c) training set before joint training and (d) test set before joint training.
+Latent vectors of higher dimensions are projected into two principal axes for visualization using principal component
+analysis (PCA).
+Start
+LERP
+End
+b
+c
+d
+Start
+End
+Start
+End
+Start
+SLERP
+End
+a
+Supplementary Figure 10. Comparison between spherical interpolation (SLERP) and linear
+interpolation (LERP). (a)(b) Vitrimers discovered by (a) SLERP and (b) LERP in the latent space. (c)
+Interpolation paths in latent space visualized by PCA. (d) Tg of discovered vitrimers. All presented Tg values of are
+validated by MD simulations and GP calibration.
+Euclidean distance between two points which may not be consistent with the similarity between vitrimers in the
+9/16
+
+latent space. Therefore, points along the linear interpolation path might leap across regions within the latent space
+that share similar molecular structures which results in irregular or unnatural interpolations. On the other hand,
+SLERP acknowledges the hyperspherical structure of the latent space and pursues the shortest arc on the surface of
+a d-dimensional hypersphere, thereby minimizing unrealistic transitions along the path. Supplementary Figure 10
+shows the decoded vitrimers along SLERP and LERP paths, their locations in the latent space and Tg. Previous
+studies18,19 have addressed the effectiveness of SLERP, which is more suitable for traversing between two locations
+in the latent space created by VAEs.
+3.5 Bayesian optimization
+We use the batch Bayesian optimization algorithm developed by Kusner et al.20.
+The workflow of Bayesian
+optimization is illustrated in Supplementary Figure 11. We start with 1,000 latent vectors z randomly sampled
+from standard Gaussian distribution and decode them into valid vitrimers. These vitrimers are then encoded into
+reconstructed latent vectors and their Tg is predicted by the property predictor. The predicted Tg is converted into
+the optimization objective, which is either −Tg (if the task is to find vitrimers with the maximum Tg) or the squared
+error between Tg and the target Tg (if the task is to find vitrimers with a target Tg). In each iteration, a sparse
+Gaussian process with 100 inducing points is trained as a surrogate model and 50 vitrimers are proposed by the
+expected improvement acquisition function. The valid vitrimers and their predicted Tg are added to the training set
+for next iteration. Ten independent runs each with 50 iterations are performed and all valid proposed vitrimers are
+collected. For each of the three design targets, we select 100 candidates with predicted Tg closest to the target that
+can be parameterized by PCFF, carry out MD simulations and calibrate MD-calculated T MD
+g
+. The distributions of
+Tg of the designed vitrimers and the dataset are presented in Supplementary Figure 12. Ten best candidates with Tg
+closet to each target are presented in Supplementary Figure 13. Our framework succeeds in extrapolating beyond
+the training regime and achieves accurate inverse design within an error of 2 K.
+To examine the stability of vitrimers presented in Supplementary Figure 13, we minimize them under reactive
+force field (ReaxFF). ReaxFF is a molecular dynamics simulation technique that captures the instantaneous
+interactions between atoms using the bond order concept21. This strategy allows for a smooth transition between
+the non-bonded and bonded configurations and helps with the investigation of chemical reactions where bond
+formation and dissociation are involved. The proposed molecules remain intact during minimization using the
+CHON2017_weak_bb force field22 and the minimized structures are presented in Supplementary Figure 14. We
+further calculate relevant molecular descriptors of these vitrimers, as shown in Supplementary Figure 15. Density
+is extracted from MD simulations at 300 K. All other descriptors are calculated by the Mordred package23. Each
+value is calculated from the repeating units (Supplementary Figure 1a with n = 1) and averaged over ten proposed
+vitrimers.
+We compare the Tg of the proposed vitrimers with commonly used polymers in Supplementary Figure 16. The
+vitrimers from inverse design cover a wide range of Tg from around 250 K to 550 K. With further tuning of the design
+target, our framework has the potential to discover vitrimers with any Tg within the range and greatly enhances the
+applicability of vitrimers at various temperatures.
+Initial/updated
+latent vectors 𝒛
+Decoder
+Valid vitrimers
+ 
+ 
+ 
+  
+ 
+  
+ 
+ 
+  
+  
+Reconstructed
+latent vectors 𝒛
+Encoder
+Property 
+predictor
+Tg
+Minimize –Tg or
+(Tg – target)2
+Surrogate model
+Acquisition function
+Next
+iteration
+Target
+Start
+Supplementary Figure 11. Schematic workflow of Bayesian optimization.
+10/16
+
+Vitrimers proposed by VAE and Bayesian optimization
+Supplementary Figure 12. Distributions of Tg of the dataset and the vitrimers proposed by the VAE
+and Bayesian optimization. All presented Tg values of are validated by MD simulations and GP calibration.
+Tasks
+Software
+Hardware
+Runtime (h)
+Tg calculation of one vitrimer by MD
+LAMMPS
+CPU
+310
+Training of the VAE with D
+PyTorch
+GPU
+130
+Joint training of the VAE and property predictor Fω with Dprop
+PyTorch
+GPU
+5
+Tg prediction of 1,000 vitrimers by trained Fω
+PyTorch
+GPU
+0.01
+Proposing ∼1,300 candidate vitrimers by Bayesian optimization
+PyTorch
+GPU
+1
+Supplementary Table 4. The computational runtime, used software and hardware for different tasks in
+this work. The presented runtime is roughly estimated with one core of a 2.1 GHz Intel Xeon Gold 6230 CPU and
+a NVIDIA GeForce RTX 2080 Ti GPU.
+4 Computational efficiency
+The computational runtime, used software and hardware for different tasks are listed in Supplementary Table 4 to
+demonstrate the efficiency of the proposed method in this work. The trained property predictor serves as a shortcut
+for costly MD simulations to estimate Tg of vitrimers, which also allows for efficient discovery of novel vitrimers
+with target Tg by Bayesian optimization.
+5 Experimental synthesis and characterization
+The synthesis of the proposed vitrimer (Figure 6 in the manuscript) is performed by a two-step reaction. The first
+step involves mixing of succinic anhydride (1 mol) with glycerol (0.5 mol) at 130°C for 1 hour to obtain a clear
+solution mixture of polymer with bifunctional carboxylic acid groups. In the second step, equivalent stoichiometric
+amount of DGEBA is added to the mixture in presence of catalyst triazabicyclodecene (TBD), which is further
+mixed at the same condition for 30 minutes to obtain a homogeneous slurry. The slurry is then transferred into
+a preheated Teflon taped mold at 145°C and covered with top cover. The mold is placed into the heat press to
+continue the crosslinking at 145°C for 6 hours followed by post curing for 2 hours at 180°C.
+The crosslinked vitrimer specimen is verified using Fourier-transform infrared (FTIR) spectroscopy, as shown
+in Supplementary Figure 17. Differential scanning calorimetry (DSC) is carried out by TA Instruments Q2000.
+11/16
+
+a
+b
+Tg = 569 K
+Tg = 564 K
+Tg = 545 K
+Tg = 542 K
+Tg = 530 K
+Tg = 520 K
+Tg = 516 K
+Tg = 514 K
+Tg = 511 K
+Tg = 509 K
+Tg = 373 K
+Tg = 373 K
+Tg = 373 K
+Tg = 373 K
+Tg = 373 K
+Tg = 373 K
+Tg = 372 K
+Tg = 372 K
+Tg = 374 K
+Tg = 372 K
+Target: maximum Tg
+Target: Tg = 373 K
+c
+Target: Tg = 248 K
+Tg = 248 K
+Tg = 247 K
+Tg = 247 K
+Tg = 247 K
+Tg = 249 K
+Tg = 246 K
+Tg = 250 K
+Tg = 246 K
+Tg = 246 K
+Tg = 250 K
+Supplementary Figure 13. Examples of novel vitrimers designed with different target Tg from Bayesian
+optimization. (a) Maximum Tg. (b) Target Tg = 373 K. (c) Target Tg = 248 K. All presented Tg values of
+proposed vitrimers are validated by MD simulations and GP calibration.
+12/16
+
+a
+b
+Target: maximum Tg
+Target: Tg = 373 K
+c
+Target: Tg = 248 K
+C
+O
+H
+N
+Supplementary Figure 14. Minimized structures of vitrimer components presented in Supplementary
+Figure 13. The molecules are minimized by ReaxFF using the CHON2017_weak_bb force field.
+Thermomechanical analysis (TMA) is performed at 0.1N applied force with a heating rate of 5°C per minute using
+Perkin Elmer TMA7.
+13/16
+
+a
+b
+c
+d
+Supplementary Figure 15. Relevant molecular descriptors of the vitrimers presented in Supplementary
+Figure 13. (a) Molecular weight. (b) Atom fractions. (c) Density at 300 K. (d) Bond fractions. All values are
+averages of ten vitrimers per target.
+Supplementary Figure 16. Tg of commonly used polymers and our proposed vitrimers by inverse
+design.
+14/16
+
+Supplementary Figure 17. Fourier-transform infrared (FTIR) spectroscopy of the synthesized vitrimer.
+15/16
+
+References
+1. Thompson, A. P. et al. Lammps-a flexible simulation tool for particle-based materials modeling at the atomic,
+meso, and continuum scales. Comput. Phys. Commun. 271, 108171 (2022).
+2. Sun, H., Mumby, S. J., Maple, J. R. & Hagler, A. T. An ab initio cff93 all-atom force field for polycarbonates.
+J. Am. Chem. society 116, 2978–2987 (1994).
+3. Sun, Y., Yang, H., Yu, K., Guo, Y. & Qu, J. A molecular dynamics study of decomposition of covalent adaptable
+networks in organic solvent. Polymer 180, 121702 (2019).
+4. Park, C. et al. Enhanced self-healing performance of graphene oxide/vitrimer nanocomposites: A molecular
+dynamics simulations study. Polymer 206, 122862 (2020).
+5. in’t Veld, P. J. & Rutledge, G. C. Temperature-dependent elasticity of a semicrystalline interphase composed of
+freely rotating chains. Macromolecules 36, 7358–7365 (2003).
+6. Alzate-Vargas, L. et al. Uncertainties in the predictions of thermo-physical properties of thermoplastic polymers
+via molecular dynamics. Model. Simul. Mater. Sci. Eng. 26, 065007 (2018).
+7. Afzal, M. A. F. et al. High-throughput molecular dynamics simulations and validation of thermophysical
+properties of polymers for various applications. ACS Appl. Polym. Mater. 3, 620–630 (2020).
+8. Rogers, D. & Hahn, M. Extended-connectivity fingerprints. J. chemical information modeling 50, 742–754
+(2010).
+9. Ralaivola, L., Swamidass, S. J., Saigo, H. & Baldi, P. Graph kernels for chemical informatics. Neural networks
+18, 1093–1110 (2005).
+10. Thawani, A. R. et al. The photoswitch dataset: a molecular machine learning benchmark for the advancement
+of synthetic chemistry. ChemRxiv (2020).
+11. Jinich, A., Sanchez-Lengeling, B., Ren, H., Harman, R. & Aspuru-Guzik, A. A mixed quantum chemistry/machine
+learning approach for the fast and accurate prediction of biochemical redox potentials and its large-scale
+application to 315 000 redox reactions. ACS central science 5, 1199–1210 (2019).
+12. Jin, W., Barzilay, R. & Jaakkola, T. Hierarchical generation of molecular graphs using structural motifs. In
+International conference on machine learning, 4839–4848 (PMLR, 2020).
+13. Paszke, A. et al. Pytorch: An imperative style, high-performance deep learning library. Adv. neural information
+processing systems 32 (2019).
+14. Landrum, G. et al. Rdkit: Open-source cheminformatics. https://www.rdkit.org.
+15. Kingma, D. P. & Ba, J. Adam: A method for stochastic optimization. arXiv preprint arXiv:1412.6980 (2014).
+16. Batra, R. et al. Polymers for extreme conditions designed using syntax-directed variational autoencoders. Chem.
+Mater. 32, 10489–10500 (2020).
+17. Yao, Z. et al. Inverse design of nanoporous crystalline reticular materials with deep generative models. Nat.
+Mach. Intell. 3, 76–86 (2021).
+18. Gómez-Bombarelli, R. et al. Automatic chemical design using a data-driven continuous representation of
+molecules. ACS central science 4, 268–276 (2018).
+19. White, T. Sampling generative networks. arXiv preprint arXiv:1609.04468 (2016).
+20. Kusner, M. J., Paige, B. & Hernández-Lobato, J. M. Grammar variational autoencoder. In International
+conference on machine learning, 1945–1954 (PMLR, 2017).
+21. Van Duin, A. C., Dasgupta, S., Lorant, F. & Goddard, W. A. Reaxff: a reactive force field for hydrocarbons.
+The J. Phys. Chem. A 105, 9396–9409 (2001).
+22. Vashisth, A., Ashraf, C., Zhang, W., Bakis, C. E. & Van Duin, A. C. Accelerated reaxff simulations for
+describing the reactive cross-linking of polymers. The J. Phys. Chem. A 122, 6633–6642 (2018).
+23. Moriwaki, H., Tian, Y.-S., Kawashita, N. & Takagi, T.
+Mordred: a molecular descriptor calculator.
+J.
+cheminformatics 10, 1–14 (2018).
+16/16

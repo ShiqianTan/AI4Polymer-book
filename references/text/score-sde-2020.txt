@@ -1,0 +1,2457 @@
+Published as a conference paper at ICLR 2021
+SCORE-BASED GENERATIVE MODELING
+THROUGH
+STOCHASTIC DIFFERENTIAL EQUATIONS
+Yang Song˚
+Stanford University
+yangsong@cs.stanford.edu
+Jascha Sohl-Dickstein
+Google Brain
+jaschasd@google.com
+Diederik P. Kingma
+Google Brain
+durk@google.com
+Abhishek Kumar
+Google Brain
+abhishk@google.com
+Stefano Ermon
+Stanford University
+ermon@cs.stanford.edu
+Ben Poole
+Google Brain
+pooleb@google.com
+ABSTRACT
+Creating noise from data is easy; creating data from noise is generative modeling.
+We present a stochastic differential equation (SDE) that smoothly transforms a com-
+plex data distribution to a known prior distribution by slowly injecting noise, and a
+corresponding reverse-time SDE that transforms the prior distribution back into the
+data distribution by slowly removing the noise. Crucially, the reverse-time SDE
+depends only on the time-dependent gradient ﬁeld (a.k.a., score) of the perturbed
+data distribution. By leveraging advances in score-based generative modeling, we
+can accurately estimate these scores with neural networks, and use numerical SDE
+solvers to generate samples. We show that this framework encapsulates previous
+approaches in score-based generative modeling and diffusion probabilistic mod-
+eling, allowing for new sampling procedures and new modeling capabilities. In
+particular, we introduce a predictor-corrector framework to correct errors in the
+evolution of the discretized reverse-time SDE. We also derive an equivalent neural
+ODE that samples from the same distribution as the SDE, but additionally enables
+exact likelihood computation, and improved sampling efﬁciency. In addition, we
+provide a new way to solve inverse problems with score-based models, as demon-
+strated with experiments on class-conditional generation, image inpainting, and
+colorization. Combined with multiple architectural improvements, we achieve
+record-breaking performance for unconditional image generation on CIFAR-10
+with an Inception score of 9.89 and FID of 2.20, a competitive likelihood of 2.99
+bits/dim, and demonstrate high ﬁdelity generation of 1024 ˆ 1024 images for the
+ﬁrst time from a score-based generative model.
+1
+INTRODUCTION
+Two successful classes of probabilistic generative models involve sequentially corrupting training
+data with slowly increasing noise, and then learning to reverse this corruption in order to form a
+generative model of the data. Score matching with Langevin dynamics (SMLD) (Song & Ermon,
+2019) estimates the score (i.e., the gradient of the log probability density with respect to data) at each
+noise scale, and then uses Langevin dynamics to sample from a sequence of decreasing noise scales
+during generation. Denoising diffusion probabilistic modeling (DDPM) (Sohl-Dickstein et al., 2015;
+Ho et al., 2020) trains a sequence of probabilistic models to reverse each step of the noise corruption,
+using knowledge of the functional form of the reverse distributions to make training tractable. For
+continuous state spaces, the DDPM training objective implicitly computes scores at each noise scale.
+We therefore refer to these two model classes together as score-based generative models.
+Score-based generative models, and related techniques (Bordes et al., 2017; Goyal et al., 2017; Du &
+Mordatch, 2019), have proven effective at generation of images (Song & Ermon, 2019; 2020; Ho
+et al., 2020), audio (Chen et al., 2020; Kong et al., 2020), graphs (Niu et al., 2020), and shapes (Cai
+˚Work partially done during an internship at Google Brain.
+1
+arXiv:2011.13456v2  [cs.LG]  10 Feb 2021
+
+Published as a conference paper at ICLR 2021
+ 
+  
+Forward SDE (data → noise) 
+Reverse SDE (noise → data) 
+score function
+Figure 1:
+Solving a reverse-
+time SDE yields a score-based
+generative model. Transform-
+ing data to a simple noise dis-
+tribution can be accomplished
+with a continuous-time SDE.
+This SDE can be reversed if we
+know the score of the distribu-
+tion at each intermediate time
+step, ∇x log ptpxq.
+et al., 2020). To enable new sampling methods and further extend the capabilities of score-based
+generative models, we propose a uniﬁed framework that generalizes previous approaches through the
+lens of stochastic differential equations (SDEs).
+Speciﬁcally, instead of perturbing data with a ﬁnite number of noise distributions, we consider a
+continuum of distributions that evolve over time according to a diffusion process. This process
+progressively diffuses a data point into random noise, and is given by a prescribed SDE that does not
+depend on the data and has no trainable parameters. By reversing this process, we can smoothly mold
+random noise into data for sample generation. Crucially, this reverse process satisﬁes a reverse-time
+SDE (Anderson, 1982), which can be derived from the forward SDE given the score of the marginal
+probability densities as a function of time. We can therefore approximate the reverse-time SDE by
+training a time-dependent neural network to estimate the scores, and then produce samples using
+numerical SDE solvers. Our key idea is summarized in Fig. 1.
+Our proposed framework has several theoretical and practical contributions:
+Flexible sampling and likelihood computation: We can employ any general-purpose SDE solver
+to integrate the reverse-time SDE for sampling. In addition, we propose two special methods not
+viable for general SDEs: (i) Predictor-Corrector (PC) samplers that combine numerical SDE solvers
+with score-based MCMC approaches, such as Langevin MCMC (Parisi, 1981) and HMC (Neal et al.,
+2011); and (ii) deterministic samplers based on the probability ﬂow ordinary differential equation
+(ODE). The former uniﬁes and improves over existing sampling methods for score-based models.
+The latter allows for fast adaptive sampling via black-box ODE solvers, ﬂexible data manipulation
+via latent codes, a uniquely identiﬁable encoding, and notably, exact likelihood computation.
+Controllable generation: We can modulate the generation process by conditioning on information
+not available during training, because the conditional reverse-time SDE can be efﬁciently estimated
+from unconditional scores. This enables applications such as class-conditional generation, image
+inpainting, colorization and other inverse problems, all achievable using a single unconditional
+score-based model without re-training.
+Uniﬁed framework: Our framework provides a uniﬁed way to explore and tune various SDEs for
+improving score-based generative models. The methods of SMLD and DDPM can be amalgamated
+into our framework as discretizations of two separate SDEs. Although DDPM (Ho et al., 2020) was
+recently reported to achieve higher sample quality than SMLD (Song & Ermon, 2019; 2020), we show
+that with better architectures and new sampling algorithms allowed by our framework, the latter can
+catch up—it achieves new state-of-the-art Inception score (9.89) and FID score (2.20) on CIFAR-10,
+as well as high-ﬁdelity generation of 1024 ˆ 1024 images for the ﬁrst time from a score-based model.
+In addition, we propose a new SDE under our framework that achieves a likelihood value of 2.99
+bits/dim on uniformly dequantized CIFAR-10 images, setting a new record on this task.
+2
+BACKGROUND
+2.1
+DENOISING SCORE MATCHING WITH LANGEVIN DYNAMICS (SMLD)
+Let pσp˜x | xq :“ Np˜x; x, σ2Iq be a perturbation kernel, and pσp˜xq :“
+ş
+pdatapxqpσp˜x | xqdx, where
+pdatapxq denotes the data distribution. Consider a sequence of positive noise scales σmin “ σ1 ă
+σ2 ă ¨ ¨ ¨ ă σN “ σmax. Typically, σmin is small enough such that pσminpxq « pdatapxq, and σmax is
+2
+
+Published as a conference paper at ICLR 2021
+large enough such that pσmaxpxq « Npx; 0, σ2
+maxIq. Song & Ermon (2019) propose to train a Noise
+Conditional Score Network (NCSN), denoted by sθpx, σq, with a weighted sum of denoising score
+matching (Vincent, 2011) objectives:
+θ˚ “ arg min
+θ
+N
+ÿ
+i“1
+σ2
+i EpdatapxqEpσip˜x|xq
+“
+∥sθp˜x, σiq ´ ∇˜x log pσip˜x | xq∥2
+2
+‰
+.
+(1)
+Given sufﬁcient data and model capacity, the optimal score-based model sθ˚px, σq matches
+∇x log pσpxq almost everywhere for σ P tσiuN
+i“1. For sampling, Song & Ermon (2019) run M steps
+of Langevin MCMC to get a sample for each pσipxq sequentially:
+xm
+i “ xm´1
+i
+` ϵisθ˚pxm´1
+i
+, σiq `
+?
+2ϵizm
+i ,
+m “ 1, 2, ¨ ¨ ¨ , M,
+(2)
+where ϵi ą 0 is the step size, and zm
+i is standard normal. The above is repeated for i “ N, N ´
+1, ¨ ¨ ¨ , 1 in turn with x0
+N „ Npx | 0, σ2
+maxIq and x0
+i “ xM
+i`1 when i ă N. As M Ñ 8 and ϵi Ñ 0
+for all i, xM
+1 becomes an exact sample from pσminpxq « pdatapxq under some regularity conditions.
+2.2
+DENOISING DIFFUSION PROBABILISTIC MODELS (DDPM)
+Sohl-Dickstein et al. (2015); Ho et al. (2020) consider a sequence of positive noise scales
+0 ă β1, β2, ¨ ¨ ¨ , βN ă 1. For each training data point x0 „ pdatapxq, a discrete Markov chain
+tx0, x1, ¨ ¨ ¨ , xNu is constructed such that ppxi | xi´1q “ Npxi; ?1 ´ βixi´1, βiIq, and therefore
+pαipxi | x0q “ Npxi; ?αix0, p1 ´ αiqIq, where αi :“ śi
+j“1p1 ´ βjq. Similar to SMLD, we can
+denote the perturbed data distribution as pαip˜xq :“
+ş
+pdatapxqpαip˜x | xqdx. The noise scales are pre-
+scribed such that xN is approximately distributed according to Np0, Iq. A variational Markov chain
+in the reverse direction is parameterized with pθpxi´1|xiq “ Npxi´1;
+1
+?1´βi pxi`βisθpxi, iqq, βiIq,
+and trained with a re-weighted variant of the evidence lower bound (ELBO):
+θ˚ “ arg min
+θ
+N
+ÿ
+i“1
+p1 ´ αiqEpdatapxqEpαip˜x|xqr∥sθp˜x, iq ´ ∇˜x log pαip˜x | xq∥2
+2s.
+(3)
+After solving Eq. (3) to get the optimal model sθ˚px, iq, samples can be generated by starting from
+xN „ Np0, Iq and following the estimated reverse Markov chain as below
+xi´1 “
+1
+?1 ´ βi
+pxi ` βisθ˚pxi, iqq `
+a
+βizi,
+i “ N, N ´ 1, ¨ ¨ ¨ , 1.
+(4)
+We call this method ancestral sampling, since it amounts to performing ancestral sampling from
+the graphical model śN
+i“1 pθpxi´1 | xiq. The objective Eq. (3) described here is Lsimple in Ho et al.
+(2020), written in a form to expose more similarity to Eq. (1). Like Eq. (1), Eq. (3) is also a weighted
+sum of denoising score matching objectives, which implies that the optimal model, sθ˚p˜x, iq, matches
+the score of the perturbed data distribution, ∇x log pαipxq. Notably, the weights of the i-th summand
+in Eq. (1) and Eq. (3), namely σ2
+i and p1´αiq, are related to corresponding perturbation kernels in the
+same functional form: σ2
+i 91{Er∥∇x log pσip˜x | xq∥2
+2s and p1 ´ αiq91{Er∥∇x log pαip˜x | xq∥2
+2s.
+3
+SCORE-BASED GENERATIVE MODELING WITH SDES
+Perturbing data with multiple noise scales is key to the success of previous methods. We propose to
+generalize this idea further to an inﬁnite number of noise scales, such that perturbed data distributions
+evolve according to an SDE as the noise intensiﬁes. An overview of our framework is given in Fig. 2.
+3.1
+PERTURBING DATA WITH SDES
+Our goal is to construct a diffusion process txptquT
+t“0 indexed by a continuous time variable t P r0, Ts,
+such that xp0q „ p0, for which we have a dataset of i.i.d. samples, and xpTq „ pT , for which we
+have a tractable form to generate samples efﬁciently. In other words, p0 is the data distribution and
+pT is the prior distribution. This diffusion process can be modeled as the solution to an Itˆo SDE:
+dx “ fpx, tqdt ` gptqdw,
+(5)
+3
+
+Published as a conference paper at ICLR 2021
+ 
+  
+Forward SDE
+Data
+Prior
+Data
+Reverse SDE
+ 
+ 
+Figure 2: Overview of score-based generative modeling through SDEs. We can map data to a
+noise distribution (the prior) with an SDE (Section 3.1), and reverse this SDE for generative modeling
+(Section 3.2). We can also reverse the associated probability ﬂow ODE (Section 4.3), which yields a
+deterministic process that samples from the same distribution as the SDE. Both the reverse-time SDE
+and probability ﬂow ODE can be obtained by estimating the score ∇x log ptpxq (Section 3.3).
+where w is the standard Wiener process (a.k.a., Brownian motion), fp¨, tq : Rd Ñ Rd is a vector-
+valued function called the drift coefﬁcient of xptq, and gp¨q : R Ñ R is a scalar function known as
+the diffusion coefﬁcient of xptq. For ease of presentation we assume the diffusion coefﬁcient is a
+scalar (instead of a d ˆ d matrix) and does not depend on x, but our theory can be generalized to hold
+in those cases (see Appendix A). The SDE has a unique strong solution as long as the coefﬁcients
+are globally Lipschitz in both state and time (Øksendal, 2003). We hereafter denote by ptpxq the
+probability density of xptq, and use pstpxptq | xpsqq to denote the transition kernel from xpsq to xptq,
+where 0 ď s ă t ď T.
+Typically, pT is an unstructured prior distribution that contains no information of p0, such as a
+Gaussian distribution with ﬁxed mean and variance. There are various ways of designing the SDE in
+Eq. (5) such that it diffuses the data distribution into a ﬁxed prior distribution. We provide several
+examples later in Section 3.4 that are derived from continuous generalizations of SMLD and DDPM.
+3.2
+GENERATING SAMPLES BY REVERSING THE SDE
+By starting from samples of xpTq „ pT and reversing the process, we can obtain samples xp0q „ p0.
+A remarkable result from Anderson (1982) states that the reverse of a diffusion process is also a
+diffusion process, running backwards in time and given by the reverse-time SDE:
+dx “ rfpx, tq ´ gptq2∇x log ptpxqsdt ` gptqd ¯w,
+(6)
+where ¯w is a standard Wiener process when time ﬂows backwards from T to 0, and dt is an
+inﬁnitesimal negative timestep. Once the score of each marginal distribution, ∇x log ptpxq, is known
+for all t, we can derive the reverse diffusion process from Eq. (6) and simulate it to sample from p0.
+3.3
+ESTIMATING SCORES FOR THE SDE
+The score of a distribution can be estimated by training a score-based model on samples with
+score matching (Hyv¨arinen, 2005; Song et al., 2019a). To estimate ∇x log ptpxq, we can train a
+time-dependent score-based model sθpx, tq via a continuous generalization to Eqs. (1) and (3):
+θ˚ “ arg min
+θ
+Et
+!
+λptqExp0qExptq|xp0q
+“ sθpxptq, tq ´ ∇xptq log p0tpxptq | xp0qq
+2
+2
+‰)
+.
+(7)
+Here λ : r0, Ts Ñ Rą0 is a positive weighting function, t is uniformly sampled over r0, Ts,
+xp0q „ p0pxq and xptq „ p0tpxptq | xp0qq. With sufﬁcient data and model capacity, score matching
+ensures that the optimal solution to Eq. (7), denoted by sθ˚px, tq, equals ∇x log ptpxq for almost all
+x and t. As in SMLD and DDPM, we can typically choose λ91{E
+“ ∇xptq log p0tpxptq | xp0qq
+2
+2
+‰
+.
+Note that Eq. (7) uses denoising score matching, but other score matching objectives, such as sliced
+4
+
+Published as a conference paper at ICLR 2021
+score matching (Song et al., 2019a) and ﬁnite-difference score matching (Pang et al., 2020) are also
+applicable here.
+We typically need to know the transition kernel p0tpxptq | xp0qq to efﬁciently solve Eq. (7). When
+fp¨, tq is afﬁne, the transition kernel is always a Gaussian distribution, where the mean and variance are
+often known in closed-forms and can be obtained with standard techniques (see Section 5.5 in S¨arkk¨a
+& Solin (2019)). For more general SDEs, we may solve Kolmogorov’s forward equation (Øksendal,
+2003) to obtain p0tpxptq | xp0qq. Alternatively, we can simulate the SDE to sample from p0tpxptq |
+xp0qq and replace denoising score matching in Eq. (7) with sliced score matching for model training,
+which bypasses the computation of ∇xptq log p0tpxptq | xp0qq (see Appendix A).
+3.4
+EXAMPLES: VE, VP SDES AND BEYOND
+The noise perturbations used in SMLD and DDPM can be regarded as discretizations of two different
+SDEs. Below we provide a brief discussion and relegate more details to Appendix B.
+When using a total of N noise scales, each perturbation kernel pσipx | x0q of SMLD corresponds to
+the distribution of xi in the following Markov chain:
+xi “ xi´1 `
+b
+σ2
+i ´ σ2
+i´1zi´1,
+i “ 1, ¨ ¨ ¨ , N,
+(8)
+where zi´1 „ Np0, Iq, and we have introduced σ0 “ 0 to simplify the notation. In the limit of
+N Ñ 8, tσiuN
+i“1 becomes a function σptq, zi becomes zptq, and the Markov chain txiuN
+i“1 becomes
+a continuous stochastic process txptqu1
+t“0, where we have used a continuous time variable t P r0, 1s
+for indexing, rather than an integer i. The process txptqu1
+t“0 is given by the following SDE
+dx “
+c
+d rσ2ptqs
+dt
+dw.
+(9)
+Likewise for the perturbation kernels tpαipx | x0quN
+i“1 of DDPM, the discrete Markov chain is
+xi “
+a
+1 ´ βixi´1 `
+a
+βizi´1,
+i “ 1, ¨ ¨ ¨ , N.
+(10)
+As N Ñ 8, Eq. (10) converges to the following SDE,
+dx “ ´1
+2βptqx dt `
+a
+βptq dw.
+(11)
+Therefore, the noise perturbations used in SMLD and DDPM correspond to discretizations of SDEs
+Eqs. (9) and (11). Interestingly, the SDE of Eq. (9) always gives a process with exploding variance
+when t Ñ 8, whilst the SDE of Eq. (11) yields a process with a ﬁxed variance of one when the initial
+distribution has unit variance (proof in Appendix B). Due to this difference, we hereafter refer to
+Eq. (9) as the Variance Exploding (VE) SDE, and Eq. (11) the Variance Preserving (VP) SDE.
+Inspired by the VP SDE, we propose a new type of SDEs which perform particularly well on
+likelihoods (see Section 4.3), given by
+dx “ ´1
+2βptqx dt `
+b
+βptqp1 ´ e´2
+şt
+0 βpsqdsqdw.
+(12)
+When using the same βptq and starting from the same initial distribution, the variance of the stochastic
+process induced by Eq. (12) is always bounded by the VP SDE at every intermediate time step (proof
+in Appendix B). For this reason, we name Eq. (12) the sub-VP SDE.
+Since VE, VP and sub-VP SDEs all have afﬁne drift coefﬁcients, their perturbation kernels p0tpxptq |
+xp0qq are all Gaussian and can be computed in closed-forms, as discussed in Section 3.3. This makes
+training with Eq. (7) particularly efﬁcient.
+4
+SOLVING THE REVERSE SDE
+After training a time-dependent score-based model sθ, we can use it to construct the reverse-time
+SDE and then simulate it with numerical approaches to generate samples from p0.
+5
+
+Published as a conference paper at ICLR 2021
+Table 1: Comparing different reverse-time SDE solvers on CIFAR-10. Shaded regions are obtained
+with the same computation (number of score function evaluations). Mean and standard deviation
+are reported over ﬁve sampling runs. “P1000” or “P2000”: predictor-only samplers using 1000 or
+2000 steps. “C2000”: corrector-only samplers using 2000 steps. “PC1000”: Predictor-Corrector (PC)
+samplers using 1000 predictor and 1000 corrector steps.
+Variance Exploding SDE (SMLD)
+Variance Preserving SDE (DDPM)
+Predictor
+FIDÓ
+Sampler
+P1000
+P2000
+C2000
+PC1000
+P1000
+P2000
+C2000
+PC1000
+ancestral sampling
+4.98 ˘ .06
+4.88 ˘ .06
+3.62 ˘ .03
+3.24 ˘ .02
+3.24 ˘ .02
+3.21 ˘ .02
+reverse diffusion
+4.79 ˘ .07
+4.74 ˘ .08
+3.60 ˘ .02
+3.21 ˘ .02
+3.19 ˘ .02
+3.18 ˘ .01
+probability ﬂow
+15.41 ˘ .15
+10.54 ˘ .08
+20.43 ˘ .07
+3.51 ˘ .04
+3.59 ˘ .04
+3.23 ˘ .03
+19.06 ˘ .06
+3.06 ˘ .03
+4.1
+GENERAL-PURPOSE NUMERICAL SDE SOLVERS
+Numerical solvers provide approximate trajectories from SDEs. Many general-purpose numerical
+methods exist for solving SDEs, such as Euler-Maruyama and stochastic Runge-Kutta methods (Kloe-
+den & Platen, 2013), which correspond to different discretizations of the stochastic dynamics. We
+can apply any of them to the reverse-time SDE for sample generation.
+Ancestral sampling, the sampling method of DDPM (Eq. (4)), actually corresponds to one special
+discretization of the reverse-time VP SDE (Eq. (11)) (see Appendix E). Deriving the ancestral
+sampling rules for new SDEs, however, can be non-trivial. To remedy this, we propose reverse
+diffusion samplers (details in Appendix E), which discretize the reverse-time SDE in the same way
+as the forward one, and thus can be readily derived given the forward discretization. As shown in
+Table 1, reverse diffusion samplers perform slightly better than ancestral sampling for both SMLD and
+DDPM models on CIFAR-10 (DDPM-type ancestral sampling is also applicable to SMLD models,
+see Appendix F.)
+4.2
+PREDICTOR-CORRECTOR SAMPLERS
+Unlike generic SDEs, we have additional information that can be used to improve solutions. Since we
+have a score-based model sθ˚px, tq « ∇x log ptpxq, we can employ score-based MCMC approaches,
+such as Langevin MCMC (Parisi, 1981; Grenander & Miller, 1994) or HMC (Neal et al., 2011) to
+sample from pt directly, and correct the solution of a numerical SDE solver.
+Speciﬁcally, at each time step, the numerical SDE solver ﬁrst gives an estimate of the sample
+at the next time step, playing the role of a “predictor”. Then, the score-based MCMC approach
+corrects the marginal distribution of the estimated sample, playing the role of a “corrector”. The
+idea is analogous to Predictor-Corrector methods, a family of numerical continuation techniques for
+solving systems of equations (Allgower & Georg, 2012), and we similarly name our hybrid sampling
+algorithms Predictor-Corrector (PC) samplers. Please ﬁnd pseudo-code and a complete description
+in Appendix G. PC samplers generalize the original sampling methods of SMLD and DDPM: the
+former uses an identity function as the predictor and annealed Langevin dynamics as the corrector,
+while the latter uses ancestral sampling as the predictor and identity as the corrector.
+We test PC samplers on SMLD and DDPM models (see Algorithms 2 and 3 in Appendix G) trained
+with original discrete objectives given by Eqs. (1) and (3). This exhibits the compatibility of PC
+samplers to score-based models trained with a ﬁxed number of noise scales. We summarize the
+performance of different samplers in Table 1, where probability ﬂow is a predictor to be discussed
+in Section 4.3. Detailed experimental settings and additional results are given in Appendix G. We
+observe that our reverse diffusion sampler always outperform ancestral sampling, and corrector-only
+methods (C2000) perform worse than other competitors (P2000, PC1000) with the same computation
+(In fact, we need way more corrector steps per noise scale, and thus more computation, to match the
+performance of other samplers.) For all predictors, adding one corrector step for each predictor step
+(PC1000) doubles computation but always improves sample quality (against P1000). Moreover, it
+is typically better than doubling the number of predictor steps without adding a corrector (P2000),
+where we have to interpolate between noise scales in an ad hoc manner (detailed in Appendix G) for
+SMLD/DDPM models. In Fig. 9 (Appendix G), we additionally provide qualitative comparison for
+6
+
+Published as a conference paper at ICLR 2021
+Table 2: NLLs and FIDs (ODE) on CIFAR-10.
+Model
+NLL Test Ó FID Ó
+RealNVP (Dinh et al., 2016)
+3.49
+-
+iResNet (Behrmann et al., 2019)
+3.45
+-
+Glow (Kingma & Dhariwal, 2018)
+3.35
+-
+MintNet (Song et al., 2019b)
+3.32
+-
+Residual Flow (Chen et al., 2019)
+3.28
+46.37
+FFJORD (Grathwohl et al., 2018)
+3.40
+-
+Flow++ (Ho et al., 2019)
+3.29
+-
+DDPM (L) (Ho et al., 2020)
+ď 3.70*
+13.51
+DDPM (Lsimple) (Ho et al., 2020)
+ď 3.75*
+3.17
+DDPM
+3.28
+3.37
+DDPM cont. (VP)
+3.21
+3.69
+DDPM cont. (sub-VP)
+3.05
+3.56
+DDPM++ cont. (VP)
+3.16
+3.93
+DDPM++ cont. (sub-VP)
+3.02
+3.16
+DDPM++ cont. (deep, VP)
+3.13
+3.08
+DDPM++ cont. (deep, sub-VP)
+2.99
+2.92
+Table 3: CIFAR-10 sample quality.
+Model
+FIDÓ
+ISÒ
+Conditional
+BigGAN (Brock et al., 2018)
+14.73
+9.22
+StyleGAN2-ADA (Karras et al., 2020a)
+2.42
+10.14
+Unconditional
+StyleGAN2-ADA (Karras et al., 2020a)
+2.92
+9.83
+NCSN (Song & Ermon, 2019)
+25.32 8.87 ˘ .12
+NCSNv2 (Song & Ermon, 2020)
+10.87 8.40 ˘ .07
+DDPM (Ho et al., 2020)
+3.17
+9.46 ˘ .11
+DDPM++
+2.78
+9.64
+DDPM++ cont. (VP)
+2.55
+9.58
+DDPM++ cont. (sub-VP)
+2.61
+9.56
+DDPM++ cont. (deep, VP)
+2.41
+9.68
+DDPM++ cont. (deep, sub-VP)
+2.41
+9.57
+NCSN++
+2.45
+9.73
+NCSN++ cont. (VE)
+2.38
+9.83
+NCSN++ cont. (deep, VE)
+2.20
+9.89
+models trained with the continuous objective Eq. (7) on 256 ˆ 256 LSUN images and the VE SDE,
+where PC samplers clearly surpass predictor-only samplers under comparable computation, when
+using a proper number of corrector steps.
+4.3
+PROBABILITY FLOW AND CONNECTION TO NEURAL ODES
+Score-based models enable another numerical method for solving the reverse-time SDE. For all
+diffusion processes, there exists a corresponding deterministic process whose trajectories share the
+same marginal probability densities tptpxquT
+t“0 as the SDE. This deterministic process satisﬁes an
+ODE (more details in Appendix D.1):
+dx “
+”
+fpx, tq ´ 1
+2gptq2∇x log ptpxq
+ı
+dt,
+(13)
+which can be determined from the SDE once scores are known. We name the ODE in Eq. (13) the
+probability ﬂow ODE. When the score function is approximated by the time-dependent score-based
+model, which is typically a neural network, this is an example of a neural ODE (Chen et al., 2018).
+Exact likelihood computation Leveraging the connection to neural ODEs, we can compute the
+density deﬁned by Eq. (13) via the instantaneous change of variables formula (Chen et al., 2018).
+This allows us to compute the exact likelihood on any input data (details in Appendix D.2). As an
+example, we report negative log-likelihoods (NLLs) measured in bits/dim on the CIFAR-10 dataset
+in Table 2. We compute log-likelihoods on uniformly dequantized data, and only compare to models
+evaluated in the same way (omitting models evaluated with variational dequantization (Ho et al.,
+2019) or discrete data), except for DDPM (L/Lsimple) whose ELBO values (annotated with *) are
+reported on discrete data. Main results: (i) For the same DDPM model in Ho et al. (2020), we obtain
+better bits/dim than ELBO, since our likelihoods are exact; (ii) Using the same architecture, we
+trained another DDPM model with the continuous objective in Eq. (7) (i.e., DDPM cont.), which
+further improves the likelihood; (iii) With sub-VP SDEs, we always get higher likelihoods compared
+to VP SDEs; (iv) With improved architecture (i.e., DDPM++ cont., details in Section 4.4) and the
+sub-VP SDE, we can set a new record bits/dim of 2.99 on uniformly dequantized CIFAR-10 even
+without maximum likelihood training.
+Manipulating latent representations By integrating Eq. (13), we can encode any datapoint xp0q
+into a latent space xpTq. Decoding can be achieved by integrating a corresponding ODE for the
+reverse-time SDE. As is done with other invertible models such as neural ODEs and normalizing
+ﬂows (Dinh et al., 2016; Kingma & Dhariwal, 2018), we can manipulate this latent representation for
+image editing, such as interpolation, and temperature scaling (see Fig. 3 and Appendix D.4).
+Uniquely identiﬁable encoding Unlike most current invertible models, our encoding is uniquely
+identiﬁable, meaning that with sufﬁcient training data, model capacity, and optimization accuracy,
+the encoding for an input is uniquely determined by the data distribution (Roeder et al., 2020). This
+is because our forward SDE, Eq. (5), has no trainable parameters, and its associated probability ﬂow
+7
+
+Published as a conference paper at ICLR 2021
+100
+101
+102
+103
+Evaluation number
+0.0
+0.5
+1.0
+Evaluation timepoint
+ODE Evaluation Points
+Precision
+1e-1
+1e-3
+1e-5
+NFE=14    
+NFE=86    
+NFE=548   
+Interpolation
+Figure 3: Probability ﬂow ODE enables fast sampling with adaptive stepsizes as the numerical
+precision is varied (left), and reduces the number of score function evaluations (NFE) without harming
+quality (middle). The invertible mapping from latents to images allows for interpolations (right).
+ODE, Eq. (13), provides the same trajectories given perfectly estimated scores. We provide additional
+empirical veriﬁcation on this property in Appendix D.5.
+Efﬁcient sampling As with neural ODEs, we can sample xp0q „ p0 by solving Eq. (13) from
+different ﬁnal conditions xpTq „ pT . Using a ﬁxed discretization strategy we can generate com-
+petitive samples, especially when used in conjuction with correctors (Table 1, “probability ﬂow
+sampler”, details in Appendix D.3). Using a black-box ODE solver (Dormand & Prince, 1980) not
+only produces high quality samples (Table 2, details in Appendix D.4), but also allows us to explicitly
+trade-off accuracy for efﬁciency. With a larger error tolerance, the number of function evaluations
+can be reduced by over 90% without affecting the visual quality of samples (Fig. 3).
+4.4
+ARCHITECTURE IMPROVEMENTS
+We explore several new architecture designs for score-based models using both VE and VP SDEs
+(details in Appendix H), where we train models with the same discrete objectives as in SMLD/DDPM.
+We directly transfer the architectures for VP SDEs to sub-VP SDEs due to their similarity. Our
+optimal architecture for the VE SDE, named NCSN++, achieves an FID of 2.45 on CIFAR-10 with
+PC samplers, while our optimal architecture for the VP SDE, called DDPM++, achieves 2.78.
+By switching to the continuous training objective in Eq. (7), and increasing the network depth, we can
+further improve sample quality for all models. The resulting architectures are denoted as NCSN++
+cont. and DDPM++ cont. in Table 3 for VE and VP/sub-VP SDEs respectively. Results reported in
+Table 3 are for the checkpoint with the smallest FID over the course of training, where samples are
+generated with PC samplers. In contrast, FID scores and NLL values in Table 2 are reported for the
+last training checkpoint, and samples are obtained with black-box ODE solvers. As shown in Table 3,
+VE SDEs typically provide better sample quality than VP/sub-VP SDEs, but we also empirically
+observe that their likelihoods are worse than VP/sub-VP SDE counterparts. This indicates that
+practitioners likely need to experiment with different SDEs for varying domains and architectures.
+Our best model for sample quality, NCSN++ cont. (deep, VE), doubles the network depth and sets
+new records for both inception score and FID on unconditional generation for CIFAR-10. Surprisingly,
+we can achieve better FID than the previous best conditional generative model without requiring
+labeled data. With all improvements together, we also obtain the ﬁrst set of high-ﬁdelity samples
+on CelebA-HQ 1024 ˆ 1024 from score-based models (see Appendix H.3). Our best model for
+likelihoods, DDPM++ cont. (deep, sub-VP), similarly doubles the network depth and achieves a
+log-likelihood of 2.99 bits/dim with the continuous objective in Eq. (7). To our best knowledge, this
+is the highest likelihood on uniformly dequantized CIFAR-10.
+5
+CONTROLLABLE GENERATION
+The continuous structure of our framework allows us to not only produce data samples from p0, but
+also from p0pxp0q | yq if ptpy | xptqq is known. Given a forward SDE as in Eq. (5), we can sample
+8
+
+Published as a conference paper at ICLR 2021
+Figure 4: Left: Class-conditional samples on 32 ˆ 32 CIFAR-10. Top four rows are automobiles and
+bottom four rows are horses. Right: Inpainting (top two rows) and colorization (bottom two rows)
+results on 256 ˆ 256 LSUN. First column is the original image, second column is the masked/gray-
+scale image, remaining columns are sampled image completions or colorizations.
+from ptpxptq | yq by starting from pT pxpTq | yq and solving a conditional reverse-time SDE:
+dx “ tfpx, tq ´ gptq2r∇x log ptpxq ` ∇x log ptpy | xqsudt ` gptqd ¯w.
+(14)
+In general, we can use Eq. (14) to solve a large family of inverse problems with score-based generative
+models, once given an estimate of the gradient of the forward process, ∇x log ptpy | xptqq. In some
+cases, it is possible to train a separate model to learn the forward process log ptpy | xptqq and
+compute its gradient. Otherwise, we may estimate the gradient with heuristics and domain knowledge.
+In Appendix I.4, we provide a broadly applicable method for obtaining such an estimate without the
+need of training auxiliary models.
+We consider three applications of controllable generation with this approach: class-conditional
+generation, image imputation and colorization. When y represents class labels, we can train a
+time-dependent classiﬁer ptpy | xptqq for class-conditional sampling. Since the forward SDE
+is tractable, we can easily create training data pxptq, yq for the time-dependent classiﬁer by ﬁrst
+sampling pxp0q, yq from a dataset, and then sampling xptq „ p0tpxptq | xp0qq. Afterwards, we
+may employ a mixture of cross-entropy losses over different time steps, like Eq. (7), to train the
+time-dependent classiﬁer ptpy | xptqq. We provide class-conditional CIFAR-10 samples in Fig. 4
+(left), and relegate more details and results to Appendix I.
+Imputation is a special case of conditional sampling. Suppose we have an incomplete data point
+y where only some subset, Ωpyq is known. Imputation amounts to sampling from ppxp0q | Ωpyqq,
+which we can accomplish using an unconditional model (see Appendix I.2). Colorization is a special
+case of imputation, except that the known data dimensions are coupled. We can decouple these data
+dimensions with an orthogonal linear transformation, and perform imputation in the transformed
+space (details in Appendix I.3). Fig. 4 (right) shows results for inpainting and colorization achieved
+with unconditional time-dependent score-based models.
+6
+CONCLUSION
+We presented a framework for score-based generative modeling based on SDEs. Our work enables a
+better understanding of existing approaches, new sampling algorithms, exact likelihood computation,
+uniquely identiﬁable encoding, latent code manipulation, and brings new conditional generation
+abilities to the family of score-based generative models.
+While our proposed sampling approaches improve results and enable more efﬁcient sampling, they
+remain slower at sampling than GANs (Goodfellow et al., 2014) on the same datasets. Identifying
+ways of combining the stable learning of score-based generative models with the fast sampling of
+implicit models like GANs remains an important research direction. Additionally, the breadth of
+samplers one can use when given access to score functions introduces a number of hyper-parameters.
+Future work would beneﬁt from improved methods to automatically select and tune these hyper-
+parameters, as well as more extensive investigation on the merits and limitations of various samplers.
+9
+
+Published as a conference paper at ICLR 2021
+ACKNOWLEDGEMENTS
+We would like to thank Nanxin Chen, Ruiqi Gao, Jonathan Ho, Kevin Murphy, Tim Salimans and
+Han Zhang for their insightful discussions during the course of this project. This research was
+partially supported by NSF (#1651565, #1522054, #1733686), ONR (N000141912145), AFOSR
+(FA95501910024), and TensorFlow Research Cloud. Yang Song was partially supported by the Apple
+PhD Fellowship in AI/ML.
+REFERENCES
+Eugene L Allgower and Kurt Georg. Numerical continuation methods: an introduction, volume 13.
+Springer Science & Business Media, 2012.
+Brian D O Anderson. Reverse-time diffusion equation models. Stochastic Process. Appl., 12(3):
+313–326, May 1982.
+Jens Behrmann, Will Grathwohl, Ricky TQ Chen, David Duvenaud, and J¨orn-Henrik Jacobsen.
+Invertible residual networks. In International Conference on Machine Learning, pp. 573–582,
+2019.
+Florian Bordes, Sina Honari, and Pascal Vincent. Learning to generate samples from noise through
+infusion training. arXiv preprint arXiv:1703.06975, 2017.
+Andrew Brock, Jeff Donahue, and Karen Simonyan. Large scale gan training for high ﬁdelity natural
+image synthesis. In International Conference on Learning Representations, 2018.
+Ruojin Cai, Guandao Yang, Hadar Averbuch-Elor, Zekun Hao, Serge Belongie, Noah Snavely, and
+Bharath Hariharan. Learning gradient ﬁelds for shape generation. In Proceedings of the European
+Conference on Computer Vision (ECCV), 2020.
+Nanxin Chen, Yu Zhang, Heiga Zen, Ron J Weiss, Mohammad Norouzi, and William Chan. Wavegrad:
+Estimating gradients for waveform generation. arXiv preprint arXiv:2009.00713, 2020.
+Ricky TQ Chen, Yulia Rubanova, Jesse Bettencourt, and David K Duvenaud. Neural ordinary
+differential equations. In Advances in neural information processing systems, pp. 6571–6583,
+2018.
+Ricky TQ Chen, Jens Behrmann, David K Duvenaud, and J¨orn-Henrik Jacobsen. Residual ﬂows
+for invertible generative modeling. In Advances in Neural Information Processing Systems, pp.
+9916–9926, 2019.
+Laurent Dinh, Jascha Sohl-Dickstein, and Samy Bengio. Density estimation using real nvp. arXiv
+preprint arXiv:1605.08803, 2016.
+John R Dormand and Peter J Prince. A family of embedded runge-kutta formulae. Journal of
+computational and applied mathematics, 6(1):19–26, 1980.
+Yilun Du and Igor Mordatch. Implicit generation and modeling with energy based models. In
+H. Wallach, H. Larochelle, A. Beygelzimer, F. d'Alch´e-Buc, E. Fox, and R. Garnett (eds.), Advances
+in Neural Information Processing Systems, volume 32, pp. 3608–3618. Curran Associates, Inc.,
+2019.
+Bradley Efron. Tweedie’s formula and selection bias. Journal of the American Statistical Association,
+106(496):1602–1614, 2011.
+Ian Goodfellow, Jean Pouget-Abadie, Mehdi Mirza, Bing Xu, David Warde-Farley, Sherjil Ozair,
+Aaron Courville, and Yoshua Bengio. Generative adversarial nets. In Advances in neural informa-
+tion processing systems, pp. 2672–2680, 2014.
+Anirudh Goyal Alias Parth Goyal, Nan Rosemary Ke, Surya Ganguli, and Yoshua Bengio. Variational
+walkback: Learning a transition operator as a stochastic recurrent net. In Advances in Neural
+Information Processing Systems, pp. 4392–4402, 2017.
+10
+
+Published as a conference paper at ICLR 2021
+Will Grathwohl, Ricky TQ Chen, Jesse Bettencourt, Ilya Sutskever, and David Duvenaud. Ffjord:
+Free-form continuous dynamics for scalable reversible generative models. In International Confer-
+ence on Learning Representations, 2018.
+Ulf Grenander and Michael I Miller. Representations of knowledge in complex systems. Journal of
+the Royal Statistical Society: Series B (Methodological), 56(4):549–581, 1994.
+Jonathan Ho, Xi Chen, Aravind Srinivas, Yan Duan, and Pieter Abbeel. Flow++: Improving ﬂow-
+based generative models with variational dequantization and architecture design. In International
+Conference on Machine Learning, pp. 2722–2730, 2019.
+Jonathan Ho, Ajay Jain, and Pieter Abbeel. Denoising diffusion probabilistic models. Advances in
+Neural Information Processing Systems, 33, 2020.
+Michael F Hutchinson. A stochastic estimator of the trace of the inﬂuence matrix for Laplacian
+smoothing splines. Communications in Statistics-Simulation and Computation, 19(2):433–450,
+1990.
+Aapo Hyv¨arinen. Estimation of non-normalized statistical models by score matching. Journal of
+Machine Learning Research, 6(Apr):695–709, 2005.
+Alexia Jolicoeur-Martineau, R´emi Pich´e-Taillefer, R´emi Tachet des Combes, and Ioannis Mitliagkas.
+Adversarial score matching and improved sampling for image generation.
+arXiv preprint
+arXiv:2009.05475, 2020.
+Tero Karras, Timo Aila, Samuli Laine, and Jaakko Lehtinen. Progressive growing of gans for
+improved quality, stability, and variation. In International Conference on Learning Representations,
+2018.
+Tero Karras, Samuli Laine, and Timo Aila. A style-based generator architecture for generative
+adversarial networks. In Proceedings of the IEEE Conference on Computer Vision and Pattern
+Recognition, pp. 4401–4410, 2019.
+Tero Karras, Miika Aittala, Janne Hellsten, Samuli Laine, Jaakko Lehtinen, and Timo Aila. Training
+generative adversarial networks with limited data. Advances in Neural Information Processing
+Systems, 33, 2020a.
+Tero Karras, Samuli Laine, Miika Aittala, Janne Hellsten, Jaakko Lehtinen, and Timo Aila. Analyzing
+and improving the image quality of StyleGAN. In Proc. CVPR, 2020b.
+Durk P Kingma and Prafulla Dhariwal. Glow: Generative ﬂow with invertible 1x1 convolutions. In
+Advances in Neural Information Processing Systems, pp. 10215–10224, 2018.
+Peter E Kloeden and Eckhard Platen. Numerical solution of stochastic differential equations, vol-
+ume 23. Springer Science & Business Media, 2013.
+Zhifeng Kong, Wei Ping, Jiaji Huang, Kexin Zhao, and Bryan Catanzaro. Diffwave: A versatile
+diffusion model for audio synthesis. arXiv preprint arXiv:2009.09761, 2020.
+Alex Krizhevsky, Geoffrey Hinton, et al. Learning multiple layers of features from tiny images. 2009.
+Ziwei Liu, Ping Luo, Xiaogang Wang, and Xiaoou Tang. Deep learning face attributes in the wild. In
+Proceedings of International Conference on Computer Vision (ICCV), December 2015.
+Dimitra Maoutsa, Sebastian Reich, and Manfred Opper. Interacting particle solutions of fokker-planck
+equations through gradient-log-density estimation. arXiv preprint arXiv:2006.00702, 2020.
+Radford M Neal et al. Mcmc using hamiltonian dynamics. Handbook of markov chain monte carlo,
+2(11):2, 2011.
+Chenhao Niu, Yang Song, Jiaming Song, Shengjia Zhao, Aditya Grover, and Stefano Ermon. Permu-
+tation invariant graph generation via score-based generative modeling. volume 108 of Proceedings
+of Machine Learning Research, pp. 4474–4484, Online, 26–28 Aug 2020. PMLR.
+11
+
+Published as a conference paper at ICLR 2021
+Bernt Øksendal. Stochastic differential equations. In Stochastic differential equations, pp. 65–84.
+Springer, 2003.
+Tianyu Pang, Kun Xu, Chongxuan Li, Yang Song, Stefano Ermon, and Jun Zhu. Efﬁcient learning of
+generative models via ﬁnite-difference score matching. arXiv preprint arXiv:2007.03317, 2020.
+Giorgio Parisi. Correlation functions and computer simulations. Nuclear Physics B, 180(3):378–384,
+1981.
+Ali Razavi, Aaron van den Oord, and Oriol Vinyals. Generating diverse high-ﬁdelity images with
+vq-vae-2. In Advances in Neural Information Processing Systems, pp. 14837–14847, 2019.
+Geoffrey Roeder, Luke Metz, and Diederik P Kingma. On linear identiﬁability of learned representa-
+tions. arXiv preprint arXiv:2007.00810, 2020.
+Simo S¨arkk¨a and Arno Solin. Applied stochastic differential equations, volume 10. Cambridge
+University Press, 2019.
+John Skilling. The eigenvalues of mega-dimensional matrices. In Maximum Entropy and Bayesian
+Methods, pp. 455–466. Springer, 1989.
+Jascha Sohl-Dickstein, Eric Weiss, Niru Maheswaranathan, and Surya Ganguli. Deep unsupervised
+learning using nonequilibrium thermodynamics. In International Conference on Machine Learning,
+pp. 2256–2265, 2015.
+Yang Song and Stefano Ermon. Generative modeling by estimating gradients of the data distribution.
+In Advances in Neural Information Processing Systems, pp. 11895–11907, 2019.
+Yang Song and Stefano Ermon. Improved techniques for training score-based generative models.
+Advances in Neural Information Processing Systems, 33, 2020.
+Yang Song, Sahaj Garg, Jiaxin Shi, and Stefano Ermon. Sliced score matching: A scalable approach
+to density and score estimation. In Proceedings of the Thirty-Fifth Conference on Uncertainty in
+Artiﬁcial Intelligence, UAI 2019, Tel Aviv, Israel, July 22-25, 2019, pp. 204, 2019a.
+Yang Song, Chenlin Meng, and Stefano Ermon. Mintnet: Building invertible neural networks with
+masked convolutions. In Advances in Neural Information Processing Systems, pp. 11002–11012,
+2019b.
+Matthew Tancik, Pratul P. Srinivasan, Ben Mildenhall, Sara Fridovich-Keil, Nithin Raghavan, Utkarsh
+Singhal, Ravi Ramamoorthi, Jonathan T. Barron, and Ren Ng. Fourier features let networks learn
+high frequency functions in low dimensional domains. NeurIPS, 2020.
+Pascal Vincent. A connection between score matching and denoising autoencoders. Neural computa-
+tion, 23(7):1661–1674, 2011.
+Fisher Yu, Ari Seff, Yinda Zhang, Shuran Song, Thomas Funkhouser, and Jianxiong Xiao. Lsun:
+Construction of a large-scale image dataset using deep learning with humans in the loop. arXiv
+preprint arXiv:1506.03365, 2015.
+Sergey Zagoruyko and Nikos Komodakis. Wide residual networks. arXiv preprint arXiv:1605.07146,
+2016.
+Richard Zhang. Making convolutional networks shift-invariant again. In ICML, 2019.
+12
+
+Published as a conference paper at ICLR 2021
+APPENDIX
+We include several appendices with additional details, derivations, and results. Our framework
+allows general SDEs with matrix-valued diffusion coefﬁcients that depend on the state, for which
+we provide a detailed discussion in Appendix A. We give a full derivation of VE, VP and sub-VP
+SDEs in Appendix B, and discuss how to use them from a practitioner’s perspective in Appendix C.
+We elaborate on the probability ﬂow formulation of our framework in Appendix D, including a
+derivation of the probability ﬂow ODE (Appendix D.1), exact likelihood computation (Appendix D.2),
+probability ﬂow sampling with a ﬁxed discretization strategy (Appendix D.3), sampling with black-
+box ODE solvers (Appendix D.4), and experimental veriﬁcation on uniquely identiﬁable encoding
+(Appendix D.5). We give a full description of the reverse diffusion sampler in Appendix E, the
+DDPM-type ancestral sampler for SMLD models in Appendix F, and Predictor-Corrector samplers in
+Appendix G. We explain our model architectures and detailed experimental settings in Appendix H,
+with 1024 ˆ 1024 CelebA-HQ samples therein. Finally, we detail on the algorithms for controllable
+generation in Appendix I, and include extended results for class-conditional generation (Appendix I.1),
+image inpainting (Appendix I.2), colorization (Appendix I.3), and a strategy for solving general
+inverse problems (Appendix I.4).
+A
+THE FRAMEWORK FOR MORE GENERAL SDES
+In the main text, we introduced our framework based on a simpliﬁed SDE Eq. (5) where the diffusion
+coefﬁcient is independent of xptq. It turns out that our framework can be extended to hold for more
+general diffusion coefﬁcients. We can consider SDEs in the following form:
+dx “ fpx, tqdt ` Gpx, tqdw,
+(15)
+where fp¨, tq : Rd Ñ Rd and Gp¨, tq : Rd Ñ Rdˆd. We follow the Itˆo interpretation of SDEs
+throughout this paper.
+According to (Anderson, 1982), the reverse-time SDE is given by (cf., Eq. (6))
+dx “ tfpx, tq ´ ∇¨ rGpx, tqGpx, tqTs ´ Gpx, tqGpx, tqT∇x log ptpxqudt ` Gpx, tqd ¯w,
+(16)
+where we deﬁne ∇¨ Fpxq :“ p∇¨ f 1pxq, ∇¨ f 2pxq, ¨ ¨ ¨ , ∇¨ f dpxqqT for a matrix-valued function
+Fpxq :“ pf 1pxq, f 2pxq, ¨ ¨ ¨ , f dpxqqT throughout the paper.
+The probability ﬂow ODE corresponding to Eq. (15) has the following form (cf., Eq. (13), see a
+detailed derivation in Appendix D.1):
+dx “
+"
+fpx, tq ´ 1
+2∇¨ rGpx, tqGpx, tqTs ´ 1
+2Gpx, tqGpx, tqT∇x log ptpxq
+*
+dt.
+(17)
+Finally for conditional generation with the general SDE Eq. (15), we can solve the conditional
+reverse-time SDE below (cf., Eq. (14), details in Appendix I):
+dx “ tfpx, tq ´ ∇¨ rGpx, tqGpx, tqTs ´ Gpx, tqGpx, tqT∇x log ptpxq
+´ Gpx, tqGpx, tqT∇x log ptpy | xqudt ` Gpx, tqd ¯w.
+(18)
+When the drift and diffusion coefﬁcient of an SDE are not afﬁne, it can be difﬁcult to compute the
+transition kernel p0tpxptq | xp0qq in closed form. This hinders the training of score-based models,
+because Eq. (7) requires knowing ∇xptq log p0tpxptq | xp0qq. To overcome this difﬁculty, we can
+replace denoising score matching in Eq. (7) with other efﬁcient variants of score matching that do not
+require computing ∇xptq log p0tpxptq | xp0qq. For example, when using sliced score matching (Song
+et al., 2019a), our training objective Eq. (7) becomes
+θ˚ “ arg min
+θ
+Et
+"
+λptqExp0qExptqEv„pv
+„1
+2 ∥sθpxptq, tq∥2
+2 ` vTsθpxptq, tqv
+*
+,
+(19)
+where λ : r0, Ts Ñ R` is a positive weighting function, t „ Up0, Tq, Ervs “ 0, and Covrvs “ I.
+We can always simulate the SDE to sample from p0tpxptq | xp0qq, and solve Eq. (19) to train the
+time-dependent score-based model sθpx, tq.
+13
+
+Published as a conference paper at ICLR 2021
+B
+VE, VP AND SUB-VP SDES
+Below we provide detailed derivations to show that the noise perturbations of SMLD and DDPM
+are discretizations of the Variance Exploding (VE) and Variance Preserving (VP) SDEs respectively.
+We additionally introduce sub-VP SDEs, a modiﬁcation to VP SDEs that often achieves better
+performance in both sample quality and likelihoods.
+First, when using a total of N noise scales, each perturbation kernel pσipx | x0q of SMLD can be
+derived from the following Markov chain:
+xi “ xi´1 `
+b
+σ2
+i ´ σ2
+i´1zi´1,
+i “ 1, ¨ ¨ ¨ , N,
+(20)
+where zi´1 „ Np0, Iq, x0 „ pdata, and we have introduced σ0 “ 0 to simplify the notation. In the
+limit of N Ñ 8, the Markov chain txiuN
+i“1 becomes a continuous stochastic process txptqu1
+t“0,
+tσiuN
+i“1 becomes a function σptq, and zi becomes zptq, where we have used a continuous time variable
+t P r0, 1s for indexing, rather than an integer i P t1, 2, ¨ ¨ ¨ , Nu. Let x
+` i
+N
+˘
+“ xi, σ
+` i
+N
+˘
+“ σi,
+and z
+` i
+N
+˘
+“ zi for i “ 1, 2, ¨ ¨ ¨ , N. We can rewrite Eq. (20) as follows with ∆t “
+1
+N and
+t P
+␣
+0, 1
+N , ¨ ¨ ¨ , N´1
+N
+(
+:
+xpt ` ∆tq “ xptq `
+a
+σ2pt ` ∆tq ´ σ2ptq zptq « xptq `
+c
+d rσ2ptqs
+dt
+∆t zptq,
+where the approximate equality holds when ∆t ! 1. In the limit of ∆t Ñ 0, this converges to
+dx “
+c
+d rσ2ptqs
+dt
+dw,
+(21)
+which is the VE SDE.
+For the perturbation kernels tpαipx | x0quN
+i“1 used in DDPM, the discrete Markov chain is
+xi “
+a
+1 ´ βixi´1 `
+a
+βizi´1,
+i “ 1, ¨ ¨ ¨ , N,
+(22)
+where zi´1 „ Np0, Iq. To obtain the limit of this Markov chain when N Ñ 8, we deﬁne an
+auxiliary set of noise scales t¯βi “ NβiuN
+i“1, and re-write Eq. (22) as below
+xi “
+c
+1 ´
+¯βi
+N xi´1 `
+c ¯βi
+N zi´1,
+i “ 1, ¨ ¨ ¨ , N.
+(23)
+In the limit of N Ñ 8, t¯βiuN
+i“1 becomes a function βptq indexed by t P r0, 1s. Let β
+` i
+N
+˘
+“ ¯βi,
+xp i
+N q “ xi, zp i
+N q “ zi. We can rewrite the Markov chain Eq. (23) as the following with ∆t “ 1
+N
+and t P t0, 1, ¨ ¨ ¨ , N´1
+N u:
+xpt ` ∆tq “
+a
+1 ´ βpt ` ∆tq∆t xptq `
+a
+βpt ` ∆tq∆t zptq
+« xptq ´ 1
+2βpt ` ∆tq∆t xptq `
+a
+βpt ` ∆tq∆t zptq
+« xptq ´ 1
+2βptq∆t xptq `
+a
+βptq∆t zptq,
+(24)
+where the approximate equality holds when ∆t ! 1. Therefore, in the limit of ∆t Ñ 0, Eq. (24)
+converges to the following VP SDE:
+dx “ ´1
+2βptqx dt `
+a
+βptq dw.
+(25)
+So far, we have demonstrated that the noise perturbations used in SMLD and DDPM correspond to
+discretizations of VE and VP SDEs respectively. The VE SDE always yields a process with exploding
+variance when t Ñ 8. In contrast, the VP SDE yields a process with bounded variance. In addition,
+the process has a constant unit variance for all t P r0, 8q when ppxp0qq has a unit variance. Since the
+VP SDE has afﬁne drift and diffusion coefﬁcients, we can use Eq. (5.51) in S¨arkk¨a & Solin (2019) to
+obtain an ODE that governs the evolution of variance
+dΣVPptq
+dt
+“ βptqpI ´ ΣVPptqq,
+14
+
+Published as a conference paper at ICLR 2021
+where ΣVPptq :“ Covrxptqs for txptqu1
+t“0 obeying a VP SDE. Solving this ODE, we obtain
+ΣVPptq “ I ` e
+şt
+0 ´βpsqdspΣVPp0q ´ Iq,
+(26)
+from which it is clear that the variance ΣVPptq is always bounded given ΣVPp0q. Moreover, ΣVPptq ”
+I if ΣVPp0q “ I. Due to this difference, we name Eq. (9) as the Variance Exploding (VE) SDE, and
+Eq. (11) the Variance Preserving (VP) SDE.
+Inspired by the VP SDE, we propose a new SDE called the sub-VP SDE, namely
+dx “ ´1
+2βptqx dt `
+b
+βptqp1 ´ e´2
+şt
+0 βpsqdsqdw.
+(27)
+Following standard derivations, it is straightforward to show that Erxptqs is the same for both VP and
+sub-VP SDEs; the variance function of sub-VP SDEs is different, given by
+Σsub-VPptq “ I ` e´2
+şt
+0 βpsqdsI ` e´
+şt
+0 βpsqdspΣsub-VPp0q ´ 2Iq,
+(28)
+where Σsub-VPptq :“ Covrxptqs for a process txptqu1
+t“0 obtained by solving Eq. (27). In addition,
+we observe that (i) Σsub-VPptq ď ΣVPptq for all t ě 0 with Σsub-VPp0q “ ΣVPp0q and shared βpsq;
+and (ii) limtÑ8 Σsub-VPptq “ limtÑ8 ΣVPptq “ I if limtÑ8
+şt
+0 βpsqds “ 8. The former is why we
+name Eq. (27) the sub-VP SDE—its variance is always upper bounded by the corresponding VP
+SDE. The latter justiﬁes the use of sub-VP SDEs for score-based generative modeling, since they can
+perturb any data distribution to standard Gaussian under suitable conditions, just like VP SDEs.
+VE, VP and sub-VP SDEs all have afﬁne drift coefﬁcients. Therefore, their perturbation kernels
+p0tpxptq | xp0qq are all Gaussian and can be computed with Eqs. (5.50) and (5.51) in S¨arkk¨a & Solin
+(2019):
+p0tpxptq | xp0qq “
+$
+’
+&
+’
+%
+N
+`
+xptq; xp0q, rσ2ptq ´ σ2p0qsI
+˘
+,
+(VE SDE)
+N
+`
+xptq; xp0qe´ 1
+2
+şt
+0 βpsqds, I ´ Ie´
+şt
+0 βpsqds˘
+(VP SDE)
+N
+`
+xptq; xp0qe´ 1
+2
+şt
+0 βpsqds, r1 ´ e´
+şt
+0 βpsqdss2I
+˘
+(sub-VP SDE)
+.
+(29)
+As a result, all SDEs introduced here can be efﬁciently trained with the objective in Eq. (7).
+C
+SDES IN THE WILD
+Below we discuss concrete instantiations of VE and VP SDEs whose discretizations yield SMLD
+and DDPM models, and the speciﬁc sub-VP SDE used in our experiments. In SMLD, the noise
+scales tσiuN
+i“1 is typically a geometric sequence where σmin is ﬁxed to 0.01 and σmax is chosen
+according to Technique 1 in Song & Ermon (2020). Usually, SMLD models normalize image inputs
+to the range r0, 1s. Since tσiuN
+i“1 is a geometric sequence, we have σp i
+N q “ σi “ σmin
+´
+σmax
+σmin
+¯ i´1
+N´1
+for i “ 1, 2, ¨ ¨ ¨ , N. In the limit of N Ñ 8, we have σptq “ σmin
+´
+σmax
+σmin
+¯t
+for t P p0, 1s. The
+corresponding VE SDE is
+dx “ σmin
+ˆσmax
+σmin
+˙tc
+2 log σmax
+σmin
+dw,
+t P p0, 1s,
+(30)
+and the perturbation kernel can be derived via Eq. (29):
+p0tpxptq | xp0qq “ N
+ˆ
+xptq; xp0q, σ2
+min
+´σmax
+σmin
+¯2t
+I
+˙
+,
+t P p0, 1s.
+(31)
+There is one subtlety when t “ 0: by deﬁnition, σp0q “ σ0 “ 0 (following the convention in Eq. (20)),
+but σp0`q :“ limtÑ0` σptq “ σmin ‰ 0. In other words, σptq for SMLD is not differentiable since
+σp0q ‰ σp0`q, causing the VE SDE in Eq. (21) undeﬁned for t “ 0. In practice, we bypass this issue
+by always solving the SDE and its associated probability ﬂow ODE in the range t P rϵ, 1s for some
+small constant ϵ ą 0, and we use ϵ “ 10´5 in our VE SDE experiments.
+15
+
+Published as a conference paper at ICLR 2021
+0.0
+0.2
+0.4
+0.6
+0.8
+1.0
+t
+0
+500
+1000
+1500
+2000
+2500
+Variance
+Variance of Perturbation Kernels
+SMLD original
+VE SDE
+(a) SMLD
+0.0
+0.2
+0.4
+0.6
+0.8
+1.0
+t
+0.0
+0.2
+0.4
+0.6
+0.8
+1.0
+Scaling Factor of Means
+Mean of Perturbation Kernels
+DDPM original
+VP SDE
+(b) DDPM (mean)
+0.0
+0.2
+0.4
+0.6
+0.8
+1.0
+t
+0.0
+0.2
+0.4
+0.6
+0.8
+1.0
+Variance
+Variance of Perturbation Kernels
+DDPM original
+VP SDE
+(c) DDPM (variance)
+Figure 5: Discrete-time perturbation kernels and our continuous generalizations match each other
+almost exactly. (a) compares the variance of perturbation kernels for SMLD and VE SDE; (b)
+compares the scaling factors of means of perturbation kernels for DDPM and VP SDE; and (c)
+compares the variance of perturbation kernels for DDPM and VP SDE.
+For DDPM models, tβiuN
+i“1 is typically an arithmetic sequence where βi “
+¯βmin
+N `
+i´1
+NpN´1qp¯βmax ´
+¯βminq for i “ 1, 2, ¨ ¨ ¨ , N. Therefore, βptq “ ¯βmin ` tp¯βmax ´ ¯βminq for t P r0, 1s in the limit of
+N Ñ 8. This corresponds to the following instantiation of the VP SDE:
+dx “ ´1
+2p¯βmin ` tp¯βmax ´ ¯βminqqxdt `
+b
+¯βmin ` tp¯βmax ´ ¯βminqdw,
+t P r0, 1s,
+(32)
+where xp0q „ pdatapxq. In our experiments, we let ¯βmin “ 0.1 and ¯βmax “ 20 to match the settings in
+Ho et al. (2020). The perturbation kernel is given by
+p0tpxptq | xp0qq
+“ N
+´
+xptq; e´ 1
+4 t2p ¯βmax´ ¯βminq´ 1
+2 t ¯βminxp0q, I ´ Ie´ 1
+2 t2p ¯βmax´ ¯βminq´t ¯βmin
+¯
+,
+t P r0, 1s.
+(33)
+For DDPM, there is no discontinuity issue with the corresponding VP SDE; yet, there are numerical
+instability issues for training and sampling at t “ 0, due to the vanishing variance of xptq as t Ñ 0.
+Therefore, same as the VE SDE, we restrict computation to t P rϵ, 1s for a small ϵ ą 0. For sampling,
+we choose ϵ “ 10´3 so that the variance of xpϵq in VP SDE matches the variance of x1 in DDPM;
+for training and likelihood computation, we adopt ϵ “ 10´5 which empirically gives better results.
+As a sanity check for our SDE generalizations to SMLD and DDPM, we compare the perturbation
+kernels of SDEs and original discrete Markov chains in Fig. 5. The SMLD and DDPM models both
+use N “ 1000 noise scales. For SMLD, we only need to compare the variances of perturbation
+kernels since means are the same by deﬁnition. For DDPM, we compare the scaling factors of means
+and the variances. As demonstrated in Fig. 5, the discrete perturbation kernels of original SMLD and
+DDPM models align well with perturbation kernels derived from VE and VP SDEs.
+For sub-VP SDEs, we use exactly the same βptq as VP SDEs. This leads to the following perturbation
+kernel
+p0tpxptq | xp0qq
+“ N
+´
+xptq; e´ 1
+4 t2p ¯βmax´ ¯βminq´ 1
+2 t ¯βminxp0q, r1 ´ e´ 1
+2 t2p ¯βmax´ ¯βminq´t ¯βmins2I
+¯
+,
+t P r0, 1s.
+(34)
+We also restrict numerical computation to the same interval of rϵ, 1s as VP SDEs.
+Empirically, we observe that smaller ϵ generally yields better likelihood values for all SDEs. For
+sampling, it is important to use an appropriate ϵ for better Inception scores and FIDs, although
+samples across different ϵ look visually the same to human eyes.
+D
+PROBABILITY FLOW ODE
+D.1
+DERIVATION
+The idea of probability ﬂow ODE is inspired by Maoutsa et al. (2020), and one can ﬁnd the derivation
+of a simpliﬁed case therein. Below we provide a derivation for the fully general ODE in Eq. (17). We
+16
+
+Published as a conference paper at ICLR 2021
+consider the SDE in Eq. (15), which possesses the following form:
+dx “ fpx, tqdt ` Gpx, tqdw,
+where fp¨, tq : Rd Ñ Rd and Gp¨, tq : Rd Ñ Rdˆd. The marginal probability density ptpxptqq
+evolves according to Kolmogorov’s forward equation (Fokker-Planck equation) (Øksendal, 2003)
+Bptpxq
+Bt
+“ ´
+dÿ
+i“1
+B
+Bxi
+rfipx, tqptpxqs ` 1
+2
+dÿ
+i“1
+dÿ
+j“1
+B2
+BxiBxj
+”
+dÿ
+k“1
+Gikpx, tqGjkpx, tqptpxq
+ı
+.
+(35)
+We can easily rewrite Eq. (35) to obtain
+Bptpxq
+Bt
+“ ´
+dÿ
+i“1
+B
+Bxi
+rfipx, tqptpxqs ` 1
+2
+dÿ
+i“1
+dÿ
+j“1
+B2
+BxiBxj
+”
+dÿ
+k“1
+Gikpx, tqGjkpx, tqptpxq
+ı
+“ ´
+dÿ
+i“1
+B
+Bxi
+rfipx, tqptpxqs ` 1
+2
+dÿ
+i“1
+B
+Bxi
+”
+dÿ
+j“1
+B
+Bxj
+”
+dÿ
+k“1
+Gikpx, tqGjkpx, tqptpxq
+ıı
+. (36)
+Note that
+dÿ
+j“1
+B
+Bxj
+”
+dÿ
+k“1
+Gikpx, tqGjkpx, tqptpxq
+ı
+“
+dÿ
+j“1
+B
+Bxj
+”
+dÿ
+k“1
+Gikpx, tqGjkpx, tq
+ı
+ptpxq `
+dÿ
+j“1
+dÿ
+k“1
+Gikpx, tqGjkpx, tqptpxq B
+Bxj
+log ptpxq
+“ptpxq∇¨ rGpx, tqGpx, tqTs ` ptpxqGpx, tqGpx, tqT∇x log ptpxq,
+based on which we can continue the rewriting of Eq. (36) to obtain
+Bptpxq
+Bt
+“ ´
+dÿ
+i“1
+B
+Bxi
+rfipx, tqptpxqs ` 1
+2
+dÿ
+i“1
+B
+Bxi
+”
+dÿ
+j“1
+B
+Bxj
+”
+dÿ
+k“1
+Gikpx, tqGjkpx, tqptpxq
+ıı
+“ ´
+dÿ
+i“1
+B
+Bxi
+rfipx, tqptpxqs
+` 1
+2
+dÿ
+i“1
+B
+Bxi
+”
+ptpxq∇¨ rGpx, tqGpx, tqTs ` ptpxqGpx, tqGpx, tqT∇x log ptpxq
+ı
+“ ´
+dÿ
+i“1
+B
+Bxi
+!
+fipx, tqptpxq
+´ 1
+2
+”
+∇¨ rGpx, tqGpx, tqTs ` Gpx, tqGpx, tqT∇x log ptpxq
+ı
+ptpxq
+)
+“ ´
+dÿ
+i“1
+B
+Bxi
+r ˜fipx, tqptpxqs,
+(37)
+where we deﬁne
+˜fpx, tq :“ fpx, tq ´ 1
+2∇¨ rGpx, tqGpx, tqTs ´ 1
+2Gpx, tqGpx, tqT∇x log ptpxq.
+Inspecting Eq. (37), we observe that it equals Kolmogorov’s forward equation of the following
+SDE with ˜Gpx, tq :“ 0 (Kolmogorov’s forward equation in this case is also known as the Liouville
+equation.)
+dx “ ˜fpx, tqdt ` ˜Gpx, tqdw,
+which is essentially an ODE:
+dx “ ˜fpx, tqdt,
+same as the probability ﬂow ODE given by Eq. (17). Therefore, we have shown that the probability
+ﬂow ODE Eq. (17) induces the same marginal probability density ptpxq as the SDE in Eq. (15).
+17
+
+Published as a conference paper at ICLR 2021
+D.2
+LIKELIHOOD COMPUTATION
+The probability ﬂow ODE in Eq. (17) has the following form when we replace the score ∇x log ptpxq
+with the time-dependent score-based model sθpx, tq:
+dx “
+"
+fpx, tq ´ 1
+2∇¨ rGpx, tqGpx, tqTs ´ 1
+2Gpx, tqGpx, tqTsθpx, tq
+*
+loooooooooooooooooooooooooooooooooooooooooomoooooooooooooooooooooooooooooooooooooooooon
+“:˜fθpx,tq
+dt.
+(38)
+With the instantaneous change of variables formula (Chen et al., 2018), we can compute the log-
+likelihood of p0pxq using
+log p0pxp0qq “ log pT pxpTqq `
+ż T
+0
+∇¨ ˜fθpxptq, tqdt,
+(39)
+where the random variable xptq as a function of t can be obtained by solving the probability ﬂow
+ODE in Eq. (38). In many cases computing ∇¨ ˜fθpx, tq is expensive, so we follow Grathwohl et al.
+(2018) to estimate it with the Skilling-Hutchinson trace estimator (Skilling, 1989; Hutchinson, 1990).
+In particular, we have
+∇¨ ˜fθpx, tq “ EppϵqrϵT∇˜fθpx, tqϵs,
+(40)
+where ∇˜fθ denotes the Jacobian of ˜fθp¨, tq, and the random variable ϵ satisﬁes Eppϵqrϵs “ 0 and
+Covppϵqrϵs “ I. The vector-Jacobian product ϵT∇˜fθpx, tq can be efﬁciently computed using reverse-
+mode automatic differentiation, at approximately the same cost as evaluating ˜fθpx, tq. As a result,
+we can sample ϵ „ ppϵq and then compute an efﬁcient unbiased estimate to ∇¨ ˜fθpx, tq using
+ϵT∇˜fθpx, tqϵ. Since this estimator is unbiased, we can attain an arbitrarily small error by averaging
+over a sufﬁcient number of runs. Therefore, by applying the Skilling-Hutchinson estimator Eq. (40)
+to Eq. (39), we can compute the log-likelihood to any accuracy.
+In our experiments, we use the RK45 ODE solver (Dormand & Prince, 1980) provided by
+scipy.integrate.solve_ivp in all cases. The bits/dim values in Table 2 are computed
+with atol=1e-5 and rtol=1e-5, same as Grathwohl et al. (2018). To give the likelihood results
+of our models in Table 2, we average the bits/dim obtained on the test dataset over ﬁve different runs
+with ϵ “ 10´5 (see deﬁnition of ϵ in Appendix C).
+D.3
+PROBABILITY FLOW SAMPLING
+Suppose we have a forward SDE
+dx “ fpx, tqdt ` Gptqdw,
+and one of its discretization
+xi`1 “ xi ` fipxiq ` Gizi,
+i “ 0, 1, ¨ ¨ ¨ , N ´ 1,
+(41)
+where zi „ Np0, Iq. We assume the discretization schedule of time is ﬁxed beforehand, and thus
+we absorb the dependency on ∆t into the notations of fi and Gi. Using Eq. (17), we can obtain the
+following probability ﬂow ODE:
+dx “
+"
+fpx, tq ´ 1
+2GptqGptqT∇x log ptpxq
+*
+dt.
+(42)
+We may employ any numerical method to integrate the probability ﬂow ODE backwards in time for
+sample generation. In particular, we propose a discretization in a similar functional form to Eq. (41):
+xi “ xi`1 ´ fi`1pxi`1q ` 1
+2Gi`1GT
+i`1sθ˚pxi`1, i ` 1q,
+i “ 0, 1, ¨ ¨ ¨ , N ´ 1,
+where the score-based model sθ˚pxi, iq is conditioned on the iteration number i. This is a determin-
+istic iteration rule. Unlike reverse diffusion samplers or ancestral sampling, there is no additional
+randomness once the initial sample xN is obtained from the prior distribution. When applied to
+SMLD models, we can get the following iteration rule for probability ﬂow sampling:
+xi “ xi`1 ` 1
+2pσ2
+i`1 ´ σ2
+i qsθ˚pxi`1, σi`1q,
+i “ 0, 1, ¨ ¨ ¨ , N ´ 1.
+(43)
+Similarly, for DDPM models, we have
+xi “ p2 ´
+a
+1 ´ βi`1qxi`1 ` 1
+2βi`1sθ˚pxi`1, i ` 1q,
+i “ 0, 1, ¨ ¨ ¨ , N ´ 1.
+(44)
+18
+
+Published as a conference paper at ICLR 2021
+D.4
+SAMPLING WITH BLACK-BOX ODE SOLVERS
+For producing ﬁgures in Fig. 3, we use a DDPM model trained on 256 ˆ 256 CelebA-HQ with the
+same settings in Ho et al. (2020). All FID scores of our models in Table 2 are computed on samples
+from the RK45 ODE solver implemented in scipy.integrate.solve_ivp with atol=1e-5
+and rtol=1e-5. We use ϵ “ 10´5 for VE SDEs and ϵ “ 10´3 for VP SDEs (see also Appendix C).
+Aside from the interpolation results in Fig. 3, we demonstrate more examples of latent space
+manipulation in Fig. 6, including interpolation and temperature scaling. The model tested here is a
+DDPM model trained with the same settings in Ho et al. (2020).
+Although solvers for the probability ﬂow ODE allow fast sampling, their samples typically have
+higher (worse) FID scores than those from SDE solvers if no corrector is used. We have this
+empirical observation for both the discretization strategy in Appendix D.3, and black-box ODE
+solvers introduced above. Moreover, the performance of probability ﬂow ODE samplers depends on
+the choice of the SDE—their sample quality for VE SDEs is much worse than VP SDEs especially
+for high-dimensional data.
+D.5
+UNIQUELY IDENTIFIABLE ENCODING
+As a sanity check, we train two models (denoted as “Model A” and “Model B”) with different
+architectures using the VE SDE on CIFAR-10. Here Model A is an NCSN++ model with 4 layers per
+resolution trained using the continuous objective in Eq. (7), and Model B is all the same except that it
+uses 8 layers per resolution. Model deﬁnitions are in Appendix H.
+We report the latent codes obtained by Model A and Model B for a random CIFAR-10 image in
+Fig. 7. In Fig. 8, we show the dimension-wise differences and correlation coefﬁcients between latent
+encodings on a total of 16 CIFAR-10 images. Our results demonstrate that for the same inputs, Model
+A and Model B provide encodings that are close in every dimension, despite having different model
+architectures and training runs.
+E
+REVERSE DIFFUSION SAMPLING
+Given a forward SDE
+dx “ fpx, tqdt ` Gptqdw,
+and suppose the following iteration rule is a discretization of it:
+xi`1 “ xi ` fipxiq ` Gizi,
+i “ 0, 1, ¨ ¨ ¨ , N ´ 1
+(45)
+where zi „ Np0, Iq. Here we assume the discretization schedule of time is ﬁxed beforehand, and
+thus we can absorb it into the notations of fi and Gi.
+Based on Eq. (45), we propose to discretize the reverse-time SDE
+dx “ rfpx, tq ´ GptqGptqT∇x log ptpxqsdt ` Gptqd ¯w,
+with a similar functional form, which gives the following iteration rule for i P t0, 1, ¨ ¨ ¨ , N ´ 1u:
+xi “ xi`1 ´ fi`1pxi`1q ` Gi`1GT
+i`1sθ˚pxi`1, i ` 1q ` Gi`1zi`1,
+(46)
+where our trained score-based model sθ˚pxi, iq is conditioned on iteration number i.
+When applying Eq. (46) to Eqs. (10) and (20), we obtain a new set of numerical solvers for the
+reverse-time VE and VP SDEs, resulting in sampling algorithms as shown in the “predictor” part of
+Algorithms 2 and 3. We name these sampling methods (that are based on the discretization strategy
+in Eq. (46)) reverse diffusion samplers.
+As expected, the ancestral sampling of DDPM (Ho et al., 2020) (Eq. (4)) matches its reverse diffusion
+counterpart when βi Ñ 0 for all i (which happens when ∆t Ñ 0 since βi “ ¯βi∆t, see Appendix B),
+19
+
+Published as a conference paper at ICLR 2021
+Figure 6: Samples from the probability ﬂow ODE for VP SDE on 256 ˆ 256 CelebA-HQ. Top:
+spherical interpolations between random samples. Bottom: temperature rescaling (reducing norm of
+embedding).
+20
+
+Published as a conference paper at ICLR 2021
+0
+20
+40
+60
+80
+100
+Dimension
+100
+0
+100
+Latent value
+Model A
+Model B
+Figure 7: Comparing the ﬁrst 100 dimensions of the latent code obtained for a random CIFAR-10
+image. “Model A” and “Model B” are separately trained with different architectures.
+0
+100
+200
+300
+Difference in encodings
+Model A 
+ vs.
+ Model B
+Model A (shuffled) 
+ vs. 
+ Model B (shuffled)
+0.00
+0.25
+0.50
+0.75
+1.00
+Correlation Coefficient
+0
+200
+400
+600
+Count
+Model A
+Model B
+r=0.96
+x1(T)
+Figure 8: Left: The dimension-wise difference between encodings obtained by Model A and B. As a
+baseline, we also report the difference between shufﬂed representations of these two models. Right:
+The dimension-wise correlation coefﬁcients of encodings obtained by Model A and Model B.
+because
+xi “
+1
+a
+1 ´ βi`1
+pxi`1 ` βi`1sθ˚pxi`1, i ` 1qq `
+a
+βi`1zi`1
+“
+ˆ
+1 ` 1
+2βi`1 ` opβi`1q
+˙
+pxi`1 ` βi`1sθ˚pxi`1, i ` 1qq `
+a
+βi`1zi`1
+«
+ˆ
+1 ` 1
+2βi`1
+˙
+pxi`1 ` βi`1sθ˚pxi`1, i ` 1qq `
+a
+βi`1zi`1
+“
+ˆ
+1 ` 1
+2βi`1
+˙
+xi`1 ` βi`1sθ˚pxi`1, i ` 1q ` 1
+2β2
+i`1sθ˚pxi`1, i ` 1q `
+a
+βi`1zi`1
+«
+ˆ
+1 ` 1
+2βi`1
+˙
+xi`1 ` βi`1sθ˚pxi`1, i ` 1q `
+a
+βi`1zi`1
+“
+„
+2 ´
+ˆ
+1 ´ 1
+2βi`1
+˙
+xi`1 ` βi`1sθ˚pxi`1, i ` 1q `
+a
+βi`1zi`1
+«
+„
+2 ´
+ˆ
+1 ´ 1
+2βi`1
+˙
+` opβi`1q
+
+xi`1 ` βi`1sθ˚pxi`1, i ` 1q `
+a
+βi`1zi`1
+“p2 ´
+a
+1 ´ βi`1qxi`1 ` βi`1sθ˚pxi`1, i ` 1q `
+a
+βi`1zi`1.
+Therefore, the original ancestral sampler of Eq. (4) is essentially a different discretization to the same
+reverse-time SDE. This uniﬁes the sampling method in Ho et al. (2020) as a numerical solver to the
+reverse-time VP SDE in our continuous framework.
+F
+ANCESTRAL SAMPLING FOR SMLD MODELS
+The ancestral sampling method for DDPM models can also be adapted to SMLD models. Consider a
+sequence of noise scales σ1 ă σ2 ă ¨ ¨ ¨ ă σN as in SMLD. By perturbing a data point x0 with these
+noise scales sequentially, we obtain a Markov chain x0 Ñ x1 Ñ ¨ ¨ ¨ Ñ xN, where
+ppxi | xi´1q “ Npxi; xi´1, pσ2
+i ´ σ2
+i´1qIq,
+i “ 1, 2, ¨ ¨ ¨ , N.
+21
+
+Published as a conference paper at ICLR 2021
+Algorithm 1 Predictor-Corrector (PC) sampling
+Require:
+N: Number of discretization steps for the reverse-time SDE
+M: Number of corrector steps
+1: Initialize xN „ pT pxq
+2: for i “ N ´ 1 to 0 do
+3:
+xi Ð Predictorpxi`1q
+4:
+for j “ 1 to M do
+5:
+xi Ð Correctorpxiq
+6: return x0
+Here we assume σ0 “ 0 to simplify notations. Following Ho et al. (2020), we can compute
+qpxi´1 | xi, x0q “ N
+ˆ
+xi´1; σ2
+i´1
+σ2
+i
+xi `
+´
+1 ´ σ2
+i´1
+σ2
+i
+¯
+x0, σ2
+i´1pσ2
+i ´ σ2
+i´1q
+σ2
+i
+I
+˙
+.
+If we parameterize the reverse transition kernel as pθpxi´1 | xiq “ Npxi´1; µθpxi, iq, τ 2
+i Iq, then
+Lt´1 “ EqrDKLpqpxi´1 | xi, x0qq } pθpxi´1 | xiqs
+“ Eq
+«
+1
+2τ 2
+i
+
+σ2
+i´1
+σ2
+i
+xi `
+´
+1 ´ σ2
+i´1
+σ2
+i
+¯
+x0 ´ µθpxi, iq
+
+2
+2
+ﬀ
+` C
+“ Ex0,z
+«
+1
+2τ 2
+i
+xipx0, zq ´ σ2
+i ´ σ2
+i´1
+σi
+z ´ µθpxipx0, zq, iq
+
+2
+2
+ﬀ
+` C,
+where Lt´1 is one representative term in the ELBO objective (see Eq. (8) in Ho et al. (2020)), C is
+a constant that does not depend on θ, z „ Np0, Iq, and xipx0, zq “ x0 ` σiz. We can therefore
+parameterize µθpxi, iq via
+µθpxi, iq “ xi ` pσ2
+i ´ σ2
+i´1qsθpxi, iq,
+where sθpxi, iq is to estimate z{σi. As in Ho et al. (2020), we let τi “
+c
+σ2
+i´1pσ2
+i ´σ2
+i´1q
+σ2
+i
+. Through
+ancestral sampling on śN
+i“1 pθpxi´1 | xiq, we obtain the following iteration rule
+xi´1 “ xi ` pσ2
+i ´ σ2
+i´1qsθ˚pxi, iq `
+d
+σ2
+i´1pσ2
+i ´ σ2
+i´1q
+σ2
+i
+zi, i “ 1, 2, ¨ ¨ ¨ , N,
+(47)
+where xN „ Np0, σ2
+NIq, θ˚ denotes the optimal parameter of sθ, and zi „ Np0, Iq. We call
+Eq. (47) the ancestral sampling method for SMLD models.
+G
+PREDICTOR-CORRECTOR SAMPLERS
+Predictor-Corrector (PC) sampling
+The predictor can be any numerical solver for the reverse-
+time SDE with a ﬁxed discretization strategy. The corrector can be any score-based MCMC approach.
+In PC sampling, we alternate between the predictor and corrector, as described in Algorithm 1. For
+example, when using the reverse diffusion SDE solver (Appendix E) as the predictor, and annealed
+Langevin dynamics (Song & Ermon, 2019) as the corrector, we have Algorithms 2 and 3 for VE and
+VP SDEs respectively, where tϵiuN´1
+i“0 are step sizes for Langevin dynamics as speciﬁed below.
+The corrector algorithms
+We take the schedule of annealed Langevin dynamics in Song & Ermon
+(2019), but re-frame it with slight modiﬁcations in order to get better interpretability and empirical
+performance. We provide the corrector algorithms in Algorithms 4 and 5 respectively, where we call
+r the “signal-to-noise” ratio. We determine the step size ϵ using the norm of the Gaussian noise ∥z∥2,
+norm of the score-based model ∥sθ˚∥2 and the signal-to-noise ratio r. When sampling a large batch
+of samples together, we replace the norm ∥¨∥2 with the average norm across the mini-batch. When
+the batch size is small, we suggest replacing ∥z∥2 with
+?
+d, where d is the dimensionality of z.
+22
+
+Published as a conference paper at ICLR 2021
+Algorithm 2 PC sampling (VE SDE)
+1: xN „ Np0, σ2
+maxIq
+2: for i “ N ´ 1 to 0 do
+3:
+x1
+i Ð xi`1 ` pσ2
+i`1 ´ σ2
+i qsθ˚pxi`1, σi`1q
+4:
+z „ Np0, Iq
+5:
+xi Ð x1
+i `
+b
+σ2
+i`1 ´ σ2
+i z
+6:
+for j “ 1 to M do
+7:
+z „ Np0, Iq
+8:
+xi Ð xi ` ϵisθ˚pxi, σiq ` ?2ϵiz
+9: return x0
+Algorithm 3 PC sampling (VP SDE)
+1: xN „ Np0, Iq
+2: for i “ N ´ 1 to 0 do
+3:
+x1
+i Ð p2 ´ ?1 ´ βi`1qxi`1 ` βi`1sθ˚pxi`1, i ` 1q
+4:
+z „ Np0, Iq
+5:
+xi Ð x1
+i ` ?βi`1z
+6:
+for j “ 1 to M do
+7:
+z „ Np0, Iq
+8:
+xi Ð xi ` ϵisθ˚pxi, iq ` ?2ϵiz
+9: return x0
+Algorithm 4 Corrector algorithm (VE SDE).
+Require: tσiuN
+i“1, r, N, M.
+1: x0
+N „ Np0, σ2
+maxIq
+2: for i Ð N to 1 do
+3:
+for j Ð 1 to M do
+4:
+z „ Np0, Iq
+5:
+g Ð sθ˚pxj´1
+i
+, σiq
+6:
+ϵ Ð 2pr ∥z∥2 { ∥g∥2q2
+7:
+xj
+i Ð xj´1
+i
+` ϵ g `
+?
+2ϵ z
+8:
+x0
+i´1 Ð xM
+i
+return x0
+0
+Algorithm 5 Corrector algorithm (VP SDE).
+Require: tβiuN
+i“1, tαiuN
+i“1, r, N, M.
+1: x0
+N „ Np0, Iq
+2: for i Ð N to 1 do
+3:
+for j Ð 1 to M do
+4:
+z „ Np0, Iq
+5:
+g Ð sθ˚pxj´1
+i
+, iq
+6:
+ϵ Ð 2αipr ∥z∥2 { ∥g∥2q2
+7:
+xj
+i Ð xj´1
+i
+` ϵ g `
+?
+2ϵ z
+8:
+x0
+i´1 Ð xM
+i
+return x0
+0
+Denoising
+For both SMLD and DDPM models, the generated samples typically contain small
+noise that is hard to detect by humans. As noted by Jolicoeur-Martineau et al. (2020), FIDs can be
+signiﬁcantly worse without removing this noise. This unfortunate sensitivity to noise is also part of
+the reason why NCSN models trained with SMLD has been performing worse than DDPM models
+in terms of FID, because the former does not use a denoising step at the end of sampling, while the
+latter does. In all experiments of this paper we ensure there is a single denoising step at the end of
+sampling, using Tweedie’s formula (Efron, 2011).
+Figure 9: PC sampling for LSUN bedroom and church. The vertical axis corresponds to the total
+computation, and the horizontal axis represents the amount of computation allocated to the corrector.
+Samples are the best when computation is split between the predictor and corrector.
+Training
+We use the same architecture in Ho et al. (2020) for our score-based models. For the
+VE SDE, we train a model with the original SMLD objective in Eq. (1); similarly for the VP SDE,
+we use the original DDPM objective in Eq. (3). We apply a total number of 1000 noise scales for
+training both models. For results in Fig. 9, we train an NCSN++ model (deﬁnition in Appendix H) on
+23
+
+Published as a conference paper at ICLR 2021
+Table 4: Comparing different samplers on CIFAR-10, where “P2000” uses the rounding interpolation
+between noise scales. Shaded regions are obtained with the same computation (number of score
+function evaluations). Mean and standard deviation are reported over ﬁve sampling runs.
+Variance Exploding SDE (SMLD)
+Variance Preserving SDE (DDPM)
+Predictor
+FIDÓ
+Sampler
+P1000
+P2000
+C2000
+PC1000
+P1000
+P2000
+C2000
+PC1000
+ancestral sampling
+4.98 ˘ .06
+4.92 ˘ .02
+3.62 ˘ .03
+3.24 ˘ .02
+3.11 ˘ .03
+3.21 ˘ .02
+reverse diffusion
+4.79 ˘ .07
+4.72 ˘ .07
+3.60 ˘ .02
+3.21 ˘ .02
+3.10 ˘ .03
+3.18 ˘ .01
+probability ﬂow
+15.41 ˘ .15
+12.87 ˘ .09
+20.43 ˘ .07
+3.51 ˘ .04
+3.59 ˘ .04
+3.25 ˘ .04
+19.06 ˘ .06
+3.06 ˘ .03
+Table 5: Optimal signal-to-noise ratios of different samplers. “P1000” or “P2000”: predictor-only
+samplers using 1000 or 2000 steps. “C2000”: corrector-only samplers using 2000 steps. “PC1000”:
+PC samplers using 1000 predictor and 1000 corrector steps.
+VE SDE (SMLD)
+VP SDE (DDPM)
+Predictor
+r
+Sampler
+P1000
+P2000
+C2000
+PC1000
+P1000
+P2000
+C2000
+PC1000
+ancestral sampling
+-
+-
+0.17
+-
+-
+0.01
+reverse diffusion
+-
+-
+0.16
+-
+-
+0.01
+probability ﬂow
+-
+-
+0.22
+0.17
+-
+-
+0.27
+0.04
+256 ˆ 256 LSUN bedroom and church outdoor (Yu et al., 2015) datasets with the VE SDE and our
+continuous objective Eq. (7). The batch size is ﬁxed to 128 on CIFAR-10 and 64 on LSUN.
+Ad-hoc interpolation methods for noise scales
+Models in this experiment are all trained with
+1000 noise scales. To get results for P2000 (predictor-only sampler using 2000 steps) which requires
+2000 noise scales, we need to interpolate between 1000 noise scales at test time. The speciﬁc
+architecture of the noise-conditional score-based model in Ho et al. (2020) uses sinusoidal positional
+embeddings for conditioning on integer time steps. This allows us to interpolate between noise scales
+at test time in an ad-hoc way (while it is hard to do so for other architectures like the one in Song &
+Ermon (2019)). Speciﬁcally, for SMLD models, we keep σmin and σmax ﬁxed and double the number
+of time steps. For DDPM models, we halve βmin and βmax before doubling the number of time steps.
+Suppose tsθpx, iquN´1
+i“0
+is a score-based model trained on N time steps, and let ts1
+θpx, iqu2N´1
+i“0
+denote the corresponding interpolated score-based model at 2N time steps. We test two different
+interpolation strategies for time steps: linear interpolation where s1
+θpx, iq “ sθpx, i{2q and rounding
+interpolation where s1
+θpx, iq “ sθpx, ti{2uq. We provide results with linear interpolation in Table 1,
+and give results of rounding interpolation in Table 4. We observe that different interpolation methods
+result in performance differences but maintain the general trend of predictor-corrector methods
+performing on par or better than predictor-only or corrector-only samplers.
+Hyper-parameters of the samplers
+For Predictor-Corrector and corrector-only samplers on
+CIFAR-10, we search for the best signal-to-noise ratio (r) over a grid that increments at 0.01.
+We report the best r in Table 5. For LSUN bedroom/church outdoor, we ﬁx r to 0.075. Unless
+otherwise noted, we use one corrector step per noise scale for all PC samplers. We use two corrector
+steps per noise scale for corrector-only samplers on CIFAR-10. For sample generation, the batch size
+is 1024 on CIFAR-10 and 8 on LSUN bedroom/church outdoor.
+H
+ARCHITECTURE IMPROVEMENTS
+We explored several architecture designs to improve score-based models for both VE and VP SDEs.
+Our endeavor gives rise to new state-of-the-art sample quality on CIFAR-10, new state-of-the-art
+likelihood on uniformly dequantized CIFAR-10, and enables the ﬁrst high-ﬁdelity image samples of
+resolution 1024 ˆ 1024 from score-based generative models. Code and checkpoints are open-sourced
+at https://github.com/yang-song/score sde.
+24
+
+Published as a conference paper at ICLR 2021
+H.1
+SETTINGS FOR ARCHITECTURE EXPLORATION
+Unless otherwise noted, all models are trained for 1.3M iterations, and we save one checkpoint per
+50k iterations. For VE SDEs, we consider two datasets: 32 ˆ 32 CIFAR-10 (Krizhevsky et al., 2009)
+and 64 ˆ 64 CelebA (Liu et al., 2015), pre-processed following Song & Ermon (2020). We compare
+different conﬁgurations based on their FID scores averaged over checkpoints after 0.5M iterations.
+For VP SDEs, we only consider the CIFAR-10 dataset to save computation, and compare models
+based on the average FID scores over checkpoints obtained between 0.25M and 0.5M iterations,
+because FIDs turn to increase after 0.5M iterations for VP SDEs.
+All FIDs are computed on 50k samples with tensorflow gan. For sampling, we use the PC
+sampler discretized at 1000 time steps. We choose reverse diffusion (see Appendix E) as the predictor.
+We use one corrector step per update of the predictor for VE SDEs with a signal-to-noise ratio of
+0.16, but save the corrector step for VP SDEs since correctors there only give slightly better results
+but require double computation. We follow Ho et al. (2020) for optimization, including the learning
+rate, gradient clipping, and learning rate warm-up schedules. Unless otherwise noted, models are
+trained with the original discrete SMLD and DDPM objectives in Eqs. (1) and (3) and use a batch
+size of 128. The optimal architectures found under these settings are subsequently transferred to
+continuous objectives and deeper models. We also directly transfer the best architecture for VP SDEs
+to sub-VP SDEs, given the similarity of these two SDEs.
+CIFAR-10
+CelebA
+dataset
+2.5
+3.0
+3.5
+4.0
+4.5
+FID
+FIR
+False
+True
+CIFAR-10
+CelebA
+dataset
+2.5
+3.0
+3.5
+4.0
+4.5
+FID
+skip_rescale
+False
+True
+CIFAR-10
+CelebA
+dataset
+2.5
+3.0
+3.5
+4.0
+4.5
+FID
+resblock_type
+ddpm
+biggan
+CIFAR-10
+CelebA
+dataset
+2.5
+3.0
+3.5
+4.0
+4.5
+FID
+num_res_blocks
+2
+4
+CIFAR-10
+CelebA
+dataset
+2.5
+3.0
+3.5
+4.0
+4.5
+FID
+Progressive Arch. (input, output)
+none, none
+input_skip, none
+residual, none
+none, output_skip
+input_skip, output_skip
+residual, output_skip
+none, residual
+input_skip, residual
+residual, residual
+Figure 10: The effects of different architecture components for score-based models trained with VE
+perturbations.
+Our architecture is mostly based on Ho et al. (2020). We additionally introduce the following
+components to maximize the potential improvement of score-based models.
+1. Upsampling and downsampling images with anti-aliasing based on Finite Impulse Re-
+sponse (FIR) (Zhang, 2019). We follow the same implementation and hyper-parameters in
+StyleGAN-2 (Karras et al., 2020b).
+2. Rescaling all skip connections by 1{
+?
+2. This has been demonstrated effective in several best-
+in-class GAN models, including ProgressiveGAN (Karras et al., 2018), StyleGAN (Karras
+et al., 2019) and StyleGAN-2 (Karras et al., 2020b).
+3. Replacing the original residual blocks in DDPM with residual blocks from BigGAN (Brock
+et al., 2018).
+4. Increasing the number of residual blocks per resolution from 2 to 4.
+25
+
+Published as a conference paper at ICLR 2021
+5. Incorporating progressive growing architectures. We consider two progressive architectures
+for input: “input skip” and “residual”, and two progressive architectures for output: “output
+skip” and “residual”. These progressive architectures are deﬁned and implemented according
+to StyleGAN-2.
+We also tested equalized learning rates, a trick used in very successful models like Progressive-
+GAN (Karras et al., 2018) and StyleGAN (Karras et al., 2019). However, we found it harmful at an
+early stage of our experiments, and therefore decided not to explore more on it.
+The exponential moving average (EMA) rate has a signiﬁcant impact on performance. For models
+trained with VE perturbations, we notice that 0.999 works better than 0.9999, whereas for models
+trained with VP perturbations it is the opposite. We therefore use an EMA rate of 0.999 and 0.9999
+for VE and VP models respectively.
+H.2
+RESULTS ON CIFAR-10
+All architecture components introduced above can improve the performance of score-based models
+trained with VE SDEs, as shown in Fig. 10. The box plots demonstrate the importance of each
+component when other components can vary freely. On both CIFAR-10 and CelebA, the additional
+components that we explored always improve the performance on average for VE SDEs. For
+progressive growing, it is not clear which combination of conﬁgurations consistently performs the
+best, but the results are typically better than when no progressive growing architecture is used.
+Our best score-based model for VE SDEs 1) uses FIR upsampling/downsampling, 2) rescales skip
+connections, 3) employs BigGAN-type residual blocks, 4) uses 4 residual blocks per resolution
+instead of 2, and 5) uses “residual” for input and no progressive growing architecture for output. We
+name this model “NCSN++”, following the naming convention of previous SMLD models (Song &
+Ermon, 2019; 2020).
+We followed a similar procedure to examine these architecture components for VP SDEs, except that
+we skipped experiments on CelebA due to limited computing resources. The NCSN++ architecture
+worked decently well for VP SDEs, ranked 4th place over all 144 possible conﬁgurations. The top con-
+ﬁguration, however, has a slightly different structure, which uses no FIR upsampling/downsampling
+and no progressive growing architecture compared to NCSN++. We name this model “DDPM++”,
+following the naming convention of Ho et al. (2020).
+The basic NCSN++ model with 4 residual blocks per resolution achieves an FID of 2.45 on CIFAR-10,
+whereas the basic DDPM++ model achieves an FID of 2.78. Here in order to match the convention
+used in Karras et al. (2018); Song & Ermon (2019) and Ho et al. (2020), we report the lowest FID
+value over the course of training, rather than the average FID value over checkpoints after 0.5M
+iterations (used for comparing different models of VE SDEs) or between 0.25M and 0.5M iterations
+(used for comparing VP SDE models) in our architecture exploration.
+Switching from discrete training objectives to continuous ones in Eq. (7) further improves the FID
+values for all SDEs. To condition the NCSN++ model on continuous time variables, we change
+positional embeddings, the layers in Ho et al. (2020) for conditioning on discrete time steps, to
+random Fourier feature embeddings (Tancik et al., 2020). The scale parameter of these random
+Fourier feature embeddings is ﬁxed to 16. We also reduce the number of training iterations to 0.95M
+to suppress overﬁtting. These changes improve the FID on CIFAR-10 from 2.45 to 2.38 for NCSN++
+trained with the VE SDE, resulting in a model called “NCSN++ cont.”. In addition, we can further
+improve the FID from 2.38 to 2.20 by doubling the number of residual blocks per resolution for
+NCSN++ cont., resulting in the model denoted as “NCSN++ cont. (deep)”. All quantitative results
+are summarized in Table 3, and we provide random samples from our best model in Fig. 11.
+Similarly, we can also condition the DDPM++ model on continuous time steps, resulting in a model
+“DDPM++ cont.”. When trained with the VP SDE, it improves the FID of 2.78 from DDPM++ to
+2.55. When trained with the sub-VP SDE, it achieves an FID of 2.61. To get better performance,
+we used the Euler-Maruyama solver as the predictor for continuously-trained models, instead of the
+ancestral sampling predictor or the reverse diffusion predictor. This is because the discretization
+strategy of the original DDPM method does not match the variance of the continuous process well
+when t Ñ 0, which signiﬁcantly hurts FID scores. As shown in Table 2, the likelihood values are
+3.21 and 3.05 bits/dim for VP and sub-VP SDEs respectively. Doubling the depth, and trainin with
+26
+
+Published as a conference paper at ICLR 2021
+Figure 11: Unconditional CIFAR-10 samples from NCSN++ cont. (deep, VE).
+27
+
+Published as a conference paper at ICLR 2021
+Figure 12: Samples on 1024 ˆ 1024 CelebA-HQ from a modiﬁed NCSN++ model trained with the
+VE SDE.
+28
+
+Published as a conference paper at ICLR 2021
+0.95M iterations, we can improve both FID and bits/dim for both VP and sub-VP SDEs, leading to a
+model “DDPM++ cont. (deep)”. Its FID score is 2.41, same for both VP and sub-VP SDEs. When
+trained with the sub-VP SDE, it can achieve a likelihood of 2.99 bits/dim. Here all likelihood values
+are reported for the last checkpoint during training.
+H.3
+HIGH RESOLUTION IMAGES
+Encouraged by the success of NCSN++ on CIFAR-10, we proceed to test it on 1024 ˆ 1024 CelebA-
+HQ (Karras et al., 2018), a task that was previously only achievable by some GAN models and
+VQ-VAE-2 (Razavi et al., 2019). We used a batch size of 8, increased the EMA rate to 0.9999, and
+trained a model similar to NCSN++ with the continuous objective (Eq. (7)) for around 2.4M iterations
+(please ﬁnd the detailed architecture in our code release.) We use the PC sampler discretized at 2000
+steps with the reverse diffusion predictor, one Langevin step per predictor update and a signal-to-noise
+ratio of 0.15. The scale parameter for the random Fourier feature embeddings is ﬁxed to 16. We use
+the “input skip” progressive architecture for the input, and “output skip” progressive architecture for
+the output. We provide samples in Fig. 12. Although these samples are not perfect (e.g., there are
+visible ﬂaws on facial symmetry), we believe these results are encouraging and can demonstrate the
+scalability of our approach. Future work on more effective architectures are likely to signiﬁcantly
+advance the performance of score-based generative models on this task.
+I
+CONTROLLABLE GENERATION
+Consider a forward SDE with the following general form
+dx “ fpx, tqdt ` Gpx, tqdw,
+and suppose the initial state distribution is p0pxp0q | yq. The density at time t is ptpxptq | yq when
+conditioned on y. Therefore, using Anderson (1982), the reverse-time SDE is given by
+dx “ tfpx, tq ´ ∇¨ rGpx, tqGpx, tqTs ´ Gpx, tqGpx, tqT∇x log ptpx | yqudt ` Gpx, tqd ¯w. (48)
+Since ptpxptq | yq9ptpxptqqppy | xptqq, the score ∇x log ptpxptq | yq can be computed easily by
+∇x log ptpxptq | yq “ ∇x log ptpxptqq ` ∇x log ppy | xptqq.
+(49)
+This subsumes the conditional reverse-time SDE in Eq. (14) as a special case. All sampling methods
+we have discussed so far can be applied to the conditional reverse-time SDE for sample generation.
+I.1
+CLASS-CONDITIONAL SAMPLING
+When y represents class labels, we can train a time-dependent classiﬁer ptpy | xptqq for class-
+conditional sampling. Since the forward SDE is tractable, we can easily create a pair of training
+data pxptq, yq by ﬁrst sampling pxp0q, yq from a dataset and then obtaining xptq „ p0tpxptq | xp0qq.
+Afterwards, we may employ a mixture of cross-entropy losses over different time steps, like Eq. (7),
+to train the time-dependent classiﬁer ptpy | xptqq.
+To
+test
+this
+idea,
+we
+trained
+a
+Wide
+ResNet
+(Zagoruyko
+&
+Komodakis,
+2016)
+(Wide-ResNet-28-10) on CIFAR-10 with VE perturbations.
+The classiﬁer is condi-
+tioned on log σi using random Fourier features (Tancik et al., 2020), and the training objective is
+a simple sum of cross-entropy losses sampled at different scales. We provide a plot to show the
+accuracy of this classiﬁer over noise scales in Fig. 13. The score-based model is an unconditional
+NCSN++ (4 blocks/resolution) in Table 3, and we generate samples using the PC algorithm with
+2000 discretization steps. The class-conditional samples are provided in Fig. 4, and an extended set
+of conditional samples is given in Fig. 13.
+I.2
+IMPUTATION
+Imputation is a special case of conditional sampling. Denote by Ωpxq and ¯Ωpxq the known and un-
+known dimensions of x respectively, and let f¯Ωp¨, tq and G¯Ωp¨, tq denote fp¨, tq and Gp¨, tq restricted
+to the unknown dimensions. For VE/VP SDEs, the drift coefﬁcient fp¨, tq is element-wise, and the
+diffusion coefﬁcient Gp¨, tq is diagonal. When fp¨, tq is element-wise, f¯Ωp¨, tq denotes the same
+29
+
+Published as a conference paper at ICLR 2021
+10
+2
+10
+1
+100
+101
+0.2
+0.4
+0.6
+0.8
+Accuracy
+Accuracy vs. noise scale
+Figure 13: Class-conditional image generation by solving the conditional reverse-time SDE with PC.
+The curve shows the accuracy of our noise-conditional classiﬁer over different noise scales.
+30
+
+Published as a conference paper at ICLR 2021
+element-wise function applied only to the unknown dimensions. When Gp¨, tq is diagonal, G¯Ωp¨, tq
+denotes the sub-matrix restricted to unknown dimensions.
+For imputation, our goal is to sample from pp¯Ωpxp0qq | Ωpxp0qq “ yq. Deﬁne a new diffusion
+process zptq “ ¯Ωpxptqq, and note that the SDE for zptq can be written as
+dz “ f¯Ωpz, tqdt ` G¯Ωpz, tqdw.
+The reverse-time SDE, conditioned on Ωpxp0qq “ y, is given by
+dz “
+␣
+f¯Ωpz, tq ´ ∇¨ rG¯Ωpz, tqG¯Ωpz, tqTs
+´ G¯Ωpz, tqG¯Ωpz, tqT∇z log ptpz | Ωpzp0qq “ yq
+(
+dt ` G¯Ωpz, tqd ¯w.
+Although ptpzptq | Ωpxp0qq “ yq is in general intractable, it can be approximated. Let A denote the
+event Ωpxp0qq “ y. We have
+ptpzptq | Ωpxp0qq “ yq “ ptpzptq | Aq “
+ż
+ptpzptq | Ωpxptqq, AqptpΩpxptqq | AqdΩpxptqq
+“ EptpΩpxptqq|Aqrptpzptq | Ωpxptqq, Aqs
+« EptpΩpxptqq|Aqrptpzptq | Ωpxptqqqs
+« ptpzptq | ˆΩpxptqqq,
+where ˆΩpxptqq is a random sample from ptpΩpxptqq | Aq, which is typically a tractable distribution.
+Therefore,
+∇z log ptpzptq | Ωpxp0qq “ yq « ∇z log ptpzptq | ˆΩpxptqqq
+“ ∇z log ptprzptq; ˆΩpxptqqsq,
+where rzptq; ˆΩpxptqqs denotes a vector uptq such that Ωpuptqq “
+ˆΩpxptqq and ¯Ωpuptqq “
+zptq, and the identity holds because ∇z log ptprzptq; ˆΩpxptqqsq “ ∇z log ptpzptq | ˆΩpxptqqq `
+∇z log ppˆΩpxptqqq “ ∇z log ptpzptq | ˆΩpxptqqq.
+We provided an extended set of inpainting results in Figs. 14 and 15.
+I.3
+COLORIZATION
+Colorization is a special case of imputation, except that the known data dimensions are coupled.
+We can decouple these data dimensions by using an orthogonal linear transformation to map the
+gray-scale image to a separate channel in a different space, and then perform imputation to complete
+the other channels before transforming everything back to the original image space. The orthogonal
+matrix we used to decouple color channels is
+˜0.577
+´0.816
+0
+0.577
+0.408
+0.707
+0.577
+0.408
+´0.707
+¸
+.
+Because the transformations are all orthogonal matrices, the standard Wiener process wptq will still
+be a standard Wiener process in the transformed space, allowing us to build an SDE and use the same
+imputation method in Appendix I.2. We provide an extended set of colorization results in Figs. 16
+and 17.
+I.4
+SOLVING GENERAL INVERSE PROBLEMS
+Suppose we have two random variables x and y, and we know the forward process of generating y
+from x, given by ppy | xq. The inverse problem is to obtain x from y, that is, generating samples
+from ppx | yq. In principle, we can estimate the prior distribution ppxq and obtain ppx | yq using
+Bayes’ rule: ppx | yq “ ppxqppy | xq{ppyq. In practice, however, both estimating the prior and
+performing Bayesian inference are non-trivial.
+Leveraging Eq. (48), score-based generative models provide one way to solve the inverse problem.
+Suppose we have a diffusion process txptquT
+t“0 generated by perturbing x with an SDE, and a
+31
+
+Published as a conference paper at ICLR 2021
+time-dependent score-based model sθ˚pxptq, tq trained to approximate ∇x log ptpxptqq. Once we
+have an estimate of ∇x log ptpxptq | yq, we can simulate the reverse-time SDE in Eq. (48) to sample
+from p0pxp0q | yq “ ppx | yq. To obtain this estimate, we ﬁrst observe that
+∇x log ptpxptq | yq “ ∇x log
+ż
+ptpxptq | yptq, yqppyptq | yqdyptq,
+where yptq is deﬁned via xptq and the forward process ppyptq | xptqq. Now assume two conditions:
+• ppyptq | yq is tractable. We can often derive this distribution from the interaction between
+the forward process and the SDE, like in the case of image imputation and colorization.
+• ptpxptq | yptq, yq « ptpxptq | yptqq. For small t, yptq is almost the same as y so the
+approximation holds. For large t, y becomes further away from xptq in the Markov chain,
+and thus have smaller impact on xptq. Moreover, the approximation error for large t matter
+less for the ﬁnal sample, since it is used early in the sampling process.
+Given these two assumptions, we have
+∇x log ptpxptq | yq « ∇x log
+ż
+ptpxptq | yptqqppyptq | yqdy
+« ∇x log ptpxptq | ˆyptqq
+“ ∇x log ptpxptqq ` ∇x log ptpˆyptq | xptqq
+« sθ˚pxptq, tq ` ∇x log ptpˆyptq | xptqq,
+(50)
+where ˆyptq is a sample from ppyptq | yq. Now we can plug Eq. (50) into Eq. (48) and solve the
+resulting reverse-time SDE to generate samples from ppx | yq.
+32
+
+Published as a conference paper at ICLR 2021
+Figure 14: Extended inpainting results for 256 ˆ 256 bedroom images.
+33
+
+Published as a conference paper at ICLR 2021
+Figure 15: Extended inpainting results for 256 ˆ 256 church images.
+34
+
+Published as a conference paper at ICLR 2021
+Figure 16: Extended colorization results for 256 ˆ 256 bedroom images.
+35
+
+Published as a conference paper at ICLR 2021
+Figure 17: Extended colorization results for 256 ˆ 256 church images.
+36

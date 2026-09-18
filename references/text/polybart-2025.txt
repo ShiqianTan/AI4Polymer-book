@@ -1,0 +1,1373 @@
+polyBART: A Chemical Linguist for Polymer Property Prediction and
+Generative Design
+Anagha Savit1, Harikrishna Sahu1, Shivank Shukla1,
+Wei Xiong1, Rampi Ramprasad1
+1 School of Materials Science and Engineering, Georgia Institute of Technology
+Correspondence: rampi.ramprasad@mse.gatech.edu
+Abstract
+Designing polymers for targeted applications
+and accurately predicting their properties is a
+key challenge in materials science owing to
+the vast and complex polymer chemical space.
+While molecular language models have proven
+effective in solving analogous problems for
+molecular discovery, similar advancements for
+polymers are limited. To address this gap, we
+propose polyBART, a language model-driven
+polymer discovery capability that enables rapid
+and accurate exploration of the polymer de-
+sign space. Central to our approach is Pseudo-
+polymer SELFIES (PSELFIES), a novel repre-
+sentation that allows for the transfer of molec-
+ular language models to the polymer space.
+polyBART is, to the best of our knowledge,
+the first language model capable of bidirec-
+tional translation between polymer structures
+and properties, achieving state-of-the-art re-
+sults in property prediction and design of novel
+polymers for electrostatic energy storage. Fur-
+ther, polyBART is validated through a combi-
+nation of both computational and laboratory
+experiments. We report what we believe is the
+first successful synthesis and validation of a
+polymer designed by a language model, pre-
+dicted to exhibit high thermal degradation tem-
+perature and confirmed by our laboratory mea-
+surements. Our work presents a generalizable
+strategy for adapting molecular language mod-
+els to the polymer space and introduces a poly-
+mer foundation model, advancing generative
+polymer design that may be adapted for a vari-
+ety of applications.
+1
+Introduction
+Polymers play a crucial role in our daily lives, serv-
+ing as essential constituents of countless materials
+and products that we rely on. Designing novel
+application-specific polymers, however, continues
+to pose a significant challenge owing to the vast
+polymer chemical space. The application of Ma-
+chine Learning (ML) in this space (Jørgensen et al.,
+2018; Batra et al., 2021; Tran et al., 2024) has made
+significant strides in addressing the forward prob-
+lem of predicting material properties from polymer
+structures (Doan Tran et al., 2020; Andraju et al.,
+2022). In contrast, progress on the inverse prob-
+lem, namely, rapidly designing polymers that meet
+target property requirements, has been far more
+limited, largely due to the inherent difficulty of gen-
+erating chemically valid polymer structures with
+traditional ML.
+Language models, owing to their generative ca-
+pabilities, have emerged as an effective strategy
+for addressing both forward and inverse problems
+in the molecular space. Drawing inspiration from
+foundation models in Natural Language Process-
+ing (NLP), molecular foundation models (Edwards
+et al., 2022; Bagal et al., 2022) are pretrained on
+the ’language’ of molecules, typically represented
+as SMILES (Weininger, 1988), SMARTS (Day-
+light Chemical Information Systems), or SELFIES
+(Krenn et al., 2020) strings. These models are sub-
+sequently fine-tuned on downstream tasks, such
+as property prediction, hence solving the forward
+problem. The problem of generative design is of-
+ten achieved by navigating the latent space learned
+during pretraining. The achievements of language
+models for molecules highlight a key opportunity
+for extending similar methodologies to polymers.
+Particularly, the structural and representational par-
+allels between the molecular and polymer domains
+present a unique possibility of adapting existing
+molecular foundation models to the polymer space.
+Recognizing this, we develop polyBART by
+strategically leveraging the chemical priors learned
+by existing molecular foundation models. To ac-
+complish this, we introduce a novel representation,
+Pseudo-polymer SELFIES (PSELFIES), an exten-
+sion of SELFIES (Krenn et al., 2020) adapted for
+polymers. SELFIES (Self-Referencing Embedded
+Strings) is a robust molecular string representa-
+tion that guarantees 100% syntactic validity, mean-
+arXiv:2506.04233v2  [cond-mat.soft]  17 Oct 2025
+
+ing every SELFIES string corresponds to a valid
+molecule. From a chemical standpoint, PSELFIES
+allow us to represent polymers in a format that
+mirrors molecular syntax, enabling direct compati-
+bility with existing molecular language models and
+facilitating seamless continued pretraining. Fur-
+ther details on this representation is found in Sec-
+tion 3.1.
+We develop polyBART through the continued
+pretraining of SELFIES-TED (IBM Research), an
+encoder-decoder model based on BART (Lewis
+et al., 2019) and designed for molecular represen-
+tations. PolyBART is a unique unifying model
+capable of solving both forward and inverse prob-
+lems in polymer informatics. Our work makes the
+following key contributions:
+• We introduce PSELFIES and develop poly-
+BART, a polymer foundation model that is,
+to our knowledge, the first application of lan-
+guage models to generative polymer design.
+• We provide comprehensive computational val-
+idation of polyBART, demonstrating strong
+performance in both polymer property predic-
+tion and generation.
+• We report laboratory synthesis and testing of
+a polymer predicted by polyBART, which, to
+our knowledge, is the first successfully vali-
+dated polymer design guided by a language
+model. Notably, upon thermal property test-
+ing, we find that the experimental measure-
+ments align with the model’s predictions.
+2
+Related Work
+2.1
+Chemical Foundation Models
+Recent work has successfully adapted transformer
+architectures (Vaswani et al., 2017) to the molec-
+ular domain, achieving impressive results (Ross
+et al., 2022). Early work has focused on adapt-
+ing well-established transformer backbones, origi-
+nally developed for natural language understanding,
+to molecule tasks by training them on molecular
+string representations. BERT (Devlin et al., 2019)
+has been widely used for this purpose, forming the
+foundation for models like SMILES-BERT (Wang
+et al., 2019) and Mol-BERT (Li and Jiang, 2021).
+Similarly, ChemBERTa (Chithrananda et al., 2020)
+builds on the RoBERTa architecture (Liu et al.,
+2019) and is pretrained on millions of SMILES
+strings. Later works have explored the applica-
+tion of Large Language Models (LLMs) to these
+tasks. Unlike the earlier transformer-based meth-
+ods, LLMs benefit from their exposure to vast
+amounts of data, eliminating the need for the pre-
+training step. For instance, Gruver et al. (2024)
+demonstrated that instruction fine-tuned LLaMA
+models (Touvron et al., 2023) can effectively gen-
+erate crystal structures. Similarly, Jablonka et al.
+(2024) showed that GPT-3 (Brown et al., 2020) can
+be fine-tuned using natural language to perform
+a wide range of tasks in chemistry and materials
+science.
+Alongside these developments, other works have
+shown that transformer models can also be used to
+generate molecular structures and not just to pre-
+dict their properties. Models like MolT5 (Edwards
+et al., 2022) and MolGPT (Bagal et al., 2022) en-
+able de novo molecule generation, MolT5 from
+textual descriptions, and MolGPT through next-
+token prediction. The SELFIES-TED model gen-
+erates molecules by exploring its learned latent
+space. Diffusion methods have also emerged as
+a strong candidate for molecular generation, as
+demonstrated by GenMol (Lee et al., 2025) and
+TGM-DLM (Gong et al., 2024).
+Our polymer
+foundation model builds upon SELFIES-TED and
+hence adopts a parallel strategy for property predic-
+tion and generation.
+2.2
+Polymer Informatics via NLP
+ML algorithms have been applied in the polymer
+space for quite some time (Chen et al., 2021). Sim-
+ilar to molecules, a common approach in polymer
+informatics is to represent polymers numerically
+and use ML to connect these representations to
+points in the property space. A range of approaches,
+including regression algorithms (Doan Tran et al.,
+2020; Tao et al., 2021) and neural networks (Kuen-
+neth et al., 2021b; Kuenneth et al., 2022) have been
+explored for this purpose. Graph neural networks
+(GNNs) are also widely used in polymer model-
+ing due to their ability to capture both local and
+global topological features of polymer graphs. Gur-
+nani et al. (2023) developed polyGNN, a multitask
+polymer GNN model for polymer property predic-
+tion, demonstrating strong performance across nu-
+merous properties. While the application of NLP
+in this space is relatively nascent, it has already
+seen significant success. In property prediction
+tasks, language models are typically used to gener-
+ate numerical embeddings of polymer representa-
+tions, which are then mapped to properties using
+approaches similar to traditional polymer informat-
+
+Bidirectional Encoder
+Autoregressive
+Decoder
+0.12
+0.63
+0.98
+PSELFIES Embedding
+PolyBART
+a
+[*]CC(C1=CC=CC=C1)[*]
+[At]CC(C1=CC=CC=C1)[At]
+[At][C][C][Branch1]..
+[*]CC(C1=CC=CC=C1)[*]
+[At]CC(C1=CC=CC=C1)[At]
+[At][C][C][Branch1]..
+0.12
+0.63
+0.98
+0.12
+0.63
+0.98
+0.31
+0.44
+0.87
+b
+c
+PolyBART
+Decoder
+Validity Filter
+Property Filter
+Generated Polymers
+GPR
+Valid molecule
+Valid polymer
+Predicted 
+Property
+Gaussian 
+Noise
+PolyBART 
+Embeddings
+GPR
+PSMILES
+MSMILES
+PSELFIES
+Figure 1: Overview of the polyBART pipeline. (a) The encoder-decoder model is pretrained using a Masked
+Language Modeling (MLM) objective to learn the language of PSELFIES and construct the latent space. (b) For
+property prediction, the trained encoder generates embeddings for polymers with known properties, which are then
+mapped to target values using Gaussian Process Regressor (GPR). (c) For generating new structures, Gaussian noise
+is added to the learned embeddings, and the decoder generates candidate polymers, which are subsequently filtered
+based on property and synthesizability criteria.
+ics pipelines (Agarwal et al., 2025). Kuenneth and
+Ramprasad (2023) developed polyBERT by pre-
+training deBERTA (He et al., 2021) on millions of
+SMILES strings. Similar polymer language models
+have also been developed using alternative archi-
+tectures, such as RoBERTa in TransPolymer (Xu
+et al., 2023) and T5 (Raffel et al., 2023) in PolyNC
+(Qiu et al., 2024).
+For the inverse problem of generating polymer
+structures, early efforts have leveraged Variational
+Autoencoders (VAEs) (Batra et al., 2020). How-
+ever, the lack of explicit chemical syntax in VAE
+architectures leads to invalid generations. Trans-
+formers can learn context-aware representations of
+molecular structures (Dollar et al., 2021), with each
+attention head learning to focus on distinct sub-
+structures. By leveraging SELFIES (or PSELFIES
+in the present case), which guarantee validity, and
+language models that can capture structured se-
+quences and syntactic patterns, we achieve state-of-
+the-art results in the generation of novel, valid, and
+property-aligned polymers.
+3
+polyBART: A Polymer Foundation
+Model
+In this section we detail the PSELFIES representa-
+tion and introduce polyBART. The overall model
+pipeline is shown in Figure 1.
+3.1
+PSELFIES
+To ensure compatibility with molecular language
+models, we introduce PSELFIES, a novel represen-
+tation of polymers. PSELFIES builds upon several
+representations used in cheminformatics. SMILES
+(Simplified Molecular Input Line Entry System)
+(Weininger, 1988) is a widely adopted notation for
+encoding molecules as strings. Polymer SMILES
+(PSMILES) extends SMILES to polymers by repre-
+senting the two terminal endpoints of homopolymer
+repeat units with asterisks ([*]) to indicate open-
+chain ends. However, [*] is commonly used as
+a placeholder atom in molecular representations
+rather than specifically denoting polymer termini,
+and it is not yet incorporated into the SELFIES
+representation.
+To address this limitation, we first convert
+PSMILES into Molecule SMILES (MSMILES),
+replacing [*] with actual atomic representations.
+The conversion begins by identifying the terminal
+atoms and bond types associated with [*], then
+joining the polymer ends to form a cyclic structure,
+followed by eliminating the [*]s. To ensure consis-
+tency and to remove biases arising from multiple
+valid PSMILES representations, we canonicalize
+the cyclic structure. Next, we strategically cleave a
+
+Figure 2: (a) PSMILES containing terminal [*] groups are first transformed into a cyclic structure. (b) The cyclic
+structure is canonicalized, and a chemically valid bond is cleaved to linearize the molecule. The resulting termini
+are tagged with At atoms, yielding MSMILES. (c) The MSMILES is then transformed to PSELFIES.
+chemically valid, preferably single (non-ring) bond
+within the cyclic structure. Astatine (At) atoms are
+introduced at the newly formed termini, chosen due
+to their rarity in polymer chemistry, single valence
+character, and absence in our dataset. The resulting
+MSMILES representation is a linearized, chemi-
+cally valid pseudo-molecular SMILES string that
+preserves the essential connectivity of the polymer.
+Finally, MSMILES is transformed into PSELFIES
+using the SELFIES encoder. The complete con-
+version pipeline is illustrated in Figure 2. Further
+details on the representations described in this sec-
+tion are provided in Appendix A.
+3.2
+Model Configuration and Details
+To develop polyBART, we construct a large-scale
+dataset comprising over 200 million PSELFIES
+strings for polymers, including 12,473 known poly-
+mers, with the remainder representing hypothetical
+polymers (Ohno et al., 2023; Kim et al., 2023). The
+dataset spans a diverse range of polymer classes, in-
+cluding ethers, esters, amides, amines, and imides
+to name a few. The hypothetical polymers are gen-
+erated by applying various known polymerization
+reactions for polyamides, polyesters, polyethers,
+polyurea, and polyurethane, and popular named
+reactions, such as Ring-Opening Metathesis Poly-
+merization (ROMP) (Young and Lovell, 2011).
+We also use popular click reactions like copper-
+catalyzed azide-alkyne cycloaddition (CuAAC),
+thiol-ene/yne reactions, thiol-bromo, Diels-Alder,
+and SuFEx reactions, generating a diverse space of
+polymers while ensuring their synthetic feasibility
+(Kolb et al., 2001, Geng et al., 2021). Additional
+details regarding the dataset can be found in Ap-
+pendix B.
+We choose to focus exclusively on encoder-
+decoder architectures, as polymer representations
+exhibit bidirectional dependencies, meaning each
+token’s presence is influenced by both its preceding
+and succeeding context. This necessitates bidirec-
+tional attention and the use of Masked Language
+Modeling (MLM) rather than Causal Language
+Modeling (CLM), ruling out decoder-only mod-
+els in our case. Given its architectural compatibil-
+ity and vocabulary aligned with our input format,
+SELFIES-TED is the most suitable molecular foun-
+dation model for transfer learning to our task.
+The SELFIES-TED model, based on the BART
+architecture, comes in two variants, SELFIES-
+TEDsmall with 2.2 million parameters (2 encoder-
+decoder layers, 4 attention heads) and SELFIES-
+TEDlarge with 358 million parameters (12 encoder-
+decoder layers, 16 attention heads), both trained
+on SELFIES molecular representations. We ex-
+tend both variants of SELFIES-TED to the poly-
+mer space via continued pretraining on our poly-
+mer dataset, with polyBARTsmall trained on ~200
+million polymers and polyBARTlarge trained on a
+subset of 25 million samples. Prior to training, we
+found that the SELFIES-TEDsmall tokenizer did not
+include [At] in its vocabulary, which we add with
+a randomly initialized embedding.
+We adopt the same training strategy as SELFIES-
+TED, using a denoising objective with 15% of the
+
+Model
+Tg (K)
+Td (K)
+Tm (K)
+Egc (eV)
+Egb (eV)
+Eea (eV)
+Ei (eV)
+SELFIES-TEDlarge 62.58 ± 1.94 96.98 ± 2.14 73.77 ± 2.97 0.95 ± 0.04 0.78 ± 0.09 0.37 ± 0.06 0.50 ± 0.06
+polyBERT
+38.41 ± 1.92 67.45 ± 2.06 56.25 ± 3.09 0.55 ± 0.02 0.72 ± 0.06 0.35 ± 0.05 0.49 ± 0.04
+polyBARTsmall
+39.92 ± 1.27 71.56 ± 1.64 57.71 ± 2.36 0.60 ± 0.02 0.68 ± 0.08 0.35 ± 0.05 0.51 ± 0.06
+polyBARTlarge
+40.32 ± 1.16 71.44 ± 1.93 58.02 ± 2.36 0.61 ± 0.02 0.73 ± 0.07 0.33 ± 0.04 0.49 ± 0.08
+BARTsmall
+43.35 ± 1.25 73.35 ± 1.94 62.03 ± 2.83
+-
+-
+-
+-
+LLaMA-3-8B
+58.13
+95.28
+71.91
+-
+-
+-
+-
+Table 1: Performance on the property prediction tasks. The best results are highlighted in bold and second-best are
+underlined.
+tokens in the input sequence randomly masked. De-
+tailed descriptions of the model architecture and
+training setup can be found in Appendix C. Ul-
+timately, our approach allows us to leverage the
+extensive chemical knowledge encoded in the base
+models, pretrained on billions of molecules, while
+progressively specializing the models to learn the
+representations of polymers. Through further train-
+ing on millions of PSELFIES strings, polyBART
+thus obtains a deep understanding of the grammar
+and syntax that govern the polymer chemical lan-
+guage.
+4
+Computational Experiments
+In this section, we present results demonstrating the
+effectiveness of polyBART on: (i) property predic-
+tion, (ii) hypothetical polymer generation, and (iii)
+property-guided never-seen-before polymer gener-
+ation. We also highlight the ability of PSELFIES
+in leveraging pretrained knowledge through a com-
+parative study.
+4.1
+Property Prediction
+Task: Polymer property prediction is formulated
+as a supervised learning task in our pipeline and
+accomplished as follows: first, all the PSMILES
+strings from the property datasets are converted to
+their PSELFIES representations. These are then
+passed through the polyBART encoder to generate
+numerical embeddings. To reduce dimensionality,
+we apply Principal Component Analysis (PCA) to
+the resulting PSELFIES embeddings. The reduced
+representations are then used to train a supervised
+learning model, specifically, Gaussian Process Re-
+gression (GPR) with a Radial Basis Function (RBF)
+kernel. We use a 5-fold Cross-Validation (CV) strat-
+egy to assess the performance and generalizability
+of our GPR models.
+Datasets: We evaluate polyBART on critical
+thermal properties of polymers, namely, the glass
+transition temperature (Tg), thermal degradation
+temperature (Td), and melting temperature (Tm)
+(Kuenneth et al., 2021a). Thermal property data
+is collected from the PolyInfo repository (Otsuka
+et al., 2011) and is derived from experimental mea-
+surements reported in the existing literature. We
+also assess performance on electronic properties,
+including linear chain bandgap (Egc), bulk polymer
+bandgap (Egb), electron affinity (Eea), and ioniza-
+tion energy (Ei) values computed using Density
+Functional Theory (DFT). Additional information
+on the datasets is detailed in Appendix D.
+Baselines: We compare the performance of poly-
+BART to the baseline SELFIES-TED model. Due
+to the absence of the [At] token in SELFIES-
+TEDsmall, our comparison is restricted to SELFIES-
+TEDlarge.
+In addition, we benchmark poly-
+BART with polyBERT, current state-of-the-art
+transformer-based model for polymer property pre-
+diction. It is important to note that, given the novel
+bidirectional capabilities of polyBART, we are lim-
+ited in comparison to unidirectional models devel-
+oped for property prediction. To ensure a fair com-
+parison of embedding quality, we use GPR across
+all models. We additionally compare polyBART
+with LLaMA, with details regarding the fine-tuning
+experiment given in Appendix E.
+Results: Table 1 presents the performance of
+polyBARTsmall and polyBARTlarge, reporting the
+average RMSE across five CV test sets along with
+the corresponding standard deviations. We observe
+that our bidirectional polyBART performs on par
+with, and in many cases surpasses, polyBERT. No-
+tably, while matching the predictive accuracy of the
+unidirectional polyBERT, the bidirectional poly-
+BART offers the added advantage of generating
+entirely new polymer candidates not present in the
+training data. Additionally, polyBARTsmall and
+
+polyBARTlarge outperform the baseline SELFIES-
+TEDlarge, achieving average RMSE reductions of
+19.4% and 19.7%, respectively.
+These consis-
+tent performance gains underscore the ability of
+PSELFIES to specialize molecular language mod-
+els to the polymer domain. We also notice that poly-
+BART outperforms LLaMA-3 on thermal property
+prediction. Overall, our results confirm the capabil-
+ity of polyBART as a powerful polymer property
+predictor.
+4.2
+Impact of Transfer Learning
+To
+further
+demonstrate
+the
+importance
+of
+PSELFIES in adapting molecular foundation
+models to the polymer space, we perform a
+comparative study.
+Specifically, we develop
+a model, BARTsmall, which shares the same
+architecture, training data, and configuration as
+polyBARTsmall, but is trained from scratch rather
+than initialized from SELFIES-TED. This setup
+allows us to isolate the effect of transfer learning
+using PSELFIES.
+We compare the performance of BARTsmall
+against polyBARTsmall on property prediction
+tasks across the three thermal properties, with
+results
+summarized in
+Table 1.
+We ob-
+serve that polyBARTsmall consistently outperforms
+BARTsmall in all tasks. These performance gains
+highlight the critical role of our PSELFIES frame-
+work. By leveraging pretrained knowledge from
+SELFIES-TED, polyBART benefits from a strong
+initialization, leading to significant improvements
+over training from scratch. Overall, we confirm
+that rather than starting from random weights, ini-
+tializing with a pretrained molecular model via
+PSELFIES provides an effective foundation for de-
+veloping polymer language models.
+4.3
+Hypothetical Polymer Generation
+polyBART’s generative capability, enabled by its
+decoder, is a key innovation of our work, setting
+it apart from existing polymer language models
+(Agarwal et al., 2025), which have been limited
+to unidirectional property prediction. To generate
+novel polymer structures, the PSELFIES sequence
+is first passed through the encoder to obtain a latent
+embedding. To explore the latent space, we apply
+Gaussian noise to this embedding using an n-fold
+sampling strategy: noise is added n times to gener-
+ate n noised embeddings. These noisy embeddings
+are then decoded one by one using the polyBART
+decoder, and if a valid polymer is generated within
+these samples, it is retained. A grid search is used
+to tune the noise level for novelty and validity, de-
+tails of which can be found in Appendix F.
+We evaluate the generative capabilities of poly-
+BART using a test set of 10,000 PSELFIES, all
+of which are unseen during the pretraining phase.
+We begin by examining the validity of the gen-
+erated polymer structures. Specifically, we intro-
+duce two measures of validity: (i) molecule validity
+and (ii) polymer validity. Molecule validity checks
+whether the generated PSELFIES correspond to a
+chemically valid molecule, and is determined us-
+ing RDKit. Polymer validity assesses whether the
+generated PSELFIES represent a structurally valid
+polymer by examining the placement and single-
+bond character of the [At] tokens. Since the [At]
+tokens denote the endpoints of the polymer repeat
+unit, a valid polymer must contain exactly two such
+tokens, each with a valency of one. The polymer
+validity metric enforces this requirement. Next, we
+assess the novelty of the valid generated structures,
+where a structure is considered novel if it passes
+both validity tests and is different from all input
+examples. Finally, we assess the quality of the gen-
+erated structures using Fréchet ChemNet Distance
+(FCD) (Preuer et al., 2018) and Internal Diversity
+(IntDivp) metrics (Benhenda, 2017). FCD quan-
+tifies the similarity between the distributions of
+the generated and input structures based on the
+Euclidian distance between their respective em-
+beddings. A higher FCD score indicates a greater
+divergence between the two distributions, suggest-
+ing that the generated structures differ from the
+input set. IntDivp evaluates the internal diversity
+of the generated structures, capturing the model’s
+tendency to produce structurally distinct outputs.
+We report both IntDiv1 (p = 1) and IntDiv2 (p =
+2) scores, where higher values of these scores re-
+flect greater diversity in the generated structures.
+Although these metrics were originally designed
+for molecules, by representing polymers as pseudo-
+molecules using PSELFIES, we can extend them to
+our case. See Appendix G for a detailed description
+of the metrics.
+Results for the generation task are provided
+in Table 2.
+We find that polyBARTsmall and
+polyBARTlarge generate valid molecules in 100%
+of cases, and valid polymers in 91% and 98% of
+cases, respectively, demonstrating that the models
+have effectively learned the underlying grammar
+and structural rules in writing polymers. High nov-
+elty scores demonstrate polyBART’s ability to ex-
+
+Figure 3: Representative chemical structures generated by (a) polyBARTsmall and (b) polyBARTlarge, selected for
+their high Tg, high Eg, and ease of synthesizability. The selected examples highlight polyBART’s ability to generate
+thermally and electronically robust polymers.
+Model
+Molecule Validity
+Polymer Validity
+Novelty
+FCD
+IntDiv1
+IntDiv2
+polyBARTsmall
+1.000
+0.913
+0.867
+3.968
+0.878
+0.875
+polyBARTlarge
+1.000
+0.985
+0.793
+1.833
+0.872
+0.868
+Table 2: Generative performance of polyBARTsmall and polyBARTlarge across key evaluation metrics.
+plore the latent space and generate thousands of
+never-seen-before structures. The FCD and IntDivp
+scores of the generated distributions confirm the
+models’ capabilities to generate a broad and diverse
+range of polymer structures.
+4.4
+Property-conditioned Polymer Generation
+Beyond general structure generation, a key capa-
+bility of polyBART is its ability to generate novel
+polymers conditioned on desired target properties.
+At a high level, our approach enables property-
+guided generation by mapping the latent space of
+polymer embeddings to the property space and ex-
+ploring regions with desired property values. We
+begin by identifying polymers that fall within a
+specified target range for a given property. These
+polymers are then passed through polyBART’s en-
+coder to obtain embeddings. As in the general gen-
+eration setting, we apply an n-fold Gaussian noise
+sampling strategy: each embedding is perturbed n
+times to generate n candidate embeddings, which
+are subsequently decoded and checked for validity.
+In this way, we are able to effectively explore neigh-
+borhoods in the latent space with desirable property
+values. The resulting candidate polymers are sub-
+jected to two filtering steps: (i) property filtering
+and (ii) Synthetic Accessibility (SA) score (Ertl
+and Schuffenhauer, 2009) filtering. To filter based
+on property, the generated candidates are passed
+through the GPR models developed for property
+prediction, and only those within a threshold range
+of the target property are retained. To assess syn-
+thesizability, we compute the SA score, a measure
+ranging from 1 (easy to make) to 10 (very difficult
+to make). For this, PSELFIES strings are converted
+to MSMILES, with the At atom replaced by hy-
+drogen (H). The SA score is then calculated, and
+candidates with a score of 6 or lower are retained as
+viable candidates. Additional details are provided
+in Appendix H.
+We use polyBART to generate novel polymer
+structures under two extreme conditions: (i) high
+temperatures and (ii) high electric fields. We make
+the assumption that these behaviors correlate with
+
+Metric
+Tg
+Egc
+polyBARTsmall
+polyBARTlarge
+polyBARTsmall
+polyBARTlarge
+# Valid Generations
+743
+1131
+739
+1514
+# Novel
+715
+933
+558
+660
+# Property Filtered
+396
+543
+168
+190
+# SA Score Filtered
+353
+511
+160
+189
+Table 3: Performance of polyBARTsmall and polyBARTlarge on Tg and Egc guided generation of novel polymer
+candidates, based on 183 and 200 reference polymers, respectively.
+two critical polymer properties, specifically, Tg
+and Egc. Accordingly, we define our target prop-
+erty thresholds as (i) Tg > 600 K and (ii) Egc > 4
+eV. High Tg polymers are sought for their thermal
+integrity at elevated temperatures, while polymers
+with high Egc values provide broad electrical sta-
+bility with minimal dielectric loss, making them
+promising candidates for high-energy density ca-
+pacitor dielectric applications (Tan et al., 2014;
+Zhou et al., 2018; Gurnani et al., 2024).
+As shown in Table 3, polyBARTsmall and
+polyBARTlarge are able to successfully generate
+hundreds of novel polymers that not only meet
+the desired property criteria but are also predicted
+to be synthetically accessible. Examples of novel
+structures generated by our models are illustrated
+in Figure 3. Additionally, visualizations of the
+property-conditioned latent space can be found in
+Appendix I.
+Figure 4: A high Tg polymer structure generated by
+polyBART and synthesized in the lab.
+5
+Validation of Design via Laboratory
+Synthesis and Testing
+Given the real-world implications of our work, it
+is important to extend our evaluation of polyBART
+beyond computational benchmarks. Thus, we per-
+form experimental synthesis and characterization
+of a polymer candidate predicted by polyBARTsmall.
+We select one polymer with a high predicted Tg and
+a favorable SA score and successfully synthesize it
+in the lab. Following synthesis, we perform Tg mea-
+surements to evaluate its thermal properties. The
+experimental protocol is detailed in Appendix J.
+Figure 4 presents the chemical structure of the syn-
+thesized polymer, along with the predicted and ex-
+perimentally measured Tg values. We confirm that
+the experimentally observed Tg aligns well with the
+prediction. This successful synthesis of a high-Tg
+polymer firmly establishes polyBART’s ability to
+guide real-world polymer design.
+6
+Conclusion
+In this work, we propose PSELFIES, a novel rep-
+resentation of polymers that enables the trans-
+fer of learned knowledge from molecular lan-
+guage models to the polymer space. We develop
+polyBARTsmall and polyBARTlarge, two polymer
+foundation models created through the continued
+pretraining of SELFIES-TEDsmall and SELFIES-
+TEDlarge, respectively. Our results show that poly-
+BART performs comparably to state-of-the-art ap-
+proaches in property prediction. Moreover, poly-
+BART uniquely combines property prediction with
+generative design in a single unified framework
+and consistently produces numerous novel polymer
+structures. Generated candidates not only satisfy
+target property criteria but also exhibit synthetic ac-
+cessibility. By successfully synthesizing one such
+predicted polymer and experimentally confirming
+our predictions, we illustrate that language models
+can reliably drive real-world advances in polymer
+design. Our work enables true bidirectional trans-
+lation between polymer structures and properties
+and highlights the potential of language models in
+advancing polymer informatics.
+7
+Limitations
+While PSELFIES successfully enables the adap-
+tation of the SELFIES-TED molecular language
+
+model to the polymer space, its generalizability to
+other molecular foundation models, based on differ-
+ent architectures and pretraining strategies remains
+yet to be seen. Future work is needed to evalu-
+ate how well PSELFIES integrates with alternative
+models and whether similar performance gains can
+be achieved across methods.
+Additionally, while polyBART demonstrates
+strong performance on thermal and electronic prop-
+erties, its applicability to a broader range of poly-
+mer properties and simultaneous optimization of
+multiple properties must be explored to fully deter-
+mine its predictive and generative power. Finally,
+polyBART is currently limited to homopolymers
+and does not yet support the representation or gen-
+eration of copolymers, polymer blends, or polymer
+composites/formulations. These aspects will be the
+subject of future inquiry.
+8
+Acknowledgements
+The authors thank the Office of Naval Research
+(ONR) for financial sponsorship of this work
+through Grant N00014-23-1-2279. The authors
+are also grateful for the usage of the Gutekunst
+lab for synthesis and characterization of one of the
+designed polymers.
+References
+Sakshi Agarwal, Akhlak Mahmood, and Rampi Ram-
+prasad. 2025. Polymer solubility prediction using
+large language models. ACS Materials Letters, pages
+2017–2023.
+Nagababu Andraju, Greg W. Curtzwiler, Yun Ji,
+Evguenii Kozliak, and Prakash Ranganathan. 2022.
+Machine-learning-based predictions of polymer and
+postconsumer recycled polymer properties: A com-
+prehensive review. ACS Applied Materials & Inter-
+faces, 14(38):42771–42790. PMID: 36102317.
+Viraj Bagal, Rishal Aggarwal, P. K. Vinod, and U. Deva
+Priyakumar. 2022. Molgpt: Molecular generation us-
+ing a transformer-decoder model. Journal of Chem-
+ical Information and Modeling, 62(9):2064–2076.
+PMID: 34694798.
+Rohit Batra, Hanjun Dai, Tran Doan Huan, Lihua Chen,
+Chiho Kim, Will R. Gutekunst, Le Song, and Rampi
+Ramprasad. 2020.
+Polymers for extreme condi-
+tions designed using syntax-directed variational au-
+toencoders. Chemistry of Materials, 32(24):10489–
+10500.
+Rohit Batra, Le Song, and Rampi Ramprasad. 2021.
+Emerging materials intelligence ecosystems pro-
+pelled by machine learning. Nature Reviews Ma-
+terials, 6(8):655–678.
+Mostapha Benhenda. 2017. Chemgan challenge for
+drug discovery: can ai reproduce natural chemical
+diversity? Preprint, arXiv:1708.08227.
+Tom Brown, Benjamin Mann, Nick Ryder, Melanie
+Subbiah, Jared D Kaplan, Prafulla Dhariwal, Arvind
+Neelakantan, Pranav Shyam, Girish Sastry, Amanda
+Askell, Sandhini Agarwal, Ariel Herbert-Voss,
+Gretchen Krueger, Tom Henighan, Rewon Child,
+Aditya Ramesh, Daniel Ziegler, Jeffrey Wu, Clemens
+Winter, and 12 others. 2020. Language models are
+few-shot learners. In Advances in Neural Information
+Processing Systems, volume 33, pages 1877–1901.
+Curran Associates, Inc.
+Lihua
+Chen,
+Ghanshyam
+Pilania,
+Rohit
+Batra,
+Tran Doan Huan, Chiho Kim, Christopher Kuenneth,
+and Rampi Ramprasad. 2021. Polymer informatics:
+Current status and critical next steps. Materials Sci-
+ence and Engineering: R: Reports, 144:100595.
+Seyone Chithrananda, Gabriel Grand, and Bharath
+Ramsundar. 2020.
+Chemberta: Large-scale self-
+supervised pretraining for molecular property pre-
+diction. Preprint, arXiv:2010.09885.
+Daylight Chemical Information Systems. SMARTS
+— A Language for Describing Molecular Pat-
+terns.
+https://www.daylight.com/dayhtml/
+doc/theory/theory.smiles.html.
+Jacob Devlin, Ming-Wei Chang, Kenton Lee, and
+Kristina Toutanova. 2019. Bert: Pre-training of deep
+bidirectional transformers for language understand-
+ing. Preprint, arXiv:1810.04805.
+Huan Doan Tran, Chiho Kim, Lihua Chen, Anand
+Chandrasekaran, Rohit Batra, Shruti Venkatram,
+Deepak Kamal, Jordan P. Lightstone, Rishi Gur-
+nani, Pranav Shetty, Manav Ramprasad, Julia Laws,
+Madeline Shelton, and Rampi Ramprasad. 2020.
+Machine-learning predictions of polymer properties
+with polymer genome. Journal of Applied Physics,
+128(17):171104.
+Orion Dollar, Nisarg Joshi, David A. C. Beck, and Jim
+Pfaendtner. 2021. Attention-based generative models
+for de novo molecular design. Chem. Sci., 12:8362–
+8372.
+Carl Edwards, Tuan Lai, Kevin Ros, Garrett Honke,
+Kyunghyun Cho, and Heng Ji. 2022. Translation
+between molecules and natural language. Preprint,
+arXiv:2204.11817.
+Peter Ertl and Ansgar Schuffenhauer. 2009. Estimation
+of synthetic accessibility score of drug-like molecules
+based on molecular complexity and fragment contri-
+butions. Journal of Cheminformatics, 1:8.
+Zhishuai Geng, Jaeman J. Shin, Yumeng Xi, and Craig J.
+Hawker. 2021. Click chemistry strategies for the
+accelerated synthesis of functional macromolecules.
+Journal of Polymer Science, 59(11):963–1042.
+
+Haisong Gong, Qiang Liu, Shu Wu, and Liang Wang.
+2024. Text-guided molecule generation with diffu-
+sion language model. Proceedings of the AAAI Con-
+ference on Artificial Intelligence, 38(1):109–117.
+Nate Gruver, Anuroop Sriram, Andrea Madotto, An-
+drew Gordon Wilson, C. Lawrence Zitnick, and
+Zachary Ulissi. 2024. Fine-tuned language models
+generate stable inorganic materials as text. Preprint,
+arXiv:2402.04379.
+Rishi Gurnani, Christopher Kuenneth, Aubrey Toland,
+and Rampi Ramprasad. 2023. Polymer informatics
+at scale with multitask graph neural networks. Chem-
+istry of Materials, 35(4):1560–1567.
+Rishi Gurnani, Stuti Shukla, Deepak Kamal, Chao
+Wu, Jing Hao, Christopher Kuenneth, Pritish Ak-
+lujkar, Ashish Khomane, Robert Daniels, Ajinkya A.
+Deshmukh, Yang Cao, Gregory Sotzing, and Rampi
+Ramprasad. 2024. Ai-assisted discovery of high-
+temperature dielectrics for energy storage. Nature
+Communications, 15(1):6107.
+Pengcheng He, Xiaodong Liu, Jianfeng Gao, and
+Weizhu
+Chen.
+2021.
+Deberta:
+Decoding-
+enhanced bert with disentangled attention. Preprint,
+arXiv:2006.03654.
+IBM Research. selfies-ted. https://huggingface.
+co/ibm-research/materials.selfies-ted.
+Kevin Maik Jablonka, Philippe Schwaller, Andres
+Ortega-Guerrero, and Berend Smit. 2024. Lever-
+aging large language models for predictive chemistry.
+Nature Machine Intelligence, 6(2):161–169.
+Peter Bjørn Jørgensen, Murat Mesta, Suranjan Shil,
+Juan Maria García Lastra, Karsten Wedel Jacobsen,
+Kristian Sommer Thygesen, and Mikkel N. Schmidt.
+2018. Machine learning-based screening of complex
+molecules for polymer solar cells. The Journal of
+Chemical Physics, 148(24):241735.
+Seonghwan Kim, Charles M. Schroeder, and Nicholas E.
+Jackson. 2023. Open macromolecular genome: Gen-
+erative design of synthetically accessible polymers.
+ACS Polymers Au, 3(4):318–330.
+Hartmuth C. Kolb, M. G. Finn, and K. Barry Sharpless.
+2001. Click chemistry: Diverse chemical function
+from a few good reactions.
+Angewandte Chemie
+International Edition, 40(11):2004–2021.
+Mario Krenn, Florian Häse, AkshatKumar Nigam, Pas-
+cal Friederich, and Alan Aspuru-Guzik. 2020. Self-
+referencing embedded strings (selfies): A 100% ro-
+bust molecular string representation. Machine Learn-
+ing: Science and Technology, 1(4):045024.
+Christopher Kuenneth, Jessica Lalonde, Babetta L. Mar-
+rone, Carl N. Iverson, Rampi Ramprasad, and Ghan-
+shyam Pilania. 2022. Bioplastic design using multi-
+task deep neural networks. Communications Materi-
+als, 3(1):96.
+Christopher Kuenneth, Arunkumar Chitteth Rajan,
+Huan Tran, Lihua Chen, Chiho Kim, and Rampi Ram-
+prasad. 2021a. Polymer informatics with multi-task
+learning. Patterns, 2(4):100238.
+Christopher Kuenneth and Rampi Ramprasad. 2023.
+polybert: a chemical language model to enable fully
+machine-driven ultrafast polymer informatics. Na-
+ture Communications, 14(1):4099.
+Christopher Kuenneth, William Schertzer, and Rampi
+Ramprasad. 2021b.
+Copolymer informatics with
+multitask deep neural networks. Macromolecules,
+54(13):5957–5961.
+Seul Lee, Karsten Kreis, Srimukh Prasad Veccham,
+Meng Liu, Danny Reidenbach, Yuxing Peng, Saee
+Paliwal, Weili Nie, and Arash Vahdat. 2025. Genmol:
+A drug discovery generalist with discrete diffusion.
+Preprint, arXiv:2501.06158.
+Mike Lewis, Yinhan Liu, Naman Goyal, Marjan
+Ghazvininejad, Abdelrahman Mohamed, Omer Levy,
+Ves Stoyanov, and Luke Zettlemoyer. 2019. Bart: De-
+noising sequence-to-sequence pre-training for natural
+language generation, translation, and comprehension.
+Preprint, arXiv:1910.13461.
+Juncai Li and Xiaofei Jiang. 2021. Mol-bert: An effec-
+tive molecular representation with bert for molecular
+property prediction. Wireless Communications and
+Mobile Computing, 2021(1):7181815.
+Yinhan Liu, Myle Ott, Naman Goyal, Jingfei Du, Man-
+dar Joshi, Danqi Chen, Omer Levy, Mike Lewis,
+Luke Zettlemoyer, and Veselin Stoyanov. 2019.
+Roberta: A robustly optimized bert pretraining ap-
+proach. Preprint, arXiv:1907.11692.
+Mitsuru
+Ohno,
+Yoshihiro
+Hayashi,
+Qi
+Zhang,
+Yu Kaneko, and Ryo Yoshida. 2023. Smipoly: Gen-
+eration of a synthesizable polymer virtual library us-
+ing rule-based polymerization reactions. Journal of
+Chemical Information and Modeling, 63(17):5539–
+5548. PMID: 37604495.
+Shingo Otsuka, Isao Kuwajima, Junko Hosoya, Yibin
+Xu, and Masayoshi Yamazaki. 2011. Polyinfo: Poly-
+mer database for polymeric materials design. In 2011
+International Conference on Emerging Intelligent
+Data and Web Technologies, pages 22–29.
+Kristina Preuer, Philipp Renz, Thomas Unterthiner,
+Sepp Hochreiter, and Günter Klambauer. 2018.
+Fréchet chemnet distance: A metric for generative
+models for molecules in drug discovery. Preprint,
+arXiv:1803.09518.
+Haoke Qiu, Lunyang Liu, Xuepeng Qiu, Xuemin Dai,
+Xiangling Ji, and Zhao-Yan Sun. 2024. Polync: a
+natural and chemical language model for the pre-
+diction of unified polymer properties. Chem. Sci.,
+15:534–544.
+
+Colin Raffel, Noam Shazeer, Adam Roberts, Katherine
+Lee, Sharan Narang, Michael Matena, Yanqi Zhou,
+Wei Li, and Peter J. Liu. 2023. Exploring the limits
+of transfer learning with a unified text-to-text trans-
+former. Preprint, arXiv:1910.10683.
+Jerret Ross, Brian Belgodere, Vijil Chenthamarakshan,
+Inkit Padhi, Youssef Mroueh, and Payel Das. 2022.
+Large-scale chemical language representations cap-
+ture molecular structure and properties. Nature Ma-
+chine Intelligence, 4(12):1256–1264.
+Daniel Tan, Lili Zhang, Qin Chen, and Patricia Irwin.
+2014.
+High-temperature capacitor polymer films.
+Journal of Electronic Materials, 43(12):4569–4575.
+Lei Tao, Vikas Varshney, and Ying Li. 2021. Bench-
+marking machine learning models for polymer in-
+formatics: An example of glass transition tempera-
+ture. Journal of Chemical Information and Modeling,
+61(11):5395–5413. PMID: 34662106.
+Hugo Touvron, Thibaut Lavril, Gautier Izacard, Xavier
+Martinet, Marie-Anne Lachaux, Timothée Lacroix,
+Baptiste Rozière, Naman Goyal, Eric Hambro, Faisal
+Azhar, Aurelien Rodriguez, Armand Joulin, Edouard
+Grave, and Guillaume Lample. 2023. Llama: Open
+and efficient foundation language models. Preprint,
+arXiv:2302.13971.
+Huan Tran, Rishi Gurnani, Chiho Kim, Ghanshyam Pi-
+lania, Ha-Kyung Kwon, Ryan P. Lively, and Rampi
+Ramprasad. 2024. Design of functional and sustain-
+able polymers assisted by artificial intelligence. Na-
+ture Reviews Materials, 9(12):866–886.
+Ashish Vaswani, Noam Shazeer, Niki Parmar, Jakob
+Uszkoreit, Llion Jones, Aidan N Gomez, Ł ukasz
+Kaiser, and Illia Polosukhin. 2017. Attention is all
+you need. In Advances in Neural Information Pro-
+cessing Systems, volume 30. Curran Associates, Inc.
+Sheng Wang, Yuzhi Guo, Yuhong Wang, Hongmao
+Sun, and Junzhou Huang. 2019. Smiles-bert: Large
+scale unsupervised pre-training for molecular prop-
+erty prediction. In Proceedings of the 10th ACM
+International Conference on Bioinformatics, Compu-
+tational Biology and Health Informatics, BCB ’19,
+page 429–436, New York, NY, USA. Association for
+Computing Machinery.
+David Weininger. 1988. Smiles, a chemical language
+and information system. 1. introduction to methodol-
+ogy and encoding rules. Journal of Chemical Infor-
+mation and Computer Sciences, 28(1):31–36.
+Changwen Xu, Yuyang Wang, and Amir Barati Fari-
+mani. 2023. Transpolymer: a transformer-based lan-
+guage model for polymer property predictions. npj
+Computational Materials, 9(1):64.
+Robert J. Young and Peter A. Lovell. 2011. Chapters 3
+and 7. In Introduction to Polymers, 3 edition, pages
+21–60, 151–189. CRC Press.
+Yao Zhou, Qi Li, Bin Dang, Yang Yang, Tao Shao,
+He Li, Jun Hu, Rong Zeng, Jinliang He, and Qing
+Wang. 2018. A scalable, high-throughput, and envi-
+ronmentally benign approach to polymer dielectrics
+exhibiting significantly improved capacitive perfor-
+mance at high temperatures. Advanced Materials,
+30(49):1805672.
+
+Appendix
+A
+Representations
+Representation
+Description
+SMILES
+Simplified
+Molecu-
+lar Input Line Entry
+System is a popular
+notation for encoding
+molecules as strings.
+PSMILES
+Polymer SMILES is an
+extension of SMILES
+for
+polymers
+that
+uses asterisks ([*]) to
+indicate endpoints of
+homopolymer
+repeat
+units.
+MSMILES
+Molecule SMILES is
+a
+pseudo-molecular
+SMILES derived from
+PSMILES by ring clo-
+sure, canonicalization,
+and bond cleavage.
+SELFIES
+Self-Referencing
+Em-
+bedded Strings is a ro-
+bust representation of
+molecules that guaran-
+tees the validity of every
+generation.
+PSELFIES
+Polymer SELFIES is a
+novel polymer-specific
+extension of SELFIES
+that is introduced in this
+work and used to de-
+velop polyBART.
+Table 4: Overview of molecular and polymer represen-
+tations referenced in this work.
+B
+Pre-training Dataset
+We characterize the chemical diversity of our
+dataset of approximately 210 million polymers
+(total count = 210,645,750) that we use for pre-
+training polyBART. Polymers are categorized
+based on the presence of 40 functional groups.
+Classification is performed by analyzing the en-
+tire polymer structure, allowing a single polymer
+to be assigned to multiple categories.
+Reaction Class
+Percentage
+Ether
+97.2
+Amide
+72.5
+Amine
+67.1
+Acetal
+34.5
+Halogenated
+33.8
+Ester
+23.7
+Thioether
+23.6
+Allyl
+21.2
+Hydroxyl
+17.7
+Sulfoxide
+16
+Urea
+11.4
+Imide
+8.3
+Nitrile
+6
+Carboxylic acid
+5.2
+Urethane
+4.9
+Table 5: Top 15 polymer classes in the pretraining data.
+C
+Architecture and Training Setup
+Configuration Parameter
+polyBARTsmall
+polyBARTlarge
+dmodel
+256
+1024
+Encoder Layers
+2
+12
+Decoder Layers
+2
+12
+Encoder FFN Dim.
+256
+4096
+Decoder FFN Dim.
+256
+4096
+Encoder Attention Heads
+4
+16
+Decoder Attention Heads
+4
+16
+Table 6:
+Model architecture configurations for
+polyBARTsmall
+and
+polyBARTlarge
+as
+following
+SELFIES-TEDsmall and SELFIES-TEDlarge.
+The loss function for training is given by:
+Ldenoise = −
+T
+X
+t=1
+log P(yt | y<t, ˜x; θ)
+where yt is the t-th token in the output sequence y,
+y<t is the sequence of tokens before position t, ˜x is
+the corrupted version of the original input, x, θ rep-
+resents the model parameters, and P(yt | y<t, ˜x; θ)
+is the model’s predicted probability of the token
+yt conditioned on the previously generated tokens
+and the corrupted input.
+polyBARTsmall is trained on ~200 million
+PSELFIES for 6 epochs using a per-device batch
+size of 128.
+Due to computational limitations,
+
+polyBARTlarge is trained on 25 million samples
+for 5 epochs with a per-device batch size of 64. All
+training runs are conducted on 2 NVIDIA L40S
+GPUs.
+D
+Property Datasets
+We evaluate polyBART on Tg, Td, Tm, Egc, Egb,
+Eea, and Ei.
+Histograms of the value distribu-
+tions for each property are shown below. Thermal
+properties are obtained from PolyInfo at https:
+//polymer.nims.go.jp/. Electronic properties
+are accessible through the polyVERSE repos-
+itory (https://github.com/Ramprasad-Group/
+polyVERSE/tree/main) and the Khazana poly-
+mer database (https://khazana.gatech.edu/
+dataset/).
+D.1
+Thermal Properties
+Figure 5: Distribution of thermal properties.
+D.2
+Electronic Properties
+Figure 6: Distribution of electronic properties.
+E
+Comparison with LLaMA
+To enable a comparison between polyBART and
+an LLM, we evaluate both approaches on the
+task of thermal property prediction, using the 8B-
+parameter LLaMA-3 model as the representative
+LLM baseline. Because the available electronic-
+
+property datasets are comparatively small, we limit
+this comparison to thermal properties.
+We fine-tune LLaMA to follow a simple ques-
+tion–answer protocol that maps SELFIES to scalar
+property values. Specifically, each training instance
+is formatted as:
+Prompt: What is the {property name} of the
+polymer with SELFIES: {selfies}?
+Response: {property value}
+We fine-tune LLaMA with LoRA (r = 8, α = 8)
+and early stopping. At inference time, we employ
+deterministic decoding (temperature = 0, no sam-
+pling) to produce a single numeric answer.
+F
+Optimal Noise Level
+To identify the optimal level of noise for property-
+conditioned generation, we analyze the effect of
+varying noise levels on two metrics: validity and
+novelty.
+The following plots summarize these
+metrics for polyBART across different noise lev-
+els.
+Based on our observations we choose a
+noise level of 0.75 for polyBARTsmall and 1.75
+for polyBARTlarge.
+(a) polyBARTsmall
+(b) polyBARTlarge
+Figure 7: Validity and novelty across noise levels.
+G
+Metrics
+G.1
+FCD
+FCD is computed using molecular representations
+extracted from the penultimate layer activations
+of the ChemNet model. Assuming these activa-
+tions follow multivariate Gaussian distributions,
+the mean and covariance is calculated for both gen-
+erated and input molecules. If the generated distri-
+bution G has mean µG and covariance ΣG, and the
+input distribution I has mean µI and covariance
+ΣI, FCD between these two is given by:
+FCD(G, I) = ∥µG −µI∥2
+2 + Tr
+ ΣG + ΣI −2(ΣGΣI)1/2
+G.2
+IntDivp
+IntDivp is computed using T(m1, m2), which de-
+notes the Tanimoto similarity between molecules
+m1 and m2. The summation is performed over all
+pairs of molecules in the set of generations G, and
+the result is normalized by |G|2, the total number
+of pairwise comparisons. The parameter p controls
+the order of the mean. IntDivp is given by:
+IntDivp(G) = 1 −
+
+1
+|G|2
+P
+m1,m2∈G T(m1, m2)p 1
+p
+H
+Threshold Selection for SA Scores
+We assess the distribution of SA scores within the
+experimental Tg dataset. As shown in Figure 12,
+majority of the polymers exhibit SA scores of 6
+or lower, suggesting that a cutoff of 6 effectively
+identifies polymers that are sufficiently easy to syn-
+thesize. Hence, we adopt this threshold for our
+computational experiments on chemical structure
+generation.
+Figure 8: SA score distribution.
+I
+Latent Space Visualization
+Figure 9 shows the property-conditioned la-
+tent space visualizations for polyBARTsmall and
+
+polyBARTlarge, with each plot highlighting regions
+in the embedding space associated with polymers
+exhibiting high Tg and Egc values. The latent repre-
+sentations are obtained by encoding polymer struc-
+tures with each model’s encoder and projecting
+the resulting embeddings into two dimensions us-
+ing t-SNE. These visualizations reveal how differ-
+ent models structure the latent space with respect
+to property-relevant features. A gradient in prop-
+erty values across the latent space suggests that the
+model has learned a meaningful representation in
+which polymer embeddings are aligned with their
+associated properties.
+J
+Experimental Procedure
+To synthesize poly(amic acid) (PAA), 3,3′-
+diaminodiphenylmethane (31 mg, 0.16 mmol) is
+added to a three-necked round-bottom flask, fol-
+lowed by the addition of N,N-dimethylacetamide
+(DMAc, 250 µL) as the solvent. The mixture is
+stirred until the diamine was completely dissolved.
+Subsequently, an equimolar amount of 3,3′,4,4′-
+benzophenonetetracarboxylic dianhydride (50 mg,
+0.16 mmol) is slowly added to the solution under a
+nitrogen atmosphere. The reaction temperature is
+maintained between 40◦C and 50◦C, and the mix-
+ture is stirred overnight to obtain a homogeneous
+PAA solution. The resulting solution is slowly
+poured into deionized water under vigorous stirring,
+leading to the formation of a white to pale-yellow
+precipitate. The precipitate is collected by filtration
+and washed thoroughly with acetone multiple times
+to remove residual solvent. The purified PAA is air-
+dried at room temperature and then vacuum-dried
+at 60◦C until a constant weight is achieved.
+Thermal imidization of the obtained PAA is con-
+ducted to afford the corresponding polyimide (PI).
+The dried PAA is placed in a flask under vacuum,
+and the temperature is gradually increased in a step-
+wise manner to 150◦C, 200◦C, and finally 300◦C,
+holding each temperature for approximately 1 hour.
+After cooling to room temperature under vacuum,
+the resulting PI (~54 mg, 71%) is collected for
+further characterization.
+Thermogravimetric analysis (TGA) was per-
+formed using a Pyris 1 TGA (PerkinElmer) at a
+heating rate of 10◦C/min. Differential Scanning
+Calorimetry (DSC) was carried out on a DSC 3+
+STARe system (Mettler Toledo), with both heating
+and cooling rates set to 10◦C/min.
+Figure 10: 1H NMR spectrum of PAA in d6-DMSO.
+Figure 11: TGA curve of PI.
+Figure 12: DSA curve of PI.
+
+Figure 9: Latent space projections for (a) polyBARTsmall and (b) polyBARTlarge highlighting polymers exhibiting
+high Tg and Egc values.

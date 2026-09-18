@@ -1,0 +1,1602 @@
+AiiDA: Automated Interactive Infrastructure and
+Database for Computational Science
+Giovanni Pizzia,1, Andrea Cepellottia,1, Riccardo Sabatinia, Nicola Marzaria,
+Boris Kozinskyb
+aTheory and Simulation of Materials (THEOS), and National Centre for Computational
+Design and Discovery of Novel Materials (MARVEL), ´Ecole Polytechnique F´ed´erale de
+Lausanne, 1015 Lausanne, Switzerland
+bResearch and Technology Center, Robert Bosch LLC, Cambridge, Massachusetts 02139,
+USA
+Abstract
+Computational science has seen in the last decades a spectacular rise in the scope, breadth,
+and depth of its eﬀorts. Notwithstanding this prevalence and impact, it is often still performed
+using the renaissance model of individual artisans gathered in a workshop, under the guidance
+of an established practitioner. Great beneﬁts could follow instead from adopting concepts
+and tools coming from computer science to manage, preserve, and share these computational
+eﬀorts. We illustrate here our paradigm sustaining such vision, based around the four pillars
+of Automation, Data, Environment, and Sharing. We then discuss its implementation in the
+open-source AiiDA platform (http://www.aiida.net), that has been tuned ﬁrst to the demands
+of computational materials science. AiiDA’s design is based on directed acyclic graphs to track
+the provenance of data and calculations, and ensure preservation and searchability. Remote
+computational resources are managed transparently, and automation is coupled with data
+storage to ensure reproducibility. Last, complex sequences of calculations can be encoded into
+scientiﬁc workﬂows. We believe that AiiDA’s design and its sharing capabilities will encourage
+the creation of social ecosystems to disseminate codes, data, and scientiﬁc workﬂows.
+Keywords:
+high-throughput, materials database, scientiﬁc workﬂow, directed
+acyclic graph, provenance, reproducibility
+1. Introduction
+Computational science has now emerged as a new paradigm straddling ex-
+periments and theory. While in the early days of computer simulations only a
+small number of expensive simulations could be performed, nowadays the ca-
+pacity of computer simulations calls for the development of concepts and tools
+to organize research eﬀorts with the ideas and practices of computer science.
+In this paper, we take as a case study computational materials science, given
+that the accuracy and predictive power of the current “quantum engines” (com-
+putational codes performing quantum-mechanical simulations) have made these
+Email addresses: giovanni.pizzi@epfl.ch (Giovanni Pizzi),
+andrea.cepellotti@epfl.ch (Andrea Cepellotti)
+1These two authors equally contributed to the work.
+Preprint submitted to Elsevier
+September 9, 2015
+arXiv:1504.01163v2  [physics.comp-ph]  8 Sep 2015
+
+widespread in science and technology, to the point that nowadays they are rou-
+tinely used in industry and academia to understand, predict, and design proper-
+ties of complex materials and devices. This success is also demonstrated by the
+fact that 12 out of the top-100 most cited papers in the entire scientiﬁc literature
+worldwide deal with quantum simulations using density-functional theory [1].
+The availability of robust codes based on these accurate physical models, the
+sustained increase in high-performance computational (HPC) capacity, and the
+appearance of curated materials databases has paved the way for the emergence
+of the model of materials design and discovery via high-throughput computa-
+tions (see Refs. [2, 3, 4], and Ref. [5] for the literature cited therein). In some
+realizations of this paradigm many diﬀerent materials (taken from experimental
+or computational databases) and their properties are screened for optimal per-
+formance. This type of work requires to automate the computational engines in
+order to run thousands of simulations or more.
+The challenge of automating and managing the simulations and the resulting
+data creates the need for a dedicated software infrastructure. However, a practi-
+cal implementation of a ﬂexible and general tool is challenging, because it must
+address two contrasting requirements. On one hand it must be ﬂexible enough to
+support diﬀerent tasks. On the other hand, it must require minimal eﬀort to be
+used. While addressing these opposite requirements, two additional challenges
+should be tackled: ensuring reproducibility of simulations, and encouraging the
+creation of a community to share and cross-validate results. Regarding the for-
+mer, even nowadays many scientiﬁc computational papers do not provide all the
+details needed to reproduce the results. As for the latter, a common suggestion
+to encourage sharing is to create uniﬁed central databanks of computed results,
+where users can contribute their data [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]. How-
+ever, the bulk of these repositories comes often from the group initiating the
+database. One reason could be that researchers do not perceive the beneﬁts of
+sharing data in a competitive academic or commercial environment. The main
+obstacle, though, is that even researchers who are willing to contribute do not
+have the ability or the time to easily collect their own data, convert these to
+another format, ﬁlter and upload them.
+With these considerations in mind, we developed AiiDA, an Automated In-
+teractive Infrastructure and Database for computational science. Using AiiDA,
+the users can access transparently both local and remote computer resources.
+The platform is easy to use thanks to a high-level python scripting interface and
+can support diﬀerent codes by means of a plugin interface. A central goal of
+AiiDA is the full reproducibility of calculations and of the resulting data chain,
+that we obtain by a tight coupling of storage and workﬂow automation. Data
+analysis and querying of heterogeneous results and of the provenance relation-
+ships are made possible and eﬀective by a database design based on directed
+acyclic graphs and targeted towards data management for high-throughput sim-
+ulations. Sharing of scientiﬁc knowledge is addressed by making it easy to setup
+and manage local repositories driven by the interests of a given group, but pro-
+viding tools to seamlessly share not only the data itself, but also the full scientiﬁc
+workﬂows used to generate the results.
+2
+
+Figure 1: The four pillars of the proposed infrastructure for computational science. At the
+lower level, an automation framework and an eﬃcient data management solution are needed.
+At the user level, a high-level environment is coupled with a social ecosystem to stimulate the
+sharing of codes, data and workﬂows.
+In this paper, we ﬁrst discuss in more detail the general requirements that
+any infrastructure should have to create, manage, analyze and share data and
+simulations. These requirements are summarized in the four pillars of the ADES
+model (Automation, Data, Environment, and Sharing). We then describe in
+detail how these have been addressed by the current open-source implementation
+of AiiDA, starting from Sec. 4 (one section per pillar).
+2. The ADES model for computational science
+The aim of this section is to introduce and illustrate the ADES model (see
+Fig. 1), in order to motivate our design choices for AiiDA and describe the
+platform requirements.
+The ﬁrst pillar, Automation, responds to the needs of abstracting away
+the low-level tasks to prepare, submit, retrieve and store large numbers of cal-
+culations. It can be subdivided into the following main items:
+• Remote management Large computations are typically prepared on a
+user’s workstation and executed on HPC clusters. The diﬀerent steps of
+job preparation, submission, status check, and results retrieval are repet-
+itive and independent of the speciﬁc simulation tool. Therefore, remote
+management tasks can be abstracted into an Application Programming
+Interface (API) and automated. Diﬀerent communication and scheduler
+implementations can be supported by plugins, all adopting the same API,
+as we discuss in Sec. 4.2.
+• Coupling to data Full reproducibility of calculations requires a tight
+coupling of automation and storage. Decoupling these two aspects leaves
+the researcher with the error-prone task of manually uploading calculation
+3
+
+inputs and outputs to a suitable repository, with the additional risk of
+providing incomplete information. Instead, if the repository is populated
+ﬁrst by the user with all the information needed to run the simulation,
+the process of creating the input ﬁles and running the calculation can be
+automated and easily repeated. The resulting repositories are therefore
+necessarily consistent; moreover, almost no user intervention is required to
+create direct pipelines to shared repositories, as the data is already stored
+coherently.
+• High-throughput The main advantage of automation is obtained in sit-
+uations when screening or parameter sweeps are required, involving thou-
+sands of calculations or more. Running and managing them one by one
+is not feasible. Having a high-level automation framework opens the pos-
+sibility to run multiple calculations simultaneously, analyze and ﬁlter the
+results.
+The infrastructure must be able to deal with potential errors
+arising during the computations, trying to automatically recognize and
+remedy these whenever possible.
+The second pillar, Data, concerns the management of the data produced by
+the simulations and covers the following three core areas:
+• Storage HPC calculations produce a large amount of heterogeneous data.
+Files containing input parameters and ﬁnal results need to be automat-
+ically and permanently stored for future reference and analysis. On the
+other hand, much of the data is required only temporarily (e.g., for check-
+pointing) and can be discarded at the end of the simulation. Therefore,
+a code-dependent ﬁle-storage policy (optionally customizable by the user)
+must be adopted to categorize each output ﬁle. Anyhow, the existence
+of intermediate ﬁles should be recorded, so that the logical ﬂow of cal-
+culations is persisted even when restart ﬁles are deleted. If the platform
+ensures reproducibility of calculations, it is straightforward to regenerate
+the intermediate ﬁles, if needed. It is also important to store information
+on the codes that generated the data. If ultimate reproducibility is needed,
+one could envision to store reference virtual machines or Docker [17] im-
+ages with the code executables.
+• Provenance To achieve reproducibility, the platform needs to store and
+represent the calculations that are executed, together with their input
+data.
+An eﬀective data model, though, should not only put emphasis
+on calculations and data, but also keep track of the causal relationships
+between them, i.e., the full provenance of the results.
+For instance, a
+ﬁnal relaxed crystal structure is of limited use without knowing how it
+was obtained.
+The natural data structure to represent the network of
+relations between data and calculations is a directed acyclic graph, as we
+will motivate in greater detail in Sec. 4.1.
+• Database Today’s typical computational work environment consists of
+a multitude of ﬁles with arbitrary directory structures, naming schemes
+4
+
+and lacking documentation.
+In practice, it is hard to understand and
+use the information (even by the author after some time) and to retrieve
+a speciﬁc calculation when many are stored.
+A database can help in
+organizing results and querying them. The implementation of the data
+model discussed above, based on directed acyclic graphs, must not be
+restricted to a speciﬁc application, but has to accommodate heterogeneous
+data. It must be possible to eﬃciently query any attribute (number, string,
+list, dictionary, . . . ) associated to a graph node. Queries that traverse the
+graph to assess causal relationships between nodes must also be possible.
+A graph database backend is not required if the requirements above are
+satisﬁed. For instance, AiiDA’s backend is a relational database with a
+transitive-closure table for eﬃcient graph-traversal (see Secs. 5.2 and 5.3).
+The ﬁrst two pillars described above address mainly low-level functionalities.
+The next two pillars deal instead with user-oriented features. In particular, the
+pillar Environment focuses on creating a natural environment for computa-
+tional science, and involves the following aspects:
+• High-level workspace As the researcher’s objective is to make new dis-
+coveries and not to learn a new code, the infrastructure should be ﬂexible
+and straightforward to use. For instance, while databases oﬀer many ad-
+vantages in data-driven computational science, few scientists are expert in
+their administration. For this reason, the intricacies of database manage-
+ment and connections must be hidden by the an API abstraction layer.
+Furthermore, by adopting a widespread high-level programming language
+(such as Python) one can beneﬁt of mature tools for inserting and re-
+trieving data from databases [18, 19, 20]. The infrastructure must also
+be modular: a core providing common low-level functionalities, and cus-
+tomizable plugins to support diﬀerent codes.
+• Scientiﬁc workﬂows Much of the scientiﬁc knowledge does not merely lie
+in the ﬁnal data, but in the description of the process, i.e., the “scientiﬁc
+workﬂow” used to obtain them. If these processes can be encoded, then
+they can be reused to compute similar quantities in diﬀerent contexts. A
+workﬂow speciﬁes a dependency tree between calculation steps, that may
+not be deﬁned at the start, but depend on intermediate results (e.g., an
+iterative convergence with an unpredictable number of iterations). There-
+fore, the infrastructure should automatically generate dependent calcula-
+tions only when their inputs are available from earlier steps, evaluating
+dependencies at run-time. The integration of the scientiﬁc workﬂows with
+the other infrastructure pillars helps the users to focus on the workﬂow
+logic rather than on the details of the remote management. As an addi-
+tional beneﬁt, the automatic storage of the provenance during execution
+provides an implicit documentation of the logic behind the results.
+• Data analytics Application-driven research has the necessity of using
+dozens of diﬀerent tools and approximations.
+Nevertheless, results ob-
+5
+
+tained with diﬀerent codes often require the same post-processing or vi-
+sualization algorithms. These data types (e.g., crystal structures or band
+structures) should be stored in the same common format.
+The infras-
+tructure can then either provide data analytics capabilities to perform
+operations on them, or even better facilitate the adoption of existing li-
+braries. This result can be achieved by providing interfaces to external
+tools for data processing and analytics (e.g. [21, 22] for crystal structures),
+regardless of the speciﬁc simulation code used to generate the data.
+The fourth pillar, Sharing, envisions the creation of a social ecosystem to
+foster interaction between scientists, in particular for sharing data, results and
+scientiﬁc workﬂows:
+• Social ecosystem The envisioned framework should be an enabling tech-
+nology to create a social ecosystem in computational research. Data access
+policies must be considered with great care. Researchers prefer at times to
+keep their data private (while protecting information in pending patents
+or unpublished data), but sharing with collaborators or on a public reposi-
+tory should occur with minimal eﬀort, when desired. Beside data sharing,
+a standardized plugin interface should be provided. Plugin repositories
+can be set up, to which users can contribute to share workﬂows, handlers
+for new data formats, or support for new simulations codes. By this mech-
+anism, scientists will be able to engage in social computing, parallel to the
+developments in the mobile app and web ecosystems.
+• Standardization In order to facilitate data exchange, standard formats
+should be agreed upon and adopted for data sharing (e.g. [23]). Even when
+multiple standards exist, a hub-and-spoke conﬁguration can be envisaged,
+where each new code has the task to provide the data in an established
+format. On the other hand, it is important that suitable ontologies are
+deﬁned (i.e., simplifying, the names and physical units of the quantities to
+store in a given repository, together with their meaning). Ontologies are
+ﬁeld-speciﬁc and their deﬁnition must be community-driven (an example
+of an ongoing eﬀort is the TCOD [24] database). The infrastructure can
+be useful in this respect both as an inspiration for the ontology, and as a
+testing environment containing a set of simulated use cases.
+• Repository pipelines As more repositories emerge, it is important to de-
+velop the ability to import or export data directly, either through REST
+interfaces or via suitably deﬁned protocols.
+If formats and ontologies
+are established, the platform must simply convert the data and its prove-
+nance in the speciﬁed format. Contributing to external databases becomes
+straightforward and the platform becomes a facilitator for the creation of
+shared repositories.
+3. The AiiDA infrastructure
+The ADES model described in the previous section aims at deﬁning an inte-
+grated infrastructure for automating, storing, managing and sharing simulations
+6
+
+and their results. Until now, we discussed the model at an abstract level, so as
+to highlight the generality of the requirements. In order to provide researchers
+with an eﬀective tool to manage their eﬀorts, we developed a Python infras-
+tructure (“AiiDA”, http://www.aiida.net) that is distributed open-source. In
+the following, we describe the implementation details of AiiDA, with particular
+emphasis on how the requirements of Sec. 2 have been met.
+We start by outlining the architecture of AiiDA, schematically represented
+in Fig. 2. AiiDA has been designed as an intermediate layer between the user
+and the HPC resources, where automation is achieved by abstraction.
+The core of the code is represented by the AiiDA API, a set of Python classes
+that expose to the user an intuitive interface to interact with the main AiiDA
+objects — calculations, codes and data — hiding the inhomogeneities of diﬀerent
+supercomputers or data storage solutions. The key component of the API is the
+Object–Relational Mapper (ORM), a layer that maps AiiDA storage objects
+into python classes. Using the ORM, these objects can be created, modiﬁed
+and queried via a high-level interface which is agnostic of the detailed storage
+solution or of the SQL query language. The details of the storage, composed of
+both a relational database and a ﬁle repository, are discussed in Sec. 5.
+The user interacts with AiiDA in diﬀerent ways: using the command line
+tool verdi, via the interactive python shell, or directly through python scripts
+(more details in Sec. 6.3). Most components are designed with a plugin archi-
+tecture (Sec. 6.2). Examples of features that can be extended with new plugins
+include the support of new simulation codes, management of new data types,
+and connection to remote computers using diﬀerent job schedulers.
+4. Automation in AiiDA
+4.1. The AiiDA daemon
+The daemon is one important building block of AiiDA: it is a process that
+runs in the background and handles the interaction with HPC clusters (selecting
+the appropriate plugins for the communication channels — like SSH — or for
+the diﬀerent job schedulers, see Sec. 4.2 below) and takes care of all automation
+tasks. Once the daemon is started, it runs in the background, so that users
+can even log out from their accounts without stopping AiiDA. Internally, it uses
+celery [25] and supervisor [26] to manage asynchronous tasks.
+The fundamental role of the daemon is to manage the life cycle of single cal-
+culations. The management operations are implemented in the aiida.execmanager
+module and consists in three main tasks: 1) submission of a new job to a remote
+computer, 2) veriﬁcation of the remote job scheduler state, and 3) retrieval and
+parsing of the results after a job completion. These steps are run independently.
+If several calculations are running on the same machine, they are grouped in
+order to open only one remote connection and avoid to overload the remote
+cluster.
+The user can follow the evolution of a calculation without connecting directly
+to the remote machine by checking the state of a calculation, an attribute that
+7
+
+Figure 2: The main components of the AiiDA infrastructure and their interactions. The core
+AiiDA component is the API, whose ORM represents stored objects as python classes. AiiDA
+supports any computational code and data type via a plugin interface. The AiiDA daemon is
+a background process that takes care of most automated operations such as job submission,
+scheduler state check, ﬁle retrieval and parsing.
+It interacts with the remote clusters via
+diﬀerent channels (local, ssh, . . . ) using the appropriate scheduler plugins.
+is stored in the database and is constantly updated by the daemon. In particu-
+lar, every calculation is initialized in a NEW state. A call to the calc.submit()
+method brings calc to the TOSUBMIT state. As soon as the daemon discov-
+ers a new calculation with this state, it performs all the necessary operations
+to submit the calculation and then sets the state to WITHSCHEDULER. Periodi-
+cally, the daemon checks the remote scheduler state of WITHSCHEDULER calcu-
+lations and, at job completion, the relevant ﬁles are automatically retrieved,
+parsed and saved in the AiiDA storage.
+Finally, the state of the calcula-
+tion is set to FINISHED, or FAILED if the parser detects that the calculation
+did not complete correctly. Beside the aforementioned states, other transition
+states exist (SUBMITTING, RETRIEVING, PARSING) as well as states to identify
+failures occurred in speciﬁc states (SUBMISSIONFAILED, RETRIEVALFAILED and
+PARSINGFAILED).
+4.2. Transports and schedulers
+As discussed in the “Remote management” section of the “Automation” pil-
+lar, in AiiDA we deﬁne an abstract API layer with methods to connect and com-
+municate with remote computers and to interact with the schedulers. Thanks
+to this API, the internal AiiDA code and the user interface are independent of
+the type of connection protocol and scheduler that are actually used.
+The generic job attributes valid for any scheduler (wall clock time, maximum
+required memory, name of the output ﬁles, ...) are stored in a common format.
+8
+
+For what concerns schedulers, early work in the speciﬁcation of a middleware
+API has been done in the Open Grid Forum [27] with, e.g., the DRMAA [28] and
+the SAGA APIs, and similar eﬀorts have been done by the UNICORE [29] and
+gc3pie [30] projects. In AiiDA, we have taken inspiration from these eﬀorts. We
+provide appropriate plugins to convert the abstract information to the speciﬁc
+headers to be written at the top of the scheduler submission ﬁle. Moreover,
+the plugins provide methods that specify how to submit a new job or how to
+retrieve the job state (running, queued, . . . ). Plugins for the most common
+job schedulers (Torque [31], PBS Professional [32], SLURM [33], SGE or its
+forks [34]) are already provided with AiiDA.
+The scheduler plugins and the daemon, then, rely on the transport compo-
+nent to perform the necessary remote operations (ﬁle copy and transfer, com-
+mand execution, . . . ). Also in this case, we have deﬁned an abstract API speci-
+fying the standard commands that should be available on any transport channel
+(connection open and close, ﬁle upload and download, ﬁle list, command execu-
+tion, . . . ). Plugins deﬁne the speciﬁc implementation. With AiiDA, we provide
+a local transport plugin, to be used if AiiDA is installed on the same cluster
+on which calculations will be executed. This plugin performs directly command
+execution and ﬁle copy using the os and shutil Python modules. We also pro-
+vide a ssh transport plugin to connect to remote machines using an encrypted
+and authenticated SSH channel, and SFTP for ﬁle transfer. In this case, AiiDA
+relies on paramiko [35] for the Python implementation of the SSH and SFTP
+protocols.
+The appropriate plugins to be used for each of the conﬁgured computers
+are speciﬁed only once, when user conﬁgures for the ﬁrst time a new remote
+computer in AiiDA.
+5. Data in AiiDA: database, storage and provenance
+5.1. The data model in AiiDA
+The core concept of the AiiDA data model, partially inspired by the Open
+Provenance Model [36], is that any calculation acts as a function (with the
+meaning this word has in mathematics or in a computer language), performing
+some manipulation on a set of input data to produce new data as output.
+We thus represent each fundamental object, Calculation and Data, as a
+node in a graph. These nodes can be connected together with directional and
+labeled links to represent input and output data of a calculation. Direct links
+between Data nodes are not allowed: any operation (even a simple copy) con-
+verting data objects to other data objects is a function and must thus be rep-
+resented by an intermediate Calculation node. We deﬁne for convenience a
+third fundamental object, the Code, representing the executable ﬁle that is run
+on the HPC resource. Each Calculation has therefore a set of Data nodes and
+a Code node as input (Fig. 3). As the output Data nodes can in turn be used as
+input of new calculations, we are eﬀectively modeling a Directed Acyclic Graph
+(DAG) representing the chain of relationships between the initial data (e.g., a
+crystal structure from an experimental database) and the ﬁnal results (e.g., a
+9
+
+diamond
+alat = 3.5
+StructureData
+/home/.../pw.x
+@daint.cscs.ch
+Code
+LDA pesudo
+Carbon
+UpfData
+cutoff = 50Ry
+...
+ParameterData
+MP Grid
+6x6x6
+KPoints
+in_structure
+diamond
+alat = 3.7
+StructureData
+energy = -8Ry
+...
+ParameterData
+walltime = 1h
+PwCalculation
+in_parameters
+k_points
+in_structure
+out_parameters
+out_structure
+Figure 3: A simple example of how a calculation, the executable code and input/output
+data are represented as nodes in a graph.
+Labeled links between nodes represent logical
+relationships: either inputs or outputs.
+The code in input of a calculation represents the
+executable that is launched. In this example, a Quantum ESPRESSO code is used to relax
+a diamond crystal, using further parameters as input nodes (cutoﬀs, a mesh of k−points, a
+pseudopotential in UPF format for carbon, . . . ). In output, two nodes are produced: a list of
+result parameters (e.g., the total energy) and an output relaxed structure. This node can in
+turn be used as input of new calculations.
+luminescence spectrum) through all the intermediate steps that are required
+to obtain the ﬁnal result: the provenance information of the data is therefore
+saved. (The graph is acyclic because links represent a causal connection, and
+therefore a loop is not allowed.)
+5.2. The AiiDA database
+Given that AiiDA represents data in terms of DAGs, we need to choose an
+eﬃcient way to save them on disk. The objects we need to store are the nodes
+and the links between them. Each node needs to contain all the information
+describing it, such as lists of input ﬂags, sets of parameters, list of coordinates,
+possibly some ﬁles, etc. Therefore, the actual implementation must support
+the storage of arbitrary lists of ﬁles, and of attributes in the form key=value
+(of diﬀerent types: strings, numbers, lists, . . . ) associated to each node. One
+simple solution could consist in storing one ﬁle per node, containing all node
+attributes in a suitable format, and then store all the links in another ﬁle.
+However, this storage type is clearly not eﬃcient for querying, because in the
+absence of a suitable indexing system every search requires disk access to each
+ﬁle.
+A database, instead, can speed up queries signiﬁcantly.
+To have a net
+beneﬁt however, the database must be suitably conﬁgured for the speciﬁc type
+of data and queries that are most likely expected. Moreover, diﬀerent database
+solutions exist, each of them tailored to speciﬁc types of data.
+In this section, we discuss only the details of the storage solution imple-
+mented in AiiDA, and we defer to Appendix A.1 a discussion on database types
+(e.g. SQL vs. NoSQL) and on the reasons for our implementation choices. After
+benchmarking diﬀerent solutions, we have chosen to adopt a SQL backend for
+the AiiDA database. In particular, MySQL [37] and PostgreSQL [38] are fully
+supported, together with the ﬁle-based backend SQLite [39] (even if the latter
+10
+
+Figure 4:
+The most relevant tables of the AiiDA database schema. The DbNode table contains
+an entry for each node, with only a limited set of columns such as the ID (or primary key, PK),
+a string identifying the type of node (Calculation, Data, Code, or a subclass), the creation
+date, and the owner (a foreign key to the DbUser table). All other attributes are stored in the
+DbAttribute table, as described in the text. A third DbLink table stores all the links (each
+link being identiﬁed by the PK of the input and output endpoints, and by a label). Other
+tables exist in the database (to store computers, authorization information, comments, log
+messages, groups, ...) typically referencing both to nodes and users (e.g., the comment of a
+given user on a given node).
+is not suited for multiple concurrent accesses, and its usage is limited to testing
+purposes). The database is complemented by a ﬁle repository, where arbitrary
+ﬁles and directories can be stored, useful for large amounts of data that do not
+require direct querying, and is going to be discussed in details later in Sec. 5.4.
+In our implementation, the three main pieces of information of the DAG (nodes,
+links, and attributes) are stored in three SQL tables, as shown in Fig. 4.
+The main table is called DbNode, where each entry represents a node in the
+database. Only a few static columns are deﬁned: an integer identiﬁer (ID),
+that is also the Primary Key (PK) of the table; a universally-unique identiﬁer
+or UUID, a “type” string to identify the type of node (Calculation, Data,
+Code, or one of their subclasses, see Sec. 6.1). A few more columns exist for
+“universal” information such as a label, the creation and modiﬁcation time, and
+the user who owns the node (a foreign link to the DbUser table, storing user
+details).
+A second table, DbLink, keeps track of all directional links between nodes.
+Each entry contains the PKs of the input and output nodes of the link, and a
+text ﬁeld for the link label, that distinguishes the diﬀerent inputs to a calculation
+node (e.g., a crystal structure, a set of parameters, a list of k-points, etc.). For
+instance, link names used for a Quantum ESPRESSO calculation can be seen
+11
+
+DbAttribute table
+node_pk
+key
+value
+num_cpus
+7
+48
+queue_name
+7
+“private”
+submission_time
+7
+May 2nd, 2014
+13:46:07
+energy
+8
+-13.736229
+energy_units
+8
+“eV”
+forces
+8
+[[4.32, 3.22, 0.73]],
+[2.23, -1.46, 0.22], ...]
+pk=7
+Calc
+pk=8
+Results
+Figure 5: Arbitrary attribute data in a SQL EAV table by means of our DbAttribute table.
+This schema is simpliﬁed; the actual schema implemented in AiiDA is described in Appendix
+A.1.
+in Fig. 3.
+A third table, DbAttribute, is used to store any possible attribute that
+further characterizes each node.
+Some examples of attributes could be: an
+energy value, a string for the chemical symbol of each atom in a crystal structure,
+a 3 × 3 matrix for the components of the crystal vectors, an integer specifying
+the number of CPUs that we want to use for a given calculation, . . .
+The DbAttribute table is schematically represented in Fig. 5. Each entry
+represents one attribute of a node, and for each attribute we store: the PK of the
+node to which this attribute belongs; the key, i.e. a string deﬁning the name
+of the property that we want to store (e.g. “energy”, “atom symbols”, “lat-
+tice vectors”, “num cpus”, . . . ); and the value of the given property. Internally,
+the table has a more complicated schema allowing for extended ﬂexibility:
+• Diﬀerent primitive data types can be stored (booleans, integers, real val-
+ues, strings, dates and times, . . . )
+• Arbitrary Python dictionaries (sets of key=value pairs) and lists can be
+stored, and any element of the list or of the dictionary can be directly and
+eﬃciently queried (even in case of multiple depth levels: lists of lists, lists
+of dictionaries, . . . )
+The technical description of the EAV table is deferred to Appendix A.1. We
+emphasize here that by means of this table we achieve both ﬂexibility, by being
+able to store many data types as an attribute, and preserving query eﬃciency,
+since any element in the database can be queried directly at the database level
+(making full use of indexes, etc.).
+Since each row of the DbAttribute table is an internal property of a single
+node, we enforce that attributes cannot be modiﬁed after the respective node has
+12
+
+been permanently stored (for example, we do not want the number of CPUs of
+a calculation to be changed after the calculation has been stored and executed).
+However, the user will often ﬁnd it useful to store custom attributes for later
+search and ﬁltering (e.g., a tag specifying the type of calculation, the spacegroup
+of a crystal structure, . . . ). To this aim, we provide a second table (DbExtra)
+that is identical to the DbAttribute table (and therefore it has the same data
+storage and querying capabilities). The content of the DbExtra table, though,
+is not used internally by AiiDA, and is at complete disposal of the user.
+Besides the three tables DbNode, DbLink and DbAttribute that constitute
+the backbone of the database structure, there are a few other tables that help
+data management and organization. The most relevant are:
+• DbUser contains user information (name, email, institution).
+• DbGroup deﬁnes groups of nodes to organize and gather together calcula-
+tions belonging to the same project, pseudopotentials of the same type,
+etc.
+• DbComputer stores the list of remote computational resources that can be
+used to run the simulations.
+• DbAuthInfo stores the authorization information for a given AiiDA user
+(from the DbUser table) to log in a given computer (from the DbComputer
+table), like the username on the remote computer, etc.
+• DbWorkflow, DbWorkflowData, DbWorkflowStep are the tables that store
+workﬂow-related information.
+• DbPath is the transitive closure table, described in the next section.
+5.3. Graph database: querying the provenance
+An example of a simple graph that can be stored in AiiDA is shown in Fig. 6,
+where four diﬀerent calculations have been run with diﬀerent inputs producing
+a set of output results, and where some output nodes have been used as input
+of new calculations. Using the database data model described in the previous
+section, we can store DAGs with arbitrary queryable attributes associated to
+each node. However, there is another type of query speciﬁc to graph databases,
+related to the graph connectivity: given two nodes, to determine the existence of
+a path connecting them. This is particularly relevant for simulations in Materi-
+als Science: typical queries involve searching for crystal structures with speciﬁc
+computed properties, but the number of intermediate steps (i.e., Calculation
+nodes) between a structure data node and the ﬁnal result can be large and
+not even predictable (e.g., if multiple restarts are required, . . . ). This type of
+searches requires in practice to query the provenance of the data in the database.
+Sophisticated and eﬃcient graph traversal techniques have been developed
+to discover the existence of a path between two nodes, and graph databases
+(e.g., Neo4j [40]) implement these functions at the database level, however they
+require the use of custom querying languages. Instead, we address the graph
+13
+
+Figure 6:
+A schematic example of a possible graph inside the AiiDA database. An initial
+crystal structure (blue node on the top of the ﬁgure) is used both for a total energy calculation
+(SCF) and for a structural relaxation calculation (Relax). Each calculation has a set of input
+parameters (orange dots) and of output results (dark green dots). The relaxation calculation
+also produces another crystal structure, used as input for a new SCF calculation. Moreover,
+the two structures in the graph are both taken as input from a calculation that computes a
+suitably-deﬁned “distance” between them.
+traversal problem within a SQL database by incrementally evaluating a transi-
+tive closure table (that we called DbPath). This table lists the “paths”, i.e., all
+pair of nodes (“parent” and “child”) that are connected together in the graph
+through a chain of links. The table is automatically updated every time a link is
+added, updated or removed from the DbLink table, by means of database trig-
+gers that we have developed for the three supported backends (SQLite, MySQL
+and PostgreSQL). The algorithm for the update of the transitive closure table
+has been inspired by Ref. [41] and is described in detail in Appendix A.2.
+Obviously, the DbPath table allows for fast queries on the data “history”,
+at the expense of occupying additional disk space for its storage.
+The size
+of the table can in general become very large; however, in Material Science
+applications, we typically do not have a single dense graph where all nodes are
+interconnected; instead, one often creates many small graphs of the type of
+Fig. 6. This means that the size of the DbPath table will remain roughly linear
+in the number of nodes in the graph.
+After benchmarking, we have chosen
+the solution described above as a good compromise between storage and query
+eﬃciency.
+5.4. Database vs. ﬁle repository
+The storage of attributes in the database discussed previously allows for
+query eﬃciency, at the price of disk space (for additional information like in-
+14
+
+dexes, data types, ...) and of eﬃciency in regular operations (retrieving a large
+list from the database is slower than retrieving a ﬁle containing the same list).
+For large matrices, therefore, a threshold exists above which the advantages of
+faster query speed are not justiﬁed anymore. Moreover, the single entries of a
+large matrix (like the electron charge density discretised on a grid) are often of
+little interest for direct querying. In such cases it is convenient to store data in
+a ﬁle and rely on the ﬁle system for I/O access. This is especially appropriate
+when the data should be used as an input to another calculation and a fast read
+access is required.
+For these reasons, AiiDA complements the database storage with a ﬁle repos-
+itory (see Fig. 2), conﬁned within a folder conﬁgured during the setup phase
+of AiiDA. Every time a new node is created, AiiDA automatically creates a
+subfolder for the speciﬁc node. Any ﬁle, if present, associated with the node
+will be stored therein.
+Storing information as ﬁles or in the database is left as a choice for the
+developers of the speciﬁc subclass of the Data of Calculation nodes (plugins
+are discussed in Sec. 6.1), but in order to maximize eﬃciency, it should follow
+the guideline discussed above. Some examples of the choices made for some
+AiiDA Data plugins can be found in Sec. 6.2.
+6. The scientiﬁc environment in AiiDA
+6.1. The ORM
+AiiDA is written in Python, a powerful object-oriented language. The ma-
+terials simulation community has been moving towards Python in recent years,
+due to its simplicity and the large availability of libraries for visualization, text
+parsing, and scientiﬁc data processing [10, 21, 42]. An important component
+of the AiiDA API is the Object-Relational Mapper (ORM), which exposes to
+the user only a very intuitive Python interface to manage the database. The
+main class of the AiiDA ORM, Node, is used to represent any node in the graph.
+Each instance of the Node class internally uses Django to perform database op-
+erations, and complements it with methods for accessing the ﬁle repository. The
+low-level interaction with the database uses the Django framework [18].
+The main functionalities of the Node class are:
+• It provides a direct access to the node attributes, accessible as a Python
+dictionary by using the node.attrs() method. The method also properly
+recreates lists and dictionaries that were stored in expanded format at the
+database level (lists and dictionaries are not natively supported in the
+chosen databases), as described in Appendix A.1. Similar methods allow
+the user to read and write user-deﬁned attributes in the DbExtra table.
+• It provides direct access to the repository folder containing the ﬁles asso-
+ciated to each Node.
+• It provides a caching mechanism that allows the user to create and use
+the Node even before storing it in the database or on the repository folder,
+15
+
+by keeping the ﬁles in a temporary sandbox folder, and the attributes in
+memory. This is particularly useful to test the generation of the input
+ﬁles by AiiDA without the need to store test data in the database. Only
+after the node.store() call, all the data is permanently stored in the
+AiiDA database and repository and no further modiﬁcations are allowed.
+A similar caching mechanism has also been implemented to keep track of
+links between nodes before storing.
+• It provides an interface for querying nodes with speciﬁc attributes or with
+speciﬁc attribute values, or nodes with given inputs or outputs, etc.
+• It provides methods (.inp and .out) to get the list of inputs and outputs
+of a node and similarly the list of all parent and child nodes using the
+transitive closure table.
+6.2. The plugin interface
+To support a new type of calculation or a new kind of data (e.g. a band
+structure, a charge density, a set of ﬁles, a list of parameters, . . . ), one simply
+needs to write an AiiDA plugin. A plugin is simply a python module ﬁle, con-
+taining the deﬁnition of a subclass of the AiiDA classes, sitting in an appropriate
+folder; AiiDA automatically detects the new module and uses it.
+All diﬀerent types of nodes are implemented as subclasses of the Node class.
+At a ﬁrst subclass level we have the three main node types: Calculation, Code
+and Data. Each of them is further subclassed by plugins to provide speciﬁc func-
+tionalities. In particular, instances of Code represent a speciﬁc executable ﬁle
+installed on a given machine (in the current implementation, there are no further
+subclasses). Each subclass of Calculation, instead, supports a new simulation
+software and contains the code needed to generate the software-speciﬁc input
+ﬁles starting from the information stored in the AiiDA database. Moreover, it
+can also provide a set of software-dependent methods (like calc.restart(),
+. . . ) that make it easier for the user to perform routine operations. Finally, the
+Data class has a subclass for each diﬀerent type of data that the user wants to
+represent. The speciﬁc subclass implementation determines the possible user
+operations on the data, and whether the information is going to be stored in
+the database as attributes or in the ﬁle repository. We report here a description
+of some of the most relevant Data subclasses distributed with AiiDA:
+• ArrayData: it is used to store (large) arrays. Each array is stored on disk
+as a binary, portable, compressed ﬁle using the Python numpy module [43].
+Some attributes are stored in the DbAttribute table for fast querying (like
+the array name and its size). Subclasses use the same storage model, but
+deﬁne speciﬁc methods to create and read the data (e.g., the KpointsData
+class has methods to detect a structure cell, build the list of special k-
+points in k space and create paths of k-points, suitable for plotting band
+structures, using for instance the standard paths listed in Ref. [44]).
+16
+
+• ParameterData: it is used to store the content of a Python dictionary
+in the database.
+Each key/value pair is stored as an attribute in the
+DbAttribute table, and no ﬁles are stored in the repository.
+• RemoteData: this node represents a “link” to a directory on a remote
+computer. It is used for instance to save a reference to the scratch folder
+on the remote computer in which the calculation was run, and acts as a
+placeholder in the database to keep the full data provenance, for instance
+if a calculation is restarted using the content of that remote folder. No
+ﬁles are written in the AiiDA repository, but the remote directory absolute
+path is stored as an attribute.
+• FolderData: this node represents a folder with ﬁles. At variance with
+RemoteData, ﬁles are stored permanently in the AiiDA repository (e.g.,
+the outputs of a ﬁnished calculation retrieved from the remote computer).
+• StructureData: this node represents a crystal structure. The 3 × 3 coor-
+dinates of the lattice vectors, the list of atoms and their coordinates, and
+any other information (atomic masses, . . . ) are saved as attributes for easy
+querying. (For very large structures, a diﬀerent data model may be more
+eﬃcient.) Methods are provided for standard operations like getting the
+list of atoms, setting their positions and masses, converting structures to
+and from other formats (e.g. the Atoms class of the ASE Atomistic Simula-
+tion Environment [21]), obtaining the structure from an external database
+(like ICSD [45] or COD [46]), getting the spacegroup using SPGlib [42],
+etc.
+Finally, we emphasize that the plugin interface is not limited to the ORM,
+and a similar plugin-based approach applies to other AiiDA components, like
+the connection transport channel and the schedulers (as discussed in Sec. 4.2).
+6.3. User interaction with AiiDA
+We provide a few diﬀerent interfaces to interact with AiiDA. The most com-
+monly used is the verdi command line utility. This executable exposes on the
+command line a set of very common operations, such as performing the ﬁrst
+installation; reconﬁguring AiiDA; listing or creating codes, computers and cal-
+culations; killing a calculation; starting/stopping the daemon, . . . The verdi
+tool is complemented by a Bash completion feature to provide suggestions on
+valid commands by pressing the TAB key. Moreover, an inline help provides a
+list of existing commands and a brief description for each of them. The advan-
+tage of verdi is to expose basic operations to the user without requiring any
+knowledge of Python or other languages.
+In order to access the full AiiDA API, however, the best approach is to write
+Python scripts. The only diﬀerence with respect to standard python scripts is
+that a special function aiida.load dbenv() needs to be called at the beginning
+of the ﬁle to instructs Python to properly load the database. Once this call has
+been made, any class from the aiida package can be loaded and used. If the
+17
+
+users do not want do explicitly call the aiida.load dbenv() call in the python
+code, then they can run the script using the verdi run command.
+In this
+case, the AiiDA environment and some default AiiDA classes are automatically
+loaded before executing the script.
+A third interface is the interactive python shell that can be loaded us-
+ing the command verdi shell. The shell is based on IPython [47] and has
+the advantage to automatically load the database environment; at the same
+time, it already imports by default some of the most useful classes (e.g. Node,
+Calculation, Data, Group, Computer, . . . ) so that they are directly available
+to the user. TAB completion is available and very useful to discover methods
+and attributes. Moreover, the documentation of each class or method (written
+as Python “docstrings”) is directly accessible.
+6.4. Scientiﬁc workﬂows
+As introduced in Sec. 2, many tasks in scientiﬁc research are standard and
+frequently repeated, and typically require multiple steps to be run in sequence.
+Common use cases are parameter convergence, restarts in molecular dynamics
+simulations, multi-scale simulations, data-mining analysis, and other situations
+when results of calculations with one code are used as inputs for diﬀerent codes.
+In such cases, it is beneﬁcial to have a system that encodes the workﬂow and
+manages its execution [48, 49, 50, 51, 52].
+In order to fully integrate the workﬂows within the ADES model, we im-
+plement a custom engine into AiiDA, by which the user can interact with all
+AiiDA components via the API. This engine is generic and can be used to deﬁne
+any computational workﬂow. Speciﬁc automation schemes, crafted for selected
+applications (equation of states, phonons, etc...) are implemented within each
+workﬂow and can be developed directly by the users.
+AiiDA workﬂows are subdivided into a number of steps. One or more calcu-
+lations can be associated to each step; these are considered to be independent
+and are launched in parallel. Instead, diﬀerent steps are executed sequentially
+and the execution order is speciﬁed by “forward” dependency relationships: In
+other words, each “parent” step must specify the step to be executed next. The
+execution of the “child” step is delayed until all calculations associated to the
+parent have completed. We emphasize that dependency relationships are de-
+ﬁned only between steps. Dependencies between calculations are implicit, with
+the advantage of allowing for both parallel and serial simulation streams.
+Within a step, beside creating calculations and associating them to the cur-
+rent step, any other Python (and AiiDA) command can be executed. This gives
+maximum ﬂexibility to deﬁne complex workﬂow logics, especially if the outputs
+of a calculation in a parent step require some processing to be converted to the
+new calculation inputs. Moreover, a step can deﬁne itself as the next step to be
+executed, providing support for loops (even conditional ones, where the number
+of iterations depends on the calculations results).
+A key feature, modularity, completes AiiDA workﬂows: within each step, the
+user can associate not only calculations, but also subworkﬂows. The advantage
+is the possibility to reuse existing workﬂows that perform speciﬁc tasks, so as
+18
+
+to develop only missing features. For instance, let us assume that we developed
+a workﬂow “A” that performs a DFT calculation implementing code-speciﬁc
+restart and recover routines in order to make sure convergence is achieved. Then,
+a workﬂow “B” that calculates the energy of a crystal at diﬀerent volumes (to
+obtain its equation of state) does not need to reimplement the same logic, but
+will just reuse “A” as a subworkﬂow. “B” can in turn become a subworkﬂow of
+a higher-level workﬂow “C” that, for instance, compares the equation of state
+calculated at diﬀerent levels of approximation. The combination of parallel and
+serial execution, conditional loops, and modularity, makes the workﬂows general
+enough to support any algorithm.
+From the implementation point of view, the AiiDA workﬂow engine is pro-
+vided by a generic Workflow class, that can be inherited to deﬁne a speciﬁc
+workﬂow implementation. Workﬂow steps are special class methods identiﬁed
+by the @step decorator.
+The base class also provides dedicated methods to
+associate calculations and workﬂows to the current step. In every step, a call
+to the self.next() method is used to deﬁne dependencies between steps. This
+method accepts as a parameter the name of the following step. The name is
+stored in the database, and the corresponding method is executed by the daemon
+only when all calculations and subworkﬂows of the current step have ﬁnished.
+In analogy with calculations, AiiDA uses states to keep track of workﬂows
+and workﬂow steps (RUNNING, FINISHED, . . . ).
+The AiiDA daemon handles
+all the workﬂow operations (submission of each calculation, step advancement,
+script loading, error reporting, . . . ) and the transitions between diﬀerent work-
+ﬂow states.
+In the long term, we envision integrating into AiiDA many new and existing
+methods in the form of workﬂows (e.g., training interatomic potentials [53],
+crystal structure prediction algorithms [54, 55], . . . ), so that the researcher can
+focus on materials science and delegate to AiiDA the management of remote
+computers, the appropriate choice of code-speciﬁc parameters, and dealing with
+code-speciﬁc errors or restarts.
+6.5. Querying
+A relevant aspect of a high-level scientiﬁc environment is the possibility of
+running queries on the data stored in AiiDA without the need to know a speciﬁc
+(and typically complex) query language.
+To this aim, we have developed a
+Python class, called the QueryTool, to specify in a high-level format the query
+to run. For instance, it is possible to specify a ﬁlter on the node type (e.g.,
+to get only crystal structures); to ﬁlter by the value of a speciﬁc attribute or
+DbExtra table entry (e.g., to select structures with a speciﬁc spacegroup); or to
+ﬁlter by a speciﬁc attribute in one of the linked nodes (e.g., to get structures
+on which a total-energy calculation was run, and the energy was lower than
+a given threshold). Queries can also take advantage of the transitive closure
+table, setting ﬁlters on attributes of nodes connected to the one of interest by
+an unknown number of intermediate links (e.g., if the result of the calculation
+was obtained after an unknown number of restarts). As an example, a complex
+query that can be run with AiiDA is: give me all crystal structures containing
+19
+
+Figure 7: The ﬁrst page of the AiiDA documentation. Diﬀerent sections are aimed at the end
+users (with examples and tutorials) and at developers (with the documentation of classes and
+methods, and tutorials for new plugin development).
+iron and oxygen and with a cell volume larger than X ˚
+A3, that I used as input
+for a sequence of calculations with codes Y and Z to obtain the phonon band
+structure, for which the lowest phonon frequency that was obtained is positive,
+and for which the DFT exchange-correlation functional used was LDA. Other
+complex queries can be speciﬁed using the QueryTool in a format that is easy
+both to write and to read.
+6.6. Documentation and unit testing
+A key component of a productive scientiﬁc environment is a complete and
+accurate code documentation. For this reason, AiiDA is complemented by an
+extensive documentation. Each class, method and function has a Python doc-
+string that describes what the function does, the arguments, the return val-
+ues and the exceptions raised. These docstrings are accessible via the inter-
+active shell, but are also compiled using the Sphinx [56] documentation en-
+gine into a comprehensive set of HTML pages (see Fig. 7). These pages are
+distributed with the code (in the docs/ subfolder) and also available online
+at http://aiida-core.readthedocs.org. Moreover, we also provide in the
+same format, using Sphinx, a complete user documentation of the diﬀerent
+functionalities, supported databases, classes and codes, together with tutorials
+covering the installation phase, the launch of calculations and workﬂows, data
+analysis, . . . The user guide is also complemented by a developer’s guide that
+documents the API and contains tutorials for the development of new plugins.
+Moreover, to simplify the code maintenance, we implement a comprehensive
+set of unit tests (using the Python unittest module), covering the diﬀerent
+components of AiiDA described in Fig. 2.
+7. Sharing in AiiDA
+The fourth pillar introduced in Sec. 2 aims at enabling a social ecosystem
+where it becomes easy to share tools and results, such as data, codes, and
+20
+
+workﬂows. In order to preserve the authorship and privacy of the data of each
+researcher, we implemented a model in which each user or group of users can
+install their own local AiiDA instance.
+All data and calculations are acces-
+sible only to people with direct access to the instance and therefore remain
+private. In order to enable sharing of the database (or parts of it) with col-
+laborators, we provide functionality to export a portion of the database to a
+ﬁle, and then to import it in a diﬀerent instance of AiiDA. In this way sev-
+eral groups in a collaboration may contribute to a common repository, open
+to the entire project, while retaining their private portions as needed.
+This
+approach simpliﬁes issues of user- and group-level security. To avoid conﬂicts
+during this procedure, AiiDA assigns a Universally Unique IDentiﬁer (UUID)
+to each node as soon as it is locally created. In fact, while for internal database
+usage an auto-incrementing integer PK is the most eﬃcient solution to refer to
+a database row, the PK is not preserved when a node is transferred to a diﬀer-
+ent database. Instead, the ﬁrst node to be created will always have PK=1, the
+second PK=2, and so on. A UUID is instead a hexadecimal string that may
+look like the following: e3d21365-7c55-4658-a5ae-6122b40ad04d. The speci-
+ﬁcations for creating a UUID are deﬁned in RFC 4122 by IETF [57], and they
+guarantee that the probability that two diﬀerent UUIDs generated in diﬀerent
+space and time locations can be assumed to be zero. In this way, we can use the
+UUID to identify the existence of a node in the DB; at import time, it is only
+veriﬁed whether a node with the same UUID already exists before including its
+contents in the database. We envision one or several centralized repositories,
+available to the public, that collect results from diﬀerent groups. Researchers
+will be able to share results with colleagues by exchanging just the UUID of the
+nodes stored on the public repository, rather than sending actual scripts or ﬁles.
+In this collaborative environment the adoption of new codes, the comparison of
+results, and data disclosure and reproducibility become straightforward, real-
+izing the “social ecosystem” discussed in Sec. 2 and facilitating the reusability
+of data, codes and workﬂows. We emphasize that only after having a locally
+deployed automation infrastructure like AiiDA it becomes feasible to populate
+public repositories eﬃciently and in a uniform format, because the user eﬀort
+to uniform the data, prepare it and upload it is reduced to the minimum.
+The standardization of the formats produced by diﬀerent codes is necessary
+to maximize the eﬀectiveness of data sharing. This task is outside the scope of
+the AiiDA project, but we encourage existing and future standardization eﬀorts
+by the developers of the simulation codes. At the same time, within AiiDA we
+provide a set of “default” plugins for the most common data structures (crystal
+structures, paths of k−points in reciprocal space, . . . ), which can be seamlessly
+reused in diﬀerent codes. Implemented classes provide importers and exporters
+from/to common ﬁle formats, so that it is possible to exchange the data also
+with other infrastructures and repositories that use diﬀerent data formats. We
+also emphasize that it is possible to write workﬂows that perform high-level
+tasks common to a variety of codes, such as structure optimization or molecular
+dynamics, even before a standardization of data formats takes place.
+Moreover, to encourage the development of the repository pipelines discussed
+21
+
+in the “Sharing” pillar, we deﬁne in AiiDA a common API for importers and
+exporters of crystal structures (in the aiida.tools package). Also in this case,
+repositories can be supported by plugin subclasses; plugins for importing struc-
+tures from some common databases, such as ICSD [45], COD [46], MPOD [58]
+and TCOD [24] are already distributed with the code.
+8. Codes and data types supported out of the box
+In the ﬁrst stage of the development of AiiDA, we mainly focused on the in-
+frastructure and its components (scheduler management, database, . . . ) rather
+than writing a large number of plugins.
+However, we already provide with AiiDA fully-functional plugins for most
+codes of the Quantum ESPRESSO package [59], namely pw.x, ph.x, cp.x, and
+many of the post-processing tools such as matdyn.x, q2r.x, . . . These plugins
+expose the full functionality of the respective codes, and moreover include not
+only the input generation routines, but also output parsers. The type and format
+of the input nodes required by Quantum ESPRESSO is shown in Fig. 3 and
+described in detail in the code documentation. We also provide a PwImmigrant
+class to import pw.x calculations that were already run before the adoption of
+AiiDA.
+Similarly to calculations, the user can support new custom tailored data
+types by deﬁning a new data format. However, to facilitate the standardization
+of the most common data types, we provide with AiiDA a set of Data subclasses.
+Some examples (already described in Sec. 6.2) include the StructureData for
+crystal structures (supporting also non-periodic systems, vacancies and alloys),
+the KpointsData for paths in k−space, the BandsData for band-structure data,
+the ArrayData for generic arrays. Moreover, we also provide a speciﬁc class
+to support pseudopotentials in the UPF format, that is the format used by
+Quantum ESPRESSO. Speciﬁc routines allow the user to upload a single pseu-
+dopotential, or a family of pseudopotentials into the database. At upload time,
+the pseudopotentials are parsed to discover to which element they correspond,
+and an attribute is added for later querying. Moreover, the MD5 checksum of
+the ﬁle is calculated and stored, to avoid to store twice the same pseudopotential
+in the database. The verdi data upf uploadfamily command can be used to
+take all UPF ﬁles contained in a folder, possibly of the same type (e.g. ultrasoft
+with PBE functional, . . . ) and group them in a “family”. In this way, when
+running a Quantum ESPRESSO simulation, one can ask AiiDA to simply select
+the appropriate pseudopotentials from a family, rather than manually selecting
+the pseudopotentials one by one.
+We include support also for other codes, in particular all the codtools [60],
+a set of tools for processing, ﬁltering and correcting CIF ﬁles (the de-facto
+standard format for crystal structures). Furthermore, a basic support to the
+GPAW code [61] is provided and, since GPAW runs via the ASE interface [21],
+the same plugin can be used to access a large family of simulation codes already
+supported by ASE, like VASP, ABINIT, Gaussian, . . . The full list can be found
+on the ASE webpage.
+22
+
+9. Examples of applications
+In this section, we summarize some examples in the ﬁeld of materials science
+in which AiiDA has already been used as the platform for managing simulations.
+9.1. Veriﬁcation and validation
+Tests for veriﬁcation and validation purposes can often be automated. One
+typical example in the ﬁeld is the test of pseudopotentials for accuracy and
+transferability.
+AiiDA workﬂows can be developed to perform standardized
+tests with minimal user intervention, as soon as a new pseudopotential ﬁle (or
+family of pseudopotentials) is available. If a pseudopotential is discovered to
+be inaccurate, one can easily ﬁnd and ﬂag all calculations that were performed
+with it. One can then easily run again all aﬀected calculations with an improved
+pseudopotential with minimal eﬀort, since each calculation stored in AiiDA is
+reproducible and the provenance of the data is available.
+As an example, we implemented a workﬂow (using Quantum ESPRESSO
+as the simulation engine) to perform the Crystalline Monoatomic Solid Test
+(CMST) with the 15-point protocol described in Ref. [62]. The workﬂow, start-
+ing from an initial guess of the lattice parameter a0, iteratively reﬁnes the value
+of a0 by ﬁtting a Birch–Murnaghan equation of state to 15 calculations per-
+formed at diﬀerent volumes. An automatic restart procedure is implemented
+as a subworkﬂow to automatically relaunch any calculation that crashed using
+diﬀerent numerical parameters, as discussed in Sec. 6.4 (e.g. using a diﬀerent
+initial guess for the wavefunctions or a diﬀerent convergence algorithm). We
+have been able to reproduce the results for the PSlibrary [63] family of pseu-
+dopotentials reported in Ref. [62], and we computed the same quantities also
+for the GBRV pseudopotentials [64] using the suggested cutoﬀs (40 Ry for the
+wavefunctions and 200 Ry for the charge density), a shifted 32×32×32 k−mesh
+and a Marzari-Vanderbilt smearing [65] of 2 mRy. The results are reported in
+Table 1.
+9.2. New functional development
+When developing new methods or functionals, one often needs to benchmark
+multiple versions of a simulation code. It is crucial to record the code perfor-
+mance and the data accuracy, besides the information needed to reproduce
+results, in order to detect code errors and bypass bottlenecks. Moreover, para-
+metric sweep tests are often performed on a set of training structures to collect
+statistics for uncertainty quantiﬁcation analysis and to assess transferability of
+new methods. As a practical example, AiiDA was used for the development and
+veriﬁcation of the Koopmans-compliant functionals by Borghi et al. in Ref. [66].
+9.3. High-throughput material screening
+Automated workﬂows are commonly used for high-throughput materials
+screening, for instance to explore the chemical composition space of a given
+crystal structure by changing the elements that form the structure. As an ex-
+ample, we are investigating ABO3 perovskites using automated workﬂows to
+23
+
+FCC
+BCC
+SC
+Element
+a0
+B0
+a0
+B0
+∆Efcc
+a0
+B0
+∆Efcc
+Ag
+4.151
+90.7
+3.302
+88.7
+0.031
+2.752
+66.4
+0.332
+Ba
+6.357
+8.1
+5.024
+8.7
+−0.017
+3.955
+7.8
+0.287
+Be
+3.163
+119.8
+2.506
+125.2
+0.018
+2.176
+76.5
+0.920
+Ca
+5.527
+17.4
+4.384
+15.5
+0.017
+3.515
+10.7
+0.393
+Cd
+4.509
+41.9
+3.609
+36.4
+0.051
+3.000
+30.4
+0.114
+Co
+3.452
+257.7
+2.760
+242.8
+0.255
+2.281
+186.6
+0.864
+Cr
+3.625
+236.6
+2.850
+257.4
+−0.393
+2.342
+186.2
+0.632
+Cs
+7.770
+2.0
+6.161
+2.0
+0.001
+5.043
+1.6
+0.093
+Cu
+3.633
+141.7
+2.888
+139.7
+0.035
+2.409
+104.1
+0.469
+Fe
+3.448
+287.0
+2.757
+270.4
+0.317
+2.266
+209.4
+0.961
+K
+6.664
+3.6
+5.282
+3.6
+0.000
+4.295
+2.9
+0.105
+Li
+4.325
+13.8
+3.435
+13.9
+0.002
+2.732
+12.2
+0.121
+Mg
+4.524
+35.2
+3.580
+35.4
+0.016
+3.022
+22.7
+0.367
+Mn
+3.505
+279.7
+2.785
+278.1
+0.079
+2.284
+211.9
+0.862
+Mo
+4.000
+238.0
+3.160
+258.8
+−0.426
+2.599
+187.6
+0.733
+Na
+5.293
+7.7
+4.198
+7.7
+0.000
+3.412
+6.1
+0.119
+Nb
+4.216
+164.1
+3.309
+172.2
+−0.324
+2.719
+130.0
+0.664
+Ni
+3.510
+204.5
+2.792
+200.4
+0.054
+2.323
+148.3
+0.668
+Pd
+3.943
+170.2
+3.137
+167.3
+0.044
+2.615
+123.8
+0.516
+Rb
+7.147
+2.8
+5.667
+2.8
+0.001
+4.622
+2.2
+0.095
+Rh
+3.832
+256.3
+3.071
+235.5
+0.357
+2.538
+187.5
+0.798
+Ru
+3.809
+307.2
+3.051
+281.2
+0.514
+2.510
+221.3
+1.025
+Sc
+4.618
+51.3
+3.676
+53.4
+0.056
+2.967
+35.2
+0.721
+Sr
+6.020
+11.3
+4.756
+12.1
+0.005
+3.853
+7.0
+0.385
+Tc
+3.870
+298.4
+3.080
+293.1
+0.183
+2.531
+223.6
+0.977
+Ti
+4.113
+107.6
+3.255
+106.0
+0.053
+2.640
+76.7
+0.780
+V
+3.816
+176.5
+2.996
+183.5
+−0.244
+2.448
+136.8
+0.607
+Y
+5.060
+39.4
+4.039
+39.0
+0.098
+3.262
+25.8
+0.773
+Zn
+3.931
+69.2
+3.133
+63.4
+0.063
+2.630
+48.3
+0.203
+Zr
+4.526
+90.7
+3.573
+88.0
+0.045
+2.913
+68.9
+0.839
+Table 1: Results of the fully automated CMST for the PBE GBRV v.1.2 pseudopotentials [64]
+on 30 elemental solids in diﬀerent crystal structures, using the 15-point protocol of Ref. [62], as
+implemented in our AiiDA workﬂow. ∆Efcc indicates the total energy diﬀerence between the
+crystal structure under consideration (BCC or SC) and the FCC structure. Lattice parameters
+a0 are in ˚A, bulk moduli B0 in GPa, energy diﬀerences in eV.
+calculate ﬁnite-temperature properties in the quasi-harmonic approximation,
+where intermediate steps include calculations of equations of state and phonon
+spectra at diﬀerent volumes for every material.
+9.4. Open repositories
+Availability of open repositories is necessary for speeding up scientiﬁc discov-
+eries and the development of new materials. The task of uploading calculations
+to a repository and their reproducibility are made simple by AiiDA, because
+provenance is captured in the data model. Therefore, it is straightforward to
+create new cloud-based repositories of results for public access, or to upload
+the results to existing open databases, like the TCOD [24], for which we de-
+velop automated exporters for the computed structures as well as the full tree
+of calculations that generated them.
+24
+
+10. Conclusions
+In this paper we postulate and discuss the fundamental features required by
+an infrastructure for computational science, summarized in the four pillars of
+Automation, Data, Environment and Sharing. We then present the software
+platform AiiDA (http://www.aiida.net), discussing in detail its implementation
+and how these requirements are addressed. The core of the platform is repre-
+sented by the AiiDA API, an abstract layer of Python custom inheritable classes
+that exposes the user in an intuitive manner to the main AiiDA Calculation,
+Data and Code objects.
+Using the ORM, objects can be created, modiﬁed
+and queried via a high-level interface which is agnostic of the detailed storage
+solution or of the SQL query language.
+Data, calculations and their results
+are safeguarded in a tailored storage formed both by repository folders and an
+SQL database (PostgreSQL, MySQL and SQLite are natively supported) with
+a schema that supports storage and query of directed acyclic graphs and gen-
+eral attributes (numbers, strings, lists, dictionaries). Heterogeneous data can
+be accommodated thanks to the use of entity-attribute-value (EAV) tables, and
+graph traversal is optimized by automatically updating a transitive-closure ta-
+ble that can be directly queried to assess node connectivity. The tight coupling
+of automation and storage enables data ﬂows to be tracked and safeguarded in
+such a tailored solution. A ﬂexible workﬂow engine is made available for the
+deﬁnition and execution of complex sequences of calculations, managed by a
+daemon, without the need of direct user intervention. Implementation of mul-
+tiple connection protocols let the software interact with remote computational
+resources and submit calculations to diﬀerent job schedulers. A modular plugin
+design allows for seamless integration of additional connection protocols and
+schedulers, or the inclusion or extension to diﬀerent codes and computational
+solutions. We believe that such platform will be key to enabling researchers to
+accelerate their process in computational sciences, removing many of the error-
+prone details and technicalities of the simulations, while supporting validation,
+reproducibility, and ultimately an open-access model to computational eﬀorts.
+Acknowledgments
+The authors gratefully acknowledge help from multiple collaborators: Niko-
+lai Zarkevich, Katharine Fang, Kenneth Schumacher, Wen Huang, Alexei Os-
+sikine and Gopal Narayan for helping implement versions of an earlier infras-
+tructure design; Christoph Koch for many useful discussions and for suggest-
+ing the adoption of the transitive closure table; Nicolas Mounet for developing
+Quantum ESPRESSO workﬂows and Andrius Merkys for developing import and
+export functionality for repositories, in particular COD and TCOD, and both
+for signiﬁcant improvements to the infrastructure; Eric Hontz for developing
+import functionalities for existing Quantum ESPRESSO simulations and work-
+ﬂows; Philippe Schwaller for the ICSD importer; Valentin Bersier for the Web
+interface; Marco Dorigo for the implementation of the SGE scheduler plugin;
+25
+
+Giovanni Borghi, Ivano Castelli, Marco Gibertini, Leonid Kahle and Prateek
+Mehta for acting as early beta-testers and for providing user feedback.
+This work has been supported, in chronological order, by Robert Bosch LLC;
+by the Laboratory of Theory and Simulation of Materials (THEOS); by the
+Swiss National Centre for Competence in Research on “Computational Design
+and Discovery of Novel Materials” (NCCR MARVEL); by computing resources
+at the Oak Ridge Leadership Computing Facility at the Oak Ridge National
+Laboratory, which is supported by the Oﬃce of Science of the U.S. Depart-
+ment of Energy under Contract No. DE-AC05-00OR22725, within the INCITE
+project with ID mat045; and by the Swiss National Supercomputing Centre
+(CSCS) under project IDs THEOS s337, MARVEL mr1 and CHRONOS ch3.
+Appendix A. The AiiDA storage implementation – technical details
+Appendix A.1. Attributes in a EAV table
+The most widespread databases are of the relational kind, based on the
+Structured Query Language (SQL). In a SQL database, the information is stored
+in a set of tables, where each entry is a row of the table, and each column is an
+entry property. The number and type of columns is predeﬁned in the database
+schema when the database is created, and is not changed during the database
+usage. This requirement can be a strong limitation for applications that require
+a variable set of properties to be stored. This has led to the development of
+a number of database systems with diﬀerent underlying models for the data
+storage; all these solutions fall under the generic name of NoSQL solutions (a
+few popular examples include Cassandra [67], CouchDB [68], MongoDB [69],
+Neo4j [40], but many more exist).
+The ﬁnal choice of the backend depends on a tradeoﬀbetween usability,
+storage speed and size, and query eﬃciency. These aspects strongly depend in
+turn on the type of stored data and on the typically run queries. After comparing
+diﬀerent solutions we decided to use a SQL backend with a suitably designed
+schema for the two attributes tables (DbAttribute and DbExtra). These two
+are modiﬁed Entity–Attribute–Value (EAV) tables. Beside the node pk column,
+pointing to a node in the DbNode table, and the key column to store the name
+of the attribute, we also have a few columns to store the attribute value. In
+order to have eﬃcient queries, we decided to have one column for each of the
+basic datatypes that we want to consider: boolean values, integers, reals, strings
+and date/times. These ﬁve columns are complemented by a datatype column,
+that can only assume a ﬁnite number of values and speciﬁes the type of data
+stored in the speciﬁc entry. With this schema, in exchange of a few bytes of
+extra information for each attribute, queries become eﬃcient (for instance by
+indexing the columns we can easily ask the database backend to ﬁnd all nodes
+that have a property with, e.g., key=“energy”, and value ≤−12.3).
+Most
+importantly, we achieved the main goal of being able to store any value in the
+database in a dynamical way (i.e., we do not have to adapt the schema for each
+new attribute that we want to store). Beside strings and numbers, we extended
+the EAV table to store also date/times and the datatype None.
+26
+
+An important extension is the implementation of the storage of lists and
+dictionaries. These two datatypes are common in the description of data inputs
+or outputs of atomistic simulations (the list of atoms in a crystal structure,
+the 3 × 3 components of the lattice vectors, . . . ). One solution (implemented
+in AiiDA, but not used by default) is to serialize any list or dictionary in the
+widespread JavaScript Object Notation (JSON) format as a string, store the
+resulting string in the appropriate column of DbAttribute, and set the datatype
+ﬁeld to a JSON value. However, the disadvantage of this approach is that it
+becomes ineﬃcient to look for a speciﬁc value inside a list: the values are now
+stored as strings, and a query that looks for a given value must loop through the
+whole dataset (a task with O(n) complexity and, moreover, with a quite large
+prefactor because each string must be deserialized – i.e., the JSON string needs
+to be decoded). Moreover, date/times are not natively supported by JSON. We
+instead deﬁned a schema that is able to store lists and dictionaries at any depth
+(i.e. lists of lists, lists of dictionaries, dictionaries of lists, . . . ). We ﬁrst add two
+new datatypes for lists and dictionaries, and we choose a separator symbol that
+is reserved and cannot be used in key names (in the current implementation, a
+dot). Then, for a dictionary with name the dict and values
+{“value1” : 12, “value2” : “a string”}
+we store three entries in the DbAttribute table:
+key
+datatype
+int value
+str value
+the dict
+dict
+2
+/
+the dict.value1
+int
+12
+/
+the dict.value2
+str
+/
+“a string”
+The entry of type dict is needed to have the possibility to store also empty
+dictionaries; the integer value is the number of elements in the dictionary, and
+is useful both for consistency checks and to be able to eﬃciently ﬁlter dictionaries
+of a given length. The key of the other entries are obtained joining the dictionary
+name, the separator (a dot) and the key of the item. Lists are stored in a similar
+way, where value1 and value2 are replaced by the integer positions in the list,
+and of course the datatype is replaced from dict to list.
+We emphasize here that this storage model for lists and dictionaries clearly
+extends naturally to any depth level (that is, in the example above the dict.value2
+could in turn be a dictionary, and its values would have entries with key the dict.value2.key1,
+the dict.value2.key2, etc.)
+Finally, we note here that while this storage
+model is eﬃcient for storing and querying small lists, should not be used for
+large arrays. In this case, a speciﬁc class (ArrayData, see 6.2) is available in
+the AiiDA ORM for storing directly the array on the disk, rather than in the
+database.
+Appendix A.2. Algorithm for the update of the transitive closure table
+Each entry of the transitive closure table represents the connectivity of two
+nodes in the graph by means of a “path”, i.e., a sequence of links.
+27
+
+This table is automatically updated by database triggers, that need to be
+ﬁred every time an entry is added, removed or modiﬁed in the table of links
+(DbLink).
+The algorithm that we implemented is the following. Every time a new link
+from a node A to a node B is created, the transitive closure table is queried
+to get all the parents of A and the children of B. Then, new paths are added,
+connecting: A to B; each parent of A to B; A to each child of B; and each
+parent of A to each child of B. Beside storing the PKs of the two nodes A and
+B, each entry of the DbPath table has three more columns to store the PKs of
+the three DbPath entries that were used in the creation of the path (the one
+from the parent of A to A, the one from A to B, and the one from B to its
+child; the ﬁrst and the third are set to the PK of the A →B path, if absent).
+These three additional columns guarantee the possibility of implementing an
+eﬃcient algorithm to update the transitive closure table not only on creation of
+new links, but also in the case of link removal: without them, the whole table
+would need to be regenerated from scratch at every deletion.
+Bibliography
+References
+[1] R. Van Noorden, B. Maher, R. Nuzzo, Nature 514 (2014) 550.
+[2] A. Franceschetti, A. Zunger, Nature 402 (1999) 60–63.
+[3] G. H. J´ohannesson, T. Bligaard, A. V. Ruban, H. L. Skriver, K. W. Jacobsen,
+J. K. Nørskov, Phys. Rev. Lett. 88 (2002) 255506–.
+[4] S. Curtarolo, D. Morgan, K. Persson, J. Rodgers, G. Ceder, Phys. Rev. Lett. 91
+(2003) 135503–.
+[5] S. Curtarolo, G. L. W. Hart, M. B. Nardelli, N. Mingo, S. Sanvito, O. Levy, Nat.
+Mater. 12 (2013) 191–201.
+[6] P. Villars, M. Berndt, K. Brandenburg, K. Cenzual, J. Daams, F. Hulliger,
+T. Massalski, H. Okamoto, K. Osaki, A. Prince, H. Putz, S. Iwata, Journal of
+Alloys and Compounds 367 (2004) 293–297.
+[7] N. Zarkevich, Complexity 11 (2006) 36–42.
+[8] P. R. da Silveira, C. R. da Silva, R. M. Wentzcovitch, Comp. Phys. Comm. 178
+(2008) 186–198.
+[9] G. Yuan, F. Gygi, Computational Science & Discovery 3 (2010) 015004–.
+[10] A. Jain, G. Hautier, C. J. Moore, S. Ping Ong, C. C. Fischer, T. Mueller, K. A.
+Persson, G. Ceder, Comp. Mat. Sci. 50 (2011) 2295–2310.
+[11] S. Adams, P. de Castro, P. Echenique, J. Estrada, M. D. Hanwell, P. Murray-Rust,
+P. Sherwood, J. Thomas, J. Townsend, Journal of Cheminformatics 3 (2011) 38.
+[12] S. Curtarolo, W. Setyawan, S. Wang, J. Xue, K. Yang, R. H. Taylor, L. J. Nelson,
+G. L. Hart, S. Sanvito, M. Buongiorno-Nardelli, N. Mingo, O. Levy, Computa-
+tional Materials Science 58 (2012) 227–235.
+[13] D. Landis, J. Hummelshøj, S. Nestorov, J. Greeley, M. Du lak, T. Bligaard,
+J. Nørskov, K. Jacobsen, Computing in Science & Engineering 14 (2012) 51–57.
+[14] J. Saal, S. Kirklin, M. Aykol, B. Meredig, C. Wolverton 65 (2013) 1501–1509.
+[15] http://www.eudat.eu/.
+[16] http://www.nomad-repository.eu/.
+28
+
+[17] https://www.docker.com/.
+[18] http://www.djangoproject.com/.
+[19] http://www.sqlalchemy.org/.
+[20] http://rubyonrails.org/.
+[21] S. R. Bahn, K. W. Jacobsen, Comput. Sci. Eng. 4 (2002) 56–66.
+[22] S. P. Ong, W. D. Richards, A. Jain, G. Hautier, M. Kocher, S. Cholia, D. Gunter,
+V. L. Chevrier, K. A. Persson, G. Ceder, Comp. Mat. Sci. 68 (2013) 314–319.
+[23] P. Murray-Rust, H. S. Rzepa, J. Chem. Inf. Comput. Sci. 43 (2003) 757–772.
+[24] http://www.crystallography.net/tcod/.
+[25] http://www.celeryproject.org/.
+[26] http://supervisord.org/.
+[27] http://www.ogf.org.
+[28] P. Tr¨oger, H. Rajic, A. Haas, , P. Domagalski, in: Proceedings of the Seventh
+IEEE International Symposium on Cluster Computing and the Grid (CCGrid
+2007), Rio de Janeiro, Brazil, pp. 619–626. http://www.drmaa.org/.
+[29] http://www.unicore.eu/.
+[30] http://gc3pie.googlecode.com/.
+[31] http://www.adaptivecomputing.com/products/open-source/torque/.
+[32] http://www.pbsworks.com/Product.aspx?id=1.
+[33] https://computing.llnl.gov/linux/slurm/.
+[34] http://gridscheduler.sourceforge.net/.
+[35] https://github.com/paramiko/paramiko.
+[36] L. Moreau, B. Cliﬀord, J. Freire, J. Futrelle, Y. Gil, P. Groth, N. Kwasnikowska,
+S. Miles, P. Missier, J. Myers, B. Plale, Y. Simmhan, E. Stephan, J. V. den
+Bussche, Future Generation Computer Systems 27 (2011) 743–756.
+[37] http://www.mysql.com/.
+[38] http://www.postgresql.org/.
+[39] http://www.sqlite.org/.
+[40] http://www.neo4j.org/.
+[41] G. Dong, L. Libkin, J. Su, L. Wong, Int. Journal of Information Technology 5
+(1999) 46–78.
+[42] http://spglib.sourceforge.net.
+[43] S. van der Walt, S. C. Colbert, G. Varoquaux, Comput. Sci. Eng. 13 (2011) 22.
+[44] W. Setyawan, S. Curtarolo, Computational Materials Science 49 (2010) 299–312.
+[45] http://www.ﬁz-karlsruhe.com/icsd.html.
+[46] S. Graˇzulis, A. Daˇskeviˇc, A. Merkys, D. Chateigner, L. Lutterotti, M. Quir´os,
+N. R. Serebryanaya, P. Moeck, R. T. Downs, A. Le Bail, Nucleic Acids Research
+40 (2012) D420–D427.
+[47] F. P´erez, B. E. Granger, Computing in Science and Engineering 9 (2007) 21–29.
+[48] http://galaxyproject.org.
+[49] https://kepler-project.org.
+[50] http://www.knime.org.
+[51] http://www.vistrails.org.
+[52] K. Wolstencroft, R. Haines, D. Fellows, A. Williams, D. Withers, S. Owen,
+S. Soiland-Reyes, I. Dunlop, A. Nenadic, P. Fisher, J. Bhagat, K. Belhajjame,
+F. Bacall, A. Hardisty, A. Nieva de la Hidalga, M. P. Balcazar Vargas, S. Suﬁ,
+C. Goble, Nucleic Acids Research 41 (2013) W557–W561.
+[53] A. P. Bart´ok, M. C. Payne, R. Kondor, G. Cs´anyi, Phys. Rev. Lett. 104 (2010)
+136403–.
+[54] C. W. Glass, A. R. Oganov, N. Hansen, Comp. Phys. Comm. 175 (2006) 713–720.
+29
+
+[55] C. J. Pickard, R. J. Needs, J. Phys. Cond. Matt. 23 (2011) 053201–.
+[56] http://sphinx-doc.org.
+[57] http://www.ietf.org/rfc/rfc4122.txt.
+[58] http://mpod.cimav.edu.mx/index/.
+[59] P. Giannozzi, S. Baroni, N. Bonini, M. Calandra, R. Car, C. Cavazzoni,
+D. Ceresoli, G. L. Chiarotti, M. Cococcioni, I. Dabo, A. D. Corso, S. de Giron-
+coli, S. Fabris, G. Fratesi, R. Gebauer, U. Gerstmann, C. Gougoussis, A. Kokalj,
+M. Lazzeri, L. Martin-Samos, N. Marzari, F. Mauri, R. Mazzarello, S. Paolini,
+A. Pasquarello, L. Paulatto, C. Sbraccia, S. Scandolo, G. Sclauzero, A. P. Seit-
+sonen, A. Smogunov, P. Umari, R. M. Wentzcovitch, J. Phys. Cond. Matt. 21
+(2009) 395502–.
+[60] S. Graˇzulis, A. Merkys, A. Vaitkus, M. Okuliˇc-Kazarinas, J. Appl. Cryst. 48
+(2015) 85–91.
+[61] J. J. Mortensen, L. B. Hansen, K. W. Jacobsen, Phys. Rev. B 71 (2005) 035109.
+[62] E. Kucukbenli, M. Monni, B. Adetunji, X. Ge, G. Adebayo, N. Marzari,
+S. de Gironcoli, A. Dal Corso, arXiv:1404.3015v1 (2014).
+[63] http://qe-forge.org/gf/project/pslibrary/.
+[64] K. F. Garrity, J. W. Bennett, K. M. Rabe, D. Vanderbilt, Computational Mate-
+rials Science 81 (2014) 446–452.
+[65] N. Marzari, D. Vanderbilt, A. De Vita, M. C. Payne, Phys. Rev. Lett. 82 (1999)
+3296–3299.
+[66] G. Borghi, A. Ferretti, N. L. Nguyen, I. Dabo, N. Marzari, Phys. Rev. B 90 (2014)
+075135.
+[67] http://cassandra.apache.org/.
+[68] http://couchdb.apache.org/.
+[69] http://www.mongodb.org/.
+30

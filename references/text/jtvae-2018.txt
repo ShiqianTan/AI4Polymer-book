@@ -1,0 +1,5821 @@
+Junction Tree Variational Autoencoder for Molecular Graph Generation
+Wengong Jin 1 Regina Barzilay 1 Tommi Jaakkola 1
+Abstract
+We seek to automate the design of molecules
+based on speciﬁc chemical properties. In com-
+putational terms, this task involves continuous
+embedding and generation of molecular graphs.
+Our primary contribution is the direct realization
+of molecular graphs, a task previously approached
+by generating linear SMILES strings instead of
+graphs. Our junction tree variational autoencoder
+generates molecular graphs in two phases, by ﬁrst
+generating a tree-structured scaffold over chemi-
+cal substructures, and then combining them into a
+molecule with a graph message passing network.
+This approach allows us to incrementally expand
+molecules while maintaining chemical validity
+at every step. We evaluate our model on multi-
+ple tasks ranging from molecular generation to
+optimization. Across these tasks, our model out-
+performs previous state-of-the-art baselines by a
+signiﬁcant margin.
+1. Introduction
+The key challenge of drug discovery is to ﬁnd target
+molecules with desired chemical properties. Currently, this
+task takes years of development and exploration by expert
+chemists and pharmacologists. Our ultimate goal is to au-
+tomate this process. From a computational perspective, we
+decompose the challenge into two complementary subtasks:
+learning to represent molecules in a continuous manner that
+facilitates the prediction and optimization of their properties
+(encoding); and learning to map an optimized continuous
+representation back into a molecular graph with improved
+properties (decoding). While deep learning has been exten-
+sively investigated for molecular graph encoding (Duvenaud
+et al., 2015; Kearnes et al., 2016; Gilmer et al., 2017), the
+harder combinatorial task of molecular graph generation
+from latent representation remains under-explored.
+1MIT Computer Science & Artiﬁcial Intelligence Lab. Corre-
+spondence to: Wengong Jin <wengong@csail.mit.edu>.
+Proceedings of the 35 th International Conference on Machine
+Learning, Stockholm, Sweden, PMLR 80, 2018. Copyright 2018
+by the author(s).
+Figure 1. Two almost identical molecules with markedly different
+canonical SMILES in RDKit. The edit distance between two
+strings is 22 (50.5% of the whole sequence).
+Prior work on drug design formulated the graph genera-
+tion task as a string generation problem (G´omez-Bombarelli
+et al., 2016; Kusner et al., 2017) in an attempt to side-step
+direct generation of graphs. Speciﬁcally, these models start
+by generating SMILES (Weininger, 1988), a linear string
+notation used in chemistry to describe molecular structures.
+SMILES strings can be translated into graphs via deter-
+ministic mappings (e.g., using RDKit (Landrum, 2006)).
+However, this design has two critical limitations. First, the
+SMILES representation is not designed to capture molec-
+ular similarity. For instance, two molecules with similar
+chemical structures may be encoded into markedly different
+SMILES strings (e.g., Figure 1). This prevents generative
+models like variational autoencoders from learning smooth
+molecular embeddings. Second, essential chemical proper-
+ties such as molecule validity are easier to express on graphs
+rather than linear SMILES representations. We hypothesize
+that operating directly on graphs improves generative mod-
+eling of valid chemical structures.
+Our primary contribution is a new generative model of
+molecular graphs. While one could imagine solving the
+problem in a standard manner – generating graphs node
+by node (Li et al., 2018) – the approach is not ideal for
+molecules. This is because creating molecules atom by
+atom would force the model to generate chemically invalid
+intermediaries (see, e.g., Figure 2), delaying validation un-
+til a complete graph is generated. Instead, we propose to
+generate molecular graphs in two phases by exploiting valid
+subgraphs as components. The overall generative approach,
+cast as a junction tree variational autoencoder1, ﬁrst gen-
+erates a tree structured object (a junction tree) whose role
+is to represent the scaffold of subgraph components and
+their coarse relative arrangements. The components are
+1https://github.com/wengong-jin/icml18-jtnn
+arXiv:1802.04364v4  [cs.LG]  29 Mar 2019
+
+Junction Tree Variational Autoencoder for Molecular Graph Generation
+Figure 2. Comparison of two graph generation schemes: Structure
+by structure approach is preferred as it avoids invalid intermediate
+states (marked in red) encountered in node by node approach.
+valid chemical substructures automatically extracted from
+the training set using tree decomposition and are used as
+building blocks. In the second phase, the subgraphs (nodes
+in the tree) are assembled together into a molecular graph.
+We evaluate our model on multiple tasks ranging from
+molecular generation to optimization of a given molecule
+according to desired properties. As baselines, we utilize
+state-of-the-art SMILES-based generation approaches (Kus-
+ner et al., 2017; Dai et al., 2018). We demonstrate that
+our model produces 100% valid molecules when sampled
+from a prior distribution, outperforming the top perform-
+ing baseline by a signiﬁcant margin. In addition, we show
+that our model excels in discovering molecules with desired
+properties, yielding a 30% relative gain over the baselines.
+2. Junction Tree Variational Autoencoder
+Our approach extends the variational autoencoder (Kingma
+& Welling, 2013) to molecular graphs by introducing a suit-
+able encoder and a matching decoder. Deviating from pre-
+vious work (G´omez-Bombarelli et al., 2016; Kusner et al.,
+2017), we interpret each molecule as having been built from
+subgraphs chosen out of a vocabulary of valid components.
+These components are used as building blocks both when
+encoding a molecule into a vector representation as well
+as when decoding latent vectors back into valid molecular
+graphs. The key advantage of this view is that the decoder
+can realize a valid molecule piece by piece by utilizing the
+collection of valid components and how they interact, rather
+than trying to build the molecule atom by atom through
+chemically invalid intermediaries (Figure 2). An aromatic
+bond, for example, is chemically invalid on its own unless
+the entire aromatic ring is present. It would be therefore
+challenging to learn to build rings atom by atom rather than
+by introducing rings as part of the basic vocabulary.
+Our vocabulary of components, such as rings, bonds and
+individual atoms, is chosen to be large enough so that a
+given molecule can be covered by overlapping components
+or clusters of atoms. The clusters serve the role analogous to
+cliques in graphical models, as they are expressive enough
+that a molecule can be covered by overlapping clusters with-
+out forming cluster cycles. In this sense, the clusters serve
+as cliques in a (non-optimal) triangulation of the molecular
+graph. We form a junction tree of such clusters and use it
+as the tree representation of the molecule. Since our choice
+Figure 3. Overview of our method: A molecular graph G is ﬁrst
+decomposed into its junction tree TG, where each colored node in
+the tree represents a substructure in the molecule. We then encode
+both the tree and graph into their latent embeddings zT and zG.
+To decode the molecule, we ﬁrst reconstruct junction tree from zT ,
+and then assemble nodes in the tree back to the original molecule.
+of cliques is constrained a priori, we cannot guarantee that
+a junction tree exists with such clusters for an arbitrary
+molecule. However, our clusters are built on the basis of the
+molecules in the training set to ensure that a corresponding
+junction tree can be found. Empirically, our clusters cover
+most of the molecules in the test set.
+The original molecular graph and its associated junction tree
+offer two complementary representations of a molecule. We
+therefore encode the molecule into a two-part latent repre-
+sentation z = [zT , zG] where zT encodes the tree structure
+and what the clusters are in the tree without fully captur-
+ing how exactly the clusters are mutually connected. zG
+encodes the graph to capture the ﬁne-grained connectivity.
+Both parts are created by tree and graph encoders q(zT |T )
+and q(zG|G). The latent representation is then decoded
+back into a molecular graph in two stages. As illustrated in
+Figure 3, we ﬁrst reproduce the junction tree using a tree
+decoder p(T |zT ) based on the information in zT . Second,
+we predict the ﬁne grain connectivity between the clusters
+in the junction tree using a graph decoder p(G|T , zG) to
+realize the full molecular graph. The junction tree approach
+allows us to maintain chemical feasibility during generation.
+Notation A molecular graph is deﬁned as G = (V, E)
+where V is the set of atoms (vertices) and E the set of bonds
+(edges). Let N(x) be the neighbor of x. We denote sigmoid
+
+Junction Tree Variational Autoencoder for Molecular Graph Generation
+function as σ(·) and ReLU function as τ(·). We use i, j, k
+for nodes in the tree and u, v, w for nodes in the graph.
+2.1. Junction Tree
+A tree decomposition maps a graph G into a junction tree
+by contracting certain vertices into a single node so that G
+becomes cycle-free. Formally, given a graph G, a junction
+tree TG = (V, E, X) is a connected labeled tree whose
+node set is V = {C1, · · · , Cn} and edge set is E. Each
+node or cluster Ci = (Vi, Ei) is an induced subgraph of G,
+satisfying the following constraints:
+1. The union of all clusters equals G. That is, S
+i Vi = V
+and S
+i Ei = E.
+2. Running intersection: For all clusters Ci, Cj and Ck,
+Vi ∩Vj ⊆Vk if Ck is on the path from Ci to Cj.
+Viewing induced subgraphs as cluster labels, junction trees
+are labeled trees with label vocabulary X. By our molecule
+tree decomposition, X contains only cycles (rings) and sin-
+gle edges. Thus the vocabulary size is limited (|X| = 780
+for a standard dataset with 250K molecules).
+Tree Decomposition of Molecules Here we present our
+tree decomposition algorithm tailored for molecules, which
+ﬁnds its root in chemistry (Rarey & Dixon, 1998). Our
+cluster vocabulary X includes chemical structures such as
+bonds and rings (Figure 3). Given a graph G, we ﬁrst ﬁnd all
+its simple cycles, and its edges not belonging to any cycles.
+Two simple rings are merged together if they have more than
+two overlapping atoms, as they constitute a speciﬁc structure
+called bridged compounds (Clayden et al., 2001). Each of
+those cycles or edges is considered as a cluster. Next, a
+cluster graph is constructed by adding edges between all
+intersecting clusters. Finally, we select one of its spanning
+trees as the junction tree of G (Figure 3). As a result of ring
+merging, any two clusters in the junction tree have at most
+two atoms in common, facilitating efﬁcient inference in the
+graph decoding phase. The detailed procedure is described
+in the supplementary.
+2.2. Graph Encoder
+We ﬁrst encode the latent representation of G by a graph
+message passing network (Dai et al., 2016; Gilmer et al.,
+2017). Each vertex v has a feature vector xv indicating the
+atom type, valence, and other properties. Similarly, each
+edge (u, v) ∈E has a feature vector xuv indicating its
+bond type, and two hidden vectors νuv and νvu denoting
+the message from u to v and vice versa. Due to the loopy
+structure of the graph, messages are exchanged in a loopy
+belief propagation fashion:
+ν(t)
+uv = τ(Wg
+1xu + Wg
+2xuv + Wg
+3
+X
+w∈N(u)\v
+ν(t−1)
+wu
+) (1)
+where ν(t)
+uv is the message computed in t-th iteration, initial-
+ized with ν(0)
+uv = 0. After T steps of iteration, we aggregate
+those messages as the latent vector of each vertex, which
+captures its local graphical structure:
+hu = τ(Ug
+1xu +
+X
+v∈N(u) Ug
+2ν(T )
+vu )
+(2)
+The ﬁnal graph representation is hG = P
+i hi/|V |. The
+mean µG and log variance log σG of the variational poste-
+rior approximation are computed from hG with two separate
+afﬁne layers. zG is sampled from a Gaussian N(µG, σG).
+2.3. Tree Encoder
+We similarly encode TG with a tree message passing net-
+work. Each cluster Ci is represented by a one-hot encoding
+xi representing its label type. Each edge (Ci, Cj) is associ-
+ated with two message vectors mij and mji. We pick an
+arbitrary leaf node as the root and propagate messages in
+two phases. In the ﬁrst bottom-up phase, messages are initi-
+ated from the leaf nodes and propagated iteratively towards
+root. In the top-down phase, messages are propagated from
+the root to all the leaf nodes. Message mij is updated as:
+mij = GRU(xi, {mki}k∈N(i)\j)
+(3)
+where GRU is a Gated Recurrent Unit (Chung et al., 2014;
+Li et al., 2015) adapted for tree message passing:
+sij
+=
+X
+k∈N(i)\j mki
+(4)
+zij
+=
+σ(Wzxi + Uzsij + bz)
+(5)
+rki
+=
+σ(Wrxi + Urmki + br)
+(6)
+emij
+=
+tanh(Wxi + U
+X
+k∈N(i)\j
+rki ⊙mki)
+(7)
+mij
+=
+(1 −zij) ⊙sij + zij ⊙emij
+(8)
+The message passing follows the schedule where mij is
+computed only when all its precursors {mki | k ∈N(i)\j}
+have been computed. This architectural design is motivated
+by the belief propagation algorithm over trees and is thus
+different from the graph encoder.
+After the message passing, we obtain the latent representa-
+tion of each node hi by aggregating its inward messages:
+hi = τ(Woxi +
+X
+k∈N(i) Uomki)
+(9)
+The ﬁnal tree representation is hTG = hroot, which encodes
+a rooted tree (T , root). Unlike the graph encoder, we do
+not apply node average pooling because it confuses the tree
+decoder which node to generate ﬁrst. zTG is sampled in
+a similar way as in the graph encoder. For simplicity, we
+abbreviate zTG as zT from now on.
+This tree encoder plays two roles in our framework. First, it
+is used to compute zT , which only requires the bottom-up
+
+Junction Tree Variational Autoencoder for Molecular Graph Generation
+Figure 4. Illustration of the tree decoding process. Nodes are la-
+beled in the order in which they are generated. 1) Node 2 expands
+child node 4 and predicts its label with message h24. 2) As node 4
+is a leaf node, decoder backtracks and computes message h42. 3)
+Decoder continues to backtrack as node 2 has no more children. 4)
+Node 1 expands node 5 and predicts its label.
+phase of the network. Second, after a tree bT is decoded
+from zT , it is used to compute messages bmij over the en-
+tire bT , to provide essential contexts of every node during
+graph decoding. This requires both top-down and bottom-up
+phases. We will elaborate this in section 2.5.
+2.4. Tree Decoder
+We decode a junction tree T from its encoding zT with a tree
+structured decoder. The tree is constructed in a top-down
+fashion by generating one node at a time. As illustrated
+in Figure 4, our tree decoder traverses the entire tree from
+the root, and generates nodes in their depth-ﬁrst order. For
+every visited node, the decoder ﬁrst makes a topological
+prediction: whether this node has children to be generated.
+When a new child node is created, we predict its label and
+recurse this process. Recall that cluster labels represent
+subgraphs in a molecule. The decoder backtracks when a
+node has no more children to generate.
+At each time step, a node receives information from other
+nodes in the current tree for making those predictions. The
+information is propagated through message vectors hij
+when trees are incrementally constructed. Formally, let
+˜E = {(i1, j1), · · · , (im, jm)} be the edges traversed in a
+depth ﬁrst traversal over T = (V, E), where m = 2|E| as
+each edge is traversed in both directions. The model vis-
+its node it at time t. Let ˜Et be the ﬁrst t edges in ˜E. The
+message hit,jt is updated through previous messages:
+hit,jt = GRU(xit, {hk,it}(k,it)∈˜Et,k̸=jt)
+(10)
+where GRU is the same recurrent unit as in the tree encoder.
+Topological Prediction When the model visits node it, it
+makes a binary prediction on whether it still has children to
+Algorithm 1 Tree decoding at sampling time
+Require: Latent representation zT
+1: Initialize: Tree bT ←∅
+2: function SampleTree(i, t)
+3:
+Set Xi ←all cluster labels that are chemically com-
+patible with node i and its current neighbors.
+4:
+Set dt ←expand with probability pt.
+▷Eq.(11)
+5:
+if dt = expand and Xi̸ = ∅then
+6:
+Create a node j and add it to tree bT .
+7:
+Sample the label of node j from Xi
+▷. Eq.(12)
+8:
+SampleTree(j, t + 1)
+9:
+end if
+10: end function
+be generated. We compute this probability by combining
+zT , node features xit and inward messages hk,it via a one
+hidden layer network followed by a sigmoid function:
+pt = σ(ud·τ(Wd
+1xit +Wd
+2zT +Wd
+3
+X
+(k,it)∈˜Et
+hk,it) (11)
+Label Prediction When a child node j is generated from
+its parent i, we predict its node label with
+qj = softmax(Ulτ(Wl
+1zT + Wl
+2hij))
+(12)
+where qj is a distribution over label vocabulary X. When j
+is a root node, its parent i is a virtual node and hij = 0.
+Learning The tree decoder aims to maximize the likeli-
+hood p(T |zT ). Let ˆpt ∈{0, 1} and ˆqj be the ground truth
+topological and label values, the decoder minimizes the
+following cross entropy loss:2
+Lc(T ) =
+X
+t Ld(pt, ˆpt) +
+X
+j Ll(qj, ˆqj)
+(13)
+Similar to sequence generation, during training we perform
+teacher forcing: after topological and label prediction at
+each step, we replace them with their ground truth so that
+the model makes predictions given correct histories.
+Decoding & Feasibility Check Algorithm 1 shows how a
+tree is sampled from zT . The tree is constructed recursively
+guided by topological predictions without any external guid-
+ance used in training. To ensure the sampled tree could be
+realized into a valid molecule, we deﬁne set Xi to be cluster
+labels that are chemically compatible with node i and its
+current neighbors. When a child node j is generated from
+node i, we sample its label from Xi with a renormalized
+distribution qj over Xi by masking out invalid labels.
+2The node ordering is not unique as the order within sibling
+nodes is ambiguous. In this paper we train our model with one
+ordering and leave this issue for future work.
+
+Junction Tree Variational Autoencoder for Molecular Graph Generation
+Figure 5. Decode a molecule from a junction tree. 1) Ground truth
+molecule G. 2) Predicted junction tree bT . 3) We enumerate differ-
+ent combinations between red cluster C and its neighbors. Crossed
+arrows indicate combinations that lead to chemically infeasible
+molecules. Note that if we discard tree structure during enumera-
+tion (i.e., ignoring subtree A), the last two candidates will collapse
+into the same molecule. 4) Rank subgraphs at each node. The ﬁnal
+graph is decoded by putting together all the predicted subgraphs
+(dashed box).
+2.5. Graph Decoder
+The ﬁnal step of our model is to reproduce a molecular graph
+G that underlies the predicted junction tree bT = (bV, bE).
+Note that this step is not deterministic since there are poten-
+tially many molecules that correspond to the same junction
+tree. The underlying degree of freedom pertains to how
+neighboring clusters Ci and Cj are attached to each other
+as subgraphs. Our goal here is to assemble the subgraphs
+(nodes in the tree) together into the correct molecular graph.
+Let G(T ) be the set of graphs whose junction tree is T . De-
+coding graph ˆG from bT = (bV, bE) is a structured prediction:
+ˆG = arg
+max
+G′∈G( b
+T )
+f a(G′)
+(14)
+where f a is a scoring function over candidate graphs. We
+only consider scoring functions that decompose across the
+clusters and their neighbors. In other words, each term in
+the scoring function depends only on how a cluster Ci is
+attached to its neighboring clusters Cj, j ∈N b
+T (i) in the
+tree bT . The problem of ﬁnding the highest scoring graph ˆG –
+the assembly task – could be cast as a graphical model infer-
+ence task in a model induced by the junction tree. However,
+for efﬁciency reasons, we will assemble the molecular graph
+one neighborhood at a time, following the order in which the
+tree itself was decoded. In other words, we start by sampling
+the assembly of the root and its neighbors according to their
+scores. Then we proceed to assemble the neighbors and
+their associated clusters (removing the degrees of freedom
+set by the root assembly), and so on.
+It remains to be speciﬁed how each neighborhood realiza-
+tion is scored. Let Gi be the subgraph resulting from a
+particular merging of cluster Ci in the tree with its neigh-
+bors Cj, j ∈N b
+T (i). We score Gi as a candidate subgraph
+by ﬁrst deriving a vector representation hGi and then using
+f a
+i (Gi) = hGi · zG as the subgraph score. To this end,
+let u, v specify atoms in the candidate subgraph Gi and let
+αv = i if v ∈Ci and αv = j if v ∈Cj \ Ci. The indices
+αv are used to mark the position of the atoms in the junction
+tree, and to retrieve messages bmi,j summarizing the sub-
+tree under i along the edge (i, j) obtained by running the
+tree encoding algorithm. The neural messages pertaining
+to the atoms and bonds in subgraph Gi are obtained and
+aggregated into hGi, similarly to the encoding step, but with
+different (learned) parameters:
+µ(t)
+uv
+=
+τ(Wa
+1xu + Wa
+2xuv + Wa
+3 eµ(t−1)
+uv
+)
+(15)
+eµ(t−1)
+uv
+=
+(P
+w∈N(u)\v µ(t−1)
+wu
+αu = αv
+bmαu,αv + P
+w∈N(u)\v µ(t−1)
+wu
+αu̸ = αv
+The major difference from Eq. (1) is that we augment the
+model with tree messages bmαu,αv derived by running the
+tree encoder over the predicted tree bT . bmαu,αv provides a
+tree dependent positional context for bond (u, v) (illustrated
+as subtree A in Figure 5).
+Learning The graph decoder parameters are learned to
+maximize the log-likelihood of predicting correct subgraphs
+Gi of the ground true graph G at each tree node:
+Lg(G) =
+X
+i
+
+f a(Gi) −log
+X
+G′
+i∈Gi
+exp(f a(G′
+i))
+
+(16)
+where Gi is the set of possible candidate subgraphs at tree
+node i. During training, we again apply teacher forcing, i.e.
+we feed the graph decoder with ground truth trees as input.
+Complexity By our tree decomposition, any two clusters
+share at most two atoms, so we only need to merge at most
+two atoms or one bond. By pruning chemically invalid
+subgraphs and merging isomorphic graphs, |Gi| ≈4 on
+average when tested on a standard ZINC drug dataset. The
+computational complexity of JT-VAE is therefore linear in
+the number of clusters, scaling nicely to large graphs.
+
+Junction Tree Variational Autoencoder for Molecular Graph Generation
+NH
+O
+N
+S
+O
+H
+S
+O
+O
+NH
+O
+H3N+
+N
+NH
+O
+O-
+N
+O
+N
+NH+
+NH
+O
+N
+NH
+Cl
+NH2+
+NH
+O
+N
+S
+O
+O
+N
+S
+O
+NH
+S
+N
+H
+O
+O
+N
+N
+N
+O
+O
+N
+N
+N
+N
+Cl
+NH
+O
+N
+F
+N
+O
+N
+O
+N
+O
+H2N
+NH
+O
+N
+O
+N
+NH+
+NH
+O
+N
+S
+N
+N
+O
+O
+NH
+S
+NH3
++
+NH
+O
+O
+S
+O
+O
+O
+S
+O
+NH
+N
+OH
+N
+O
+NH
+NH2
+O
+NH
+N
+O
+NH
+O
+O
+H2N
+NH
+S
+O
+O
+O
+O
+NH
+O
+O
+O
+NH
+N
+N
+N
+OH
+S
+N
+N
+O
+NH2+
+O
+O
+N
+N
+NH
+O
+NH+
+N
+O
+S
+O
+O
+N
+O
+H
+H
+NH2
+N
+O
+NH
+O
+NH
+N
+S
+N
+N
+Cl
+N
+O
+N
+OH
+S
+NH
+O
+N
+NH
+N
+N
+N
+N
+H
+H
+NH
+N
+N
+N
+N
+H
+H
+N
+N
+N
+N
+NH
+H
+NH2+
+NH
+N
+N
+N
+N
+NH
+N
+N
+N
+N
+NH2+
+NH
+N
+N
+N
+N
+NH2+
+NH
+N
+N
+N
+N
+NH
+N
+N
+N
+N
+NH
+N
+N
+N
+N
+NH
+N
+N
+N
+N
+NH
+N
+N
+N
+N
+NH
+N
+N
+N
+N
+NH
+N
+N
+N
+N
+N
+N
+N
+N
+NH
+S
+O
+N
+N
+N
+N
+NH
+S
+O
+NH
+S
+O
+N
+N
+N
+N
+NH
+N
+N
+N
+N
+NH
+N
+N
+N
+N
+NH
+N
+N
+N
+N
+NH
+N
+N
+N
+N
+NH
+N
+N
+N
+N
+NH
+N
+N
+N
+N
+NH
+N
+N
+N
+N
+NH
+N
+N
+N
+N
+NH
+S
+O
+N
+N
+N
+N
+NH
+S
+O
+N
+N
+N
+N
+NH
+S
+O
+N
+N
+N
+N
+NH
+N
+N
+N
+N
+NH
+N
+N
+N
+N
+NH
+N
+N
+N
+N
+NH
+N
+N
+N
+N
+NH
+N
+N
+N
+N
+NH
+N
+N
+N
+N
+NH
+N
+N
+N
+N
+NH
+N
+N
+N
+N
+NH
+S
+O
+N
+N
+N
+N
+NH
+N
+H2N
+S
+N
+NH
+N
+N
+N
+N
+NH
+N
+N
+N
+N
+NH
+N
+N
+N
+N
+NH
+N
+N
+N
+N
+NH
+N
+N
+N
+N
+NH
+N
+N
+N
+N
+NH
+N
+N
+N
+N
+NH
+N
+N
+N
+N
+NH
+N
+NH2
+S
+N
+S
+NH
+N
+NH2
+S
+N
+S
+NH
+N
+N
+N
+N
+NH
+N
+N
+N
+N
+NH
+N
+N
+N
+N
+NH
+N
+N
+N
+N
+NH
+N
+N
+N
+N
+NH
+N
+N
+N
+N
+NH
+N
+N
+N
+N
+NH
+N
+NH2
+S
+N
+S
+NH
+N
+NH2
+S
+N
+S
+N
+NH
+N
+NH 2
+S
+S
+NH
+N
+N
+N
+N
+NH
+N
+N
+N
+N
+NH
+N
+N
+N
+N
+NH
+N
+N
+N
+N
+NH
+N
+N
+N
+N
+N
+N
+S
+N
+N
+NH2
+NH
+NH+
+NH
+N
+NH2
+S
+N
+O
+NH2+
+N
+NH
+N
+NH
+2
+S
+S
+N
+NH
+N
+NH
+2
+S
+S
+N
+NH
+N
+NH2
+S
+S
+NH
+N
+N
+N
+N
+NH
+N
+N
+N
+N
+NH
+N
+N
+N
+N
+N
+N
+S
+N
+N
+N
+NH+
+N
+N
+S
+N
+N
+NH2
+NH
+NH+
+NH
+N
+NH2
+S
+N
+O
+NH2+
+NH
+N
+NH2
+S
+N
+O
+NH2+
+N
+NH
+N
+H2N
+S
+S
+N
+NH
+N
+H2N
+S
+S
+N
+NH
+N
+NH
+2
+S
+S
+NH
+N
+N
+N
+N
+NH
+N
+N
+N
+N
+NH+
+N
+N
+S
+N
+N
+NH2
+NH
+NH+
+N
+N
+S
+N
+N
+NH2
+NH
+Figure 6. Left: Random molecules sampled from prior distribution N(0, I). Right: Visualization of the local neighborhood of a molecule
+in the center. Three molecules highlighted in red dashed box have the same tree structure as the center molecule, but with different graph
+structure as their clusters are combined differently. The same phenomenon emerges in another group of molecules (blue dashed box).
+3. Experiments
+Our evaluation efforts measure various aspects of molecular
+generation. The ﬁrst two evaluations follow previously
+proposed tasks (Kusner et al., 2017). We also introduce a
+third task — constrained molecule optimization.
+• Molecule reconstruction and validity We test the VAE
+models on the task of reconstructing input molecules from
+their latent representations, and decoding valid molecules
+when sampling from prior distribution. (Section 3.1)
+• Bayesian optimization Moving beyond generating valid
+molecules, we test how the model can produce novel
+molecules with desired properties. To this end, we per-
+form Bayesian optimization in the latent space to search
+molecules with speciﬁed properties. (Section 3.2)
+• Constrained molecule optimization The task is to mod-
+ify given molecules to improve speciﬁed properties, while
+constraining the degree of deviation from the original
+molecule. This is a more realistic scenario in drug discov-
+ery, where development of new drugs usually starts with
+known molecules such as existing drugs (Besnard et al.,
+2012). Since it is a new task, we cannot compare to any
+existing baselines. (Section 3.3)
+Below we describe the data, baselines and model conﬁgura-
+tion that are shared across the tasks. Additional setup details
+are provided in the task-speciﬁc sections.
+Data We use the ZINC molecule dataset from Kusner et al.
+(2017) for our experiments, with the same training/testing
+split. It contains about 250K drug molecules extracted from
+the ZINC database (Sterling & Irwin, 2015). We follow the
+same train/test split as in Kusner et al. (2017).
+Baselines We compare our approach with SMILES-based
+baselines: 1) Character VAE (CVAE) (G´omez-Bombarelli
+et al., 2016) which generates SMILES strings character by
+character; 2) Grammar VAE (GVAE) (Kusner et al., 2017)
+that generates SMILES following syntactic constraints given
+by a context-free grammar; 3) Syntax-directed VAE (SD-
+VAE) (Dai et al., 2018) that incorporates both syntactic
+and semantic constraints of SMILES via attribute gram-
+mar. For molecule generation task, we also compare with
+GraphVAE (Simonovsky & Komodakis, 2018) that directly
+generates atom labels and adjacency matrices of graphs, as
+well as an LSTM-based autoregressive model that generates
+molecular graphs atom by atom (Li et al., 2018).
+Model Conﬁguration To be comparable with the above
+baselines, we set the latent space dimension as 56, i.e., the
+tree and graph representation hT and hG have 28 dimen-
+sions each. Full training details and model conﬁgurations
+are provided in the appendix.
+3.1. Molecule Reconstruction and Validity
+Setup The ﬁrst task is to reconstruct and sample molecules
+from latent space. Since both encoding and decoding pro-
+cess are stochastic, we estimate reconstruction accuracy by
+Monte Carlo method used in (Kusner et al., 2017): Each
+molecule is encoded 10 times and each encoding is de-
+coded 10 times. We report the portion of the 100 decoded
+molecules that are identical to the input molecule.
+
+Junction Tree Variational Autoencoder for Molecular Graph Generation
+Table 1. Reconstruction accuracy and prior validity results. Base-
+line results are copied from Kusner et al. (2017); Dai et al. (2018);
+Simonovsky & Komodakis (2018); Li et al. (2018).
+Method
+Reconstruction
+Validity
+CVAE
+44.6%
+0.7%
+GVAE
+53.7%
+7.2%
+SD-VAE
+76.2%
+43.5%
+GraphVAE
+-
+13.5%
+Atom-by-Atom LSTM
+-
+89.2%
+JT-VAE
+76.7%
+100.0%
+To compute validity, we sample 1000 latent vectors from
+the prior distribution N(0, I), and decode each of these
+vectors 100 times. We report the percentage of decoded
+molecules that are chemically valid (checked by RDKit).
+For ablation study, we also report the validity of our model
+without validity check in decoding phase.
+Results Table 1 shows that JT-VAE outperforms previous
+models in molecule reconstruction, and always produces
+valid molecules when sampled from prior distribution. In
+contrast, the atom-by-atom based generation only achieves
+89.2% validity as it needs to go through invalid intermediate
+states (Figure 2). Our model bypasses this issue by utilizing
+valid substructures as building blocks. As shown in Figure 6,
+the sampled molecules have non-trivial structures such as
+simple chains. We further sampled 5000 molecules from
+prior and found they are all distinct from the training set.
+Thus our model is not a simple memorization.
+Analysis We qualitatively examine the latent space of JT-
+VAE by visualizing the neighborhood of molecules. Given
+a molecule, we follow the method in Kusner et al. (2017)
+to construct a grid visualization of its neighborhood. Fig-
+ure 6 shows the local neighborhood of the same molecule
+visualized in Dai et al. (2018). In comparison, our neighbor-
+hood does not contain molecules with huge rings (with more
+than 7 atoms), which rarely occur in the dataset. We also
+highlight two groups of closely resembling molecules that
+have identical tree structures but vary only in how clusters
+are attached together. This demonstrates the smoothness of
+learned molecular embeddings.
+3.2. Bayesian Optimization
+Setup The second task is to produce novel molecules with
+desired properties. Following (Kusner et al., 2017), our
+target chemical property y(·) is octanol-water partition coef-
+ﬁcients (logP) penalized by the synthetic accessibility (SA)
+score and number of long cycles.3 To perform Bayesian
+optimization (BO), we ﬁrst train a VAE and associate each
+3y(m) = logP(m) −SA(m) −cycle(m) where cycle(m)
+counts the number of rings that have more than six atoms.
+Table 2. Best molecule property scores found by each method.
+Baseline results are from Kusner et al. (2017); Dai et al. (2018).
+Method
+1st
+2nd
+3rd
+CVAE
+1.98
+1.42
+1.19
+GVAE
+2.94
+2.89
+2.80
+SD-VAE
+4.04
+3.50
+2.96
+JT-VAE
+5.30
+4.93
+4.49
+Figure 7. Best three molecules and their property scores found by
+JT-VAE using Bayesian optimization.
+molecule with a latent vector, given by the mean of the vari-
+ational encoding distribution. After the VAE is learned, we
+train a sparse Gaussian process (SGP) to predict y(m) given
+its latent representation. Then we perform ﬁve iterations of
+batched BO using the expected improvement heuristic.
+For comparison, we report 1) the predictive performance of
+SGP trained on latent encodings learned by different VAEs,
+measured by log-likelihood (LL) and root mean square er-
+ror (RMSE) with 10-fold cross validation. 2) The top-3
+molecules found by BO under different models.
+Results As shown in Table 2, JT-VAE ﬁnds molecules with
+signiﬁcantly better scores than previous methods. Figure 7
+lists the top-3 best molecules found by JT-VAE. In fact,
+JT-VAE ﬁnds over 50 molecules with scores over 3.50 (the
+second best molecule proposed by SD-VAE). Moreover, the
+SGP yields better predictive performance when trained on
+JT-VAE embeddings (Table 3).
+3.3. Constrained Optimization
+Setup The third task is to perform molecule optimization
+in a constrained scenario. Given a molecule m, the task is
+to ﬁnd a different molecule m′ that has the highest property
+value with the molecular similarity sim(m, m′) ≥δ for
+some threshold δ. We use Tanimoto similarity with Morgan
+ﬁngerprint (Rogers & Hahn, 2010) as the similarity metric,
+and penalized logP coefﬁcient as our target chemical prop-
+erty. For this task, we jointly train a property predictor F
+(parameterized by a feed-forward network) with JT-VAE to
+predict y(m) from the latent embedding of m. To optimize
+a molecule m, we start from its latent representation, and
+apply gradient ascent in the latent space to improve the pre-
+dicted score F(·), similar to (Mueller et al., 2017). After
+
+Junction Tree Variational Autoencoder for Molecular Graph Generation
+Table 3. Predictive performance of sparse Gaussian Processes
+trained on different VAEs. Baseline results are copied from Kusner
+et al. (2017) and Dai et al. (2018).
+Method
+LL
+RMSE
+CVAE
+−1.812 ± 0.004
+1.504 ± 0.006
+GVAE
+−1.739 ± 0.004
+1.404 ± 0.006
+SD-VAE
+−1.697 ± 0.015
+1.366 ± 0.023
+JT-VAE
+−1.658 ± 0.023
+1.290 ± 0.026
+Table 4. Constrained optimization result of JT-VAE: mean and
+standard deviation of property improvement, molecular similarity
+and success rate under constraints sim(m, m′) ≥δ with varied δ.
+δ
+Improvement
+Similarity
+Success
+0.0
+1.91 ± 2.04
+0.28 ± 0.15
+97.5%
+0.2
+1.68 ± 1.85
+0.33 ± 0.13
+97.1%
+0.4
+0.84 ± 1.45
+0.51 ± 0.10
+83.6%
+0.6
+0.21 ± 0.71
+0.69 ± 0.06
+46.4%
+applying K = 80 gradient steps, K molecules are decoded
+from resulting latent trajectories, and we report the molecule
+with the highest F(·) that satisﬁes the similarity constraint.
+A modiﬁcation succeeds if one of the decoded molecules
+satisﬁes the constraint and is distinct from the original.
+To provide the greatest challenge, we selected 800 molecules
+with the lowest property score y(·) from the test set. We
+report the success rate (how often a modiﬁcation succeeds),
+and among success cases the average improvement y(m′)−
+y(m) and molecular similarity sim(m, m′) between the
+original and modiﬁed molecules m and m′.
+Results Our results are summarized in Table 4. The uncon-
+strained scenario (δ = 0) has the best average improvement,
+but often proposes dissimilar molecules. When we tighten
+the constraint to δ = 0.4, about 80% of the time our model
+ﬁnds similar molecules, with an average improvement 0.84.
+This also demonstrates the smoothness of the learned latent
+space. Figure 8 illustrates an effective modiﬁcation resulting
+in a similar molecule with great improvement.
+4. Related Work
+Molecule Generation Previous work on molecule gen-
+eration mostly operates on SMILES strings.
+G´omez-
+Bombarelli et al. (2016); Segler et al. (2017) built gener-
+ative models of SMILES strings with recurrent decoders.
+Unfortunately, these models could generate invalid SMILES
+that do not result in any molecules. To remedy this issue,
+Kusner et al. (2017); Dai et al. (2018) complemented the
+decoder with syntactic and semantic constraints of SMILES
+by context free and attribute grammars, but these grammars
+do not fully capture chemical validity. Other techniques
+such as active learning (Janz et al., 2017) and reinforcement
+Figure 8. A molecule modiﬁcation that yields an improvement of
+4.0 with molecular similarity 0.617 (modiﬁed part is in red).
+learning (Guimaraes et al., 2017) encourage the model to
+generate valid SMILES through additional training signal.
+Very recently, Simonovsky & Komodakis (2018) proposed
+to generate molecular graphs by predicting their adjacency
+matrices, and Li et al. (2018) generated molecules node by
+node. In comparison, our method enforces chemical validity
+and is more efﬁcient due to the coarse-to-ﬁne generation.
+Graph-structured Encoders The neural network formu-
+lation on graphs was ﬁrst proposed by Gori et al. (2005);
+Scarselli et al. (2009), and later enhanced by Li et al. (2015)
+with gated recurrent units. For recurrent architectures over
+graphs, Lei et al. (2017) designed Weisfeiler-Lehman kernel
+network inspired by graph kernels. Dai et al. (2016) consid-
+ered a different architecture where graphs were viewed as la-
+tent variable graphical models, and derived their model from
+message passing algorithms. Our tree and graph encoder are
+closely related to this graphical model perspective, and to
+neural message passing networks (Gilmer et al., 2017). For
+convolutional architectures, Duvenaud et al. (2015) intro-
+duced a convolution-like propagation on molecular graphs,
+which was generalized to other domains by Niepert et al.
+(2016). Bruna et al. (2013); Henaff et al. (2015) developed
+graph convolution in spectral domain via graph Laplacian.
+For applications, graph neural networks are used in semi-
+supervised classiﬁcation (Kipf & Welling, 2016), computer
+vision (Monti et al., 2016), and chemical domains (Kearnes
+et al., 2016; Sch¨utt et al., 2017; Jin et al., 2017).
+Tree-structured Models Our tree encoder is related to re-
+cursive neural networks and tree-LSTM (Socher et al., 2013;
+Tai et al., 2015; Zhu et al., 2015). These models encode
+tree structures where nodes in the tree are bottom-up trans-
+formed into vector representations. In contrast, our model
+propagates information both bottom-up and top-down.
+On the decoding side, tree generation naturally arises in
+natural language parsing (Dyer et al., 2016; Kiperwasser &
+Goldberg, 2016). Different from our approach, natural lan-
+guage parsers have access to input words and only predict
+the topology of the tree. For general purpose tree generation,
+Vinyals et al. (2015); Aharoni & Goldberg (2017) applied re-
+current networks to generate linearized version of trees, but
+their architectures were entirely sequence-based. Dong &
+Lapata (2016); Alvarez-Melis & Jaakkola (2016) proposed
+tree-based architectures that construct trees top-down from
+the root. Our model is most closely related to Alvarez-Melis
+& Jaakkola (2016) that disentangles topological prediction
+from label prediction, but we generate nodes in a depth-ﬁrst
+
+Junction Tree Variational Autoencoder for Molecular Graph Generation
+order and have additional steps that propagate information
+bottom-up. This forward-backward propagation also ap-
+pears in Parisotto et al. (2016), but their model is node
+based whereas ours is based on message passing.
+5. Conclusion
+In this paper we present a junction tree variational autoen-
+coder for generating molecular graphs. Our method signiﬁ-
+cantly outperforms previous work in molecule generation
+and optimization. For future work, we attempt to generalize
+our method for general low-treewidth graphs.
+Acknowledgement
+We thank Jonas Mueller, Chengtao Li, Tao Lei and MIT
+NLP Group for their helpful comments. This work was
+supported by the DARPA Make-It program under contract
+ARO W911NF-16-2-0023.
+References
+Aharoni, R. and Goldberg, Y. Towards string-to-tree neural
+machine translation. arXiv preprint arXiv:1704.04743,
+2017.
+Alvarez-Melis, D. and Jaakkola, T. S. Tree-structured de-
+coding with doubly-recurrent neural networks. 2016.
+Besnard, J., Ruda, G. F., Setola, V., Abecassis, K., Ro-
+driguiz, R. M., Huang, X.-P., Norval, S., Sassano, M. F.,
+Shin, A. I., Webster, L. A., et al. Automated design of lig-
+ands to polypharmacological proﬁles. Nature, 492(7428):
+215–220, 2012.
+Bruna, J., Zaremba, W., Szlam, A., and LeCun, Y. Spec-
+tral networks and locally connected networks on graphs.
+arXiv preprint arXiv:1312.6203, 2013.
+Chung, J., Gulcehre, C., Cho, K., and Bengio, Y. Empirical
+evaluation of gated recurrent neural networks on sequence
+modeling. arXiv preprint arXiv:1412.3555, 2014.
+Clayden, J., Greeves, N., Warren, S., and Wothers, P. Or-
+ganic Chemistry. Oxford University Press, 2001.
+Dai, H., Dai, B., and Song, L. Discriminative embeddings of
+latent variable models for structured data. In International
+Conference on Machine Learning, pp. 2702–2711, 2016.
+Dai, H., Tian, Y., Dai, B., Skiena, S., and Song, L. Syntax-
+directed variational autoencoder for structured data. In-
+ternational Conference on Learning Representations,
+2018. URL https://openreview.net/forum?
+id=SyqShMZRb.
+Dong, L. and Lapata, M. Language to logical form with
+neural attention. arXiv preprint arXiv:1601.01280, 2016.
+Duvenaud, D. K., Maclaurin, D., Iparraguirre, J., Bombarell,
+R., Hirzel, T., Aspuru-Guzik, A., and Adams, R. P. Con-
+volutional networks on graphs for learning molecular ﬁn-
+gerprints. In Advances in neural information processing
+systems, pp. 2224–2232, 2015.
+Dyer, C., Kuncoro, A., Ballesteros, M., and Smith, N. A.
+Recurrent neural network grammars.
+arXiv preprint
+arXiv:1602.07776, 2016.
+Gilmer, J., Schoenholz, S. S., Riley, P. F., Vinyals, O., and
+Dahl, G. E. Neural message passing for quantum chem-
+istry. arXiv preprint arXiv:1704.01212, 2017.
+G´omez-Bombarelli,
+R.,
+Wei,
+J. N.,
+Duvenaud,
+D.,
+Hern´andez-Lobato, J. M., S´anchez-Lengeling, B., She-
+berla, D., Aguilera-Iparraguirre, J., Hirzel, T. D., Adams,
+R. P., and Aspuru-Guzik, A. Automatic chemical de-
+sign using a data-driven continuous representation of
+molecules. ACS Central Science, 2016. doi: 10.1021/
+acscentsci.7b00572.
+Gori, M., Monfardini, G., and Scarselli, F. A new model
+for learning in graph domains. In Neural Networks, 2005.
+IJCNN’05. Proceedings. 2005 IEEE International Joint
+Conference on, volume 2, pp. 729–734. IEEE, 2005.
+Guimaraes, G. L., Sanchez-Lengeling, B., Farias, P. L. C.,
+and Aspuru-Guzik, A. Objective-reinforced generative ad-
+versarial networks (organ) for sequence generation mod-
+els. arXiv preprint arXiv:1705.10843, 2017.
+Henaff, M., Bruna, J., and LeCun, Y.
+Deep convolu-
+tional networks on graph-structured data. arXiv preprint
+arXiv:1506.05163, 2015.
+Janz, D., van der Westhuizen, J., and Hern´andez-Lobato,
+J. M. Actively learning what makes a discrete sequence
+valid. arXiv preprint arXiv:1708.04465, 2017.
+Jin, W., Coley, C., Barzilay, R., and Jaakkola, T. Predict-
+ing organic reaction outcomes with weisfeiler-lehman
+network. In Advances in Neural Information Processing
+Systems, pp. 2604–2613, 2017.
+Kearnes, S., McCloskey, K., Berndl, M., Pande, V., and
+Riley, P. Molecular graph convolutions: moving beyond
+ﬁngerprints. Journal of computer-aided molecular design,
+30(8):595–608, 2016.
+Kingma, D. P. and Welling, M. Auto-encoding variational
+bayes. arXiv preprint arXiv:1312.6114, 2013.
+Kiperwasser, E. and Goldberg, Y. Easy-ﬁrst dependency
+parsing with hierarchical tree lstms.
+arXiv preprint
+arXiv:1603.00375, 2016.
+
+Junction Tree Variational Autoencoder for Molecular Graph Generation
+Kipf, T. N. and Welling, M. Semi-supervised classiﬁca-
+tion with graph convolutional networks. arXiv preprint
+arXiv:1609.02907, 2016.
+Kusner, M. J., Paige, B., and Hern´andez-Lobato, J. M.
+Grammar variational autoencoder.
+arXiv preprint
+arXiv:1703.01925, 2017.
+Landrum, G. Rdkit: Open-source cheminformatics. Online).
+http://www. rdkit. org. Accessed, 3(04):2012, 2006.
+Lei, T., Jin, W., Barzilay, R., and Jaakkola, T. Deriving
+neural architectures from sequence and graph kernels.
+arXiv preprint arXiv:1705.09037, 2017.
+Li, Y., Tarlow, D., Brockschmidt, M., and Zemel, R.
+Gated graph sequence neural networks. arXiv preprint
+arXiv:1511.05493, 2015.
+Li, Y., Vinyals, O., Dyer, C., Pascanu, R., and Battaglia,
+P. Learning deep generative models of graphs. arXiv
+preprint arXiv:1803.03324, 2018.
+Monti, F., Boscaini, D., Masci, J., Rodol`a, E., Svoboda, J.,
+and Bronstein, M. M. Geometric deep learning on graphs
+and manifolds using mixture model cnns. arXiv preprint
+arXiv:1611.08402, 2016.
+Mueller, J., Gifford, D., and Jaakkola, T. Sequence to better
+sequence: continuous revision of combinatorial structures.
+In International Conference on Machine Learning, pp.
+2536–2544, 2017.
+Niepert, M., Ahmed, M., and Kutzkov, K. Learning con-
+volutional neural networks for graphs. In International
+Conference on Machine Learning, pp. 2014–2023, 2016.
+Parisotto, E., Mohamed, A.-r., Singh, R., Li, L., Zhou, D.,
+and Kohli, P. Neuro-symbolic program synthesis. arXiv
+preprint arXiv:1611.01855, 2016.
+Rarey, M. and Dixon, J. S. Feature trees: a new molecular
+similarity measure based on tree matching. Journal of
+computer-aided molecular design, 12(5):471–490, 1998.
+Rogers, D. and Hahn, M. Extended-connectivity ﬁnger-
+prints. Journal of chemical information and modeling, 50
+(5):742–754, 2010.
+Scarselli, F., Gori, M., Tsoi, A. C., Hagenbuchner, M., and
+Monfardini, G. The graph neural network model. IEEE
+Transactions on Neural Networks, 20(1):61–80, 2009.
+Sch¨utt, K., Kindermans, P.-J., Felix, H. E. S., Chmiela, S.,
+Tkatchenko, A., and M¨uller, K.-R. Schnet: A continuous-
+ﬁlter convolutional neural network for modeling quantum
+interactions. In Advances in Neural Information Process-
+ing Systems, pp. 992–1002, 2017.
+Segler, M. H., Kogej, T., Tyrchan, C., and Waller, M. P.
+Generating focussed molecule libraries for drug dis-
+covery with recurrent neural networks. arXiv preprint
+arXiv:1701.01329, 2017.
+Simonovsky, M. and Komodakis, N. Graphvae: Towards
+generation of small graphs using variational autoencoders.
+arXiv preprint arXiv:1802.03480, 2018.
+Socher, R., Perelygin, A., Wu, J., Chuang, J., Manning,
+C. D., Ng, A., and Potts, C. Recursive deep models for
+semantic compositionality over a sentiment treebank. In
+Proceedings of the 2013 conference on empirical methods
+in natural language processing, pp. 1631–1642, 2013.
+Sterling, T. and Irwin, J. J. Zinc 15–ligand discovery for
+everyone. J. Chem. Inf. Model, 55(11):2324–2337, 2015.
+Tai, K. S., Socher, R., and Manning, C. D. Improved seman-
+tic representations from tree-structured long short-term
+memory networks. arXiv preprint arXiv:1503.00075,
+2015.
+Vinyals, O., Kaiser, Ł., Koo, T., Petrov, S., Sutskever, I.,
+and Hinton, G. Grammar as a foreign language. In
+Advances in Neural Information Processing Systems, pp.
+2773–2781, 2015.
+Weininger, D. Smiles, a chemical language and information
+system. 1. introduction to methodology and encoding
+rules. Journal of chemical information and computer
+sciences, 28(1):31–36, 1988.
+Zhu, X., Sobihani, P., and Guo, H. Long short-term memory
+over recursive structures. In International Conference on
+Machine Learning, pp. 1604–1612, 2015.
+
+Supplementary Material
+A. Tree Decomposition
+Algorithm 2 presents our tree decomposition of molecules. V1 and V2 contain non-ring bonds and simple rings respectively.
+Simple rings are extracted via RDKit’s GetSymmSSSR function. We then merge rings that share three or more atoms as
+they form bridged compounds. We note that the junction tree of a molecule is not unique when its cluster graph contains
+cycles. This introduces additional uncertainty for our probabilistic modeling. To reduce such variation, for any of the three
+(or more) intersecting bonds, we add their intersecting atom as a cluster and remove the cycle connecting them in the cluster
+graph. Finally, we construct a junction tree as the maximum spanning tree of a cluster graph (V, E). Note that we assign an
+large weight over edges involving clusters in V0 to ensure no edges in any cycles will be selected into the junction tree.
+Algorithm 2 Tree decomposition of molecule G = (V, E)
+V1 ←the set of bonds (u, v) ∈E that do not belong to any rings.
+V2 ←the set of simple rings of G.
+for r1, r2 in V2 do
+Merge rings r1, r2 into one ring if they share more than two atoms (bridged rings).
+end for
+V0 ←atoms being the intersection of three or more clusters in V1 ∪V2.
+V ←V0 ∪V1 ∪V2
+E ←{(i, j, c) ∈V × V × R | |i ∩j| > 0}. Set c = ∞if i ∈V0 or j ∈V0, and c = 1 otherwise.
+Return The maximum spanning tree over cluster graph (V, E).
+Figure 9. Illustration of tree decomposition and sample of cluster label vocabulary.
+B. Stereochemistry
+Though usually presented as two-dimensional graphs, molecules are three-dimensional objects, i.e. molecules are deﬁned
+not only by its atom types and bond connections, but also the spatial conﬁguration between atoms (chiral atoms and cis-trans
+isomerism). Stereoisomers are molecules that have the same 2D structure, but differ in the 3D orientations of their atoms in
+space. We note that stereochemical feasibility could not be simply encoded as context free or attribute grammars.
+Empirically, we found it more efﬁcient to predict the stereochemical conﬁguration separately from the molecule generation.
+Speciﬁcally, the JT-VAE ﬁrst generates the 2D structure of a molecule m, following the same procedure described in
+section 2. Then we generate all its stereoisomers Sm using RDKit’s EnumerateStereoisomers function, which
+identiﬁes atoms that could be chiral. For each isomer m′ ∈Sm, we encode its graph representation hm′ with the graph
+encoder and compute their cosine similarity f s(m′) = cos(hm′, zm) (note that zm is stochastic). We reconstruct the
+
+Junction Tree Variational Autoencoder for Molecular Graph Generation
+ﬁnal 3D structure by picking the stereoisomer bm = arg maxm′ f s(m′). Since on average only few atoms could have
+stereochemical variations, this post ranking process is very efﬁcient. Combining this with tree and graph generation, the
+molecule reconstruction loss L becomes
+L = Lc + Lg + Ls;
+Ls = f s(m) −log
+X
+m′∈Sm
+exp(f s(m′))
+(17)
+C. Training Details
+By applying tree decomposition over 240K molecules in ZINC dataset, we collected our vocabulary set X of size |X| = 780.
+The hidden state dimension is 450 for all modules in JT-VAE and the latent bottleneck dimension is 56. For the graph
+encoder, the initial atom features include its atom type, degree, its formal charge and its chiral conﬁguration. Bond feature is
+a concatenation of its bond type, whether the bond is in a ring, and its cis-trans conﬁguration. For our tree encoder, we
+represent each cluster with a neural embedding vector, similar to word embedding for words. The tree and graph decoder
+use the same feature setting as encoders. The graph encoder and decoder runs three iterations of neural message passing.
+For fair comparison to SMILES based method, we minimized feature engineering. We use PyTorch to implement all neural
+components and RDKit to process molecules.
+D. More Experimental Results
+Sampled Molecules Note that a degenerate model could also achieve 100% prior validity by keep generating simple
+structures like chains. To prove that our model does not converge to such trivial solutions, we randomly sample and plot 250
+molecules from prior distribution N(0, I). As shown in Figure 10, our sampled molecules present rich variety and structural
+complexity. This demonstrates the soundness of the prior validity improvement of our model.
+Neighborhood Visualization Given a molecule, we follow Kusner et al. (2017) to construct a grid visualization of its
+neighborhood. Speciﬁcally, we encode a molecule into the latent space and generate two random orthogonal unit vectors
+as two axis of a grid. Moving in combinations of these directions yields a set of latent vectors and we decode them into
+corresponding molecules. In Figure 11 and 12, we visualize the local neighborhood of two molecules presented in Dai et al.
+(2018). Figure 11 visualizes the same molecule in Figure 6, but with wider neighborhood ranges.
+Bayesian Optimization We directly used open sourced implementation in Kusner et al. (2017) for Bayesian optimization
+(BO). Speciﬁcally, we train a sparse Gaussian process with 500 inducing points to predict properties of molecules. Five
+iterations of batch BO with expected improvement heuristic is used to propose new latent vectors. In each iteration, 50 latent
+vectors are proposed, from which molecules are decoded and added to the training set for next iteration. We perform 10
+independent runs and aggregate results. In Figure 13, we present the top 50 molecules found among 10 runs using JT-VAE.
+Following Kusner et al.’s implementation, the scores reported are normalized to zero mean and unit variance by the mean
+and variance computed from training set.
+Constrained Optimization For this task, a property predictor F is trained jointly with VAE to predict y(m) = logP(m) −
+SA(m) from the latent embedding of m. F is a feed-forward network with one hidden layer of dimension 450 followed
+by tanh activation. To optimize a molecule m, we start with its mean encoding z0
+m = µm and apply 80 gradient ascent
+steps: zt
+m = zt−1
+m
++ α ∂y
+∂z with α = 2.0. 80 molecules are decoded from latent vectors {zi
+m} and their property is calculated.
+Molecular similarity sim(m, m′) is calculated via Morgan ﬁngerprint of radius 2 with Tanimoto similarity. For each
+molecule m, we report the best modiﬁed molecule m′ with sim(m, m′) > δ for some threshold δ. In Figure 14, we present
+three groups of modiﬁcation examples with δ = 0.2, 0.4, 0.6. For each group, we present top three pairs that leads to best
+improvement y(m′) −y(m) as well as one pair decreased property (y(m′) < y(m)). This is caused by inaccurate property
+prediction. From Figure 14, we can see that tighter similarity constraint forces the model to preserve the original structure.
+
+Junction Tree Variational Autoencoder for Molecular Graph Generation
+NH
+O
+O
+Cl
+N
+N
+N
+N
+O
+N
+O
+S
+O
+N
+NH2
+NH
+O
+O
+O
+NH
+N
+NH
+NH+
+H
+H
+H
+O
+OH
+N
+N
+NH
+N
+O
+NH
+OH
+NH2+
+NH+
+N
+O
+F
+NH
+O
+S
+O
+O
+NH
+O
+F
+NH
+N
+O
+N
+N
+O
+OH
+S
+O
+O
+NH
+O
+N
+S
+O
+H
+S
+O
+O
+NH
+O
+H3N+
+N
+NH
+O
+O-
+N
+O
+N
+NH+
+NH
+O
+N
+NH
+Cl
+NH2+
+NH
+O
+N
+S
+O
+O
+N
+S
+O
+NH
+S
+N
+H
+O
+O
+N
+N
+N
+O
+O
+N
+N
+N
+N
+Cl
+NH
+O
+N
+F
+N
+O
+N
+O
+N
+O
+H2N
+NH
+O
+N
+O
+N
+NH+
+NH
+O
+N
+S
+N
+N
+O
+O
+NH
+S
+NH3
++
+NH
+O
+O
+S
+O
+O
+O
+S
+O
+NH
+N
+OH
+N
+O
+NH
+NH2
+O
+NH
+N
+O
+NH
+O
+O
+H2N
+NH
+S
+O
+O
+O
+O
+NH
+O
+O
+O
+NH
+N
+N
+N
+OH
+S
+N
+N
+O
+NH2
++
+O
+O
+N
+N
+NH
+O
+NH+
+N
+O
+S
+O
+O
+N
+O
+H
+H
+NH2
+N
+O
+NH
+O
+NH
+N
+S
+N
+N
+Cl
+N
+O
+N
+OH
+S
+NH
+O
+N
+N
+NH
+O
+NH2
++
+H
+H
+N
+O
+N
+NH
+O
+O
+NH
+O
+N
+S
+O
+NH3
++
+N
+N
+NH
+O
+O
+N+
+O
+O-
+N
+NH
+O
+S
+N
+O
+NH
+N
+H2N
+O
+O
+N
+N
+N
+N
+NH2
+O
+N
+O
+S
+O
+NH+
+Cl
+NH
+O
+NH2
+OH
+O
+N
+O
+N
+OH
+NH+
+H2N
+O
+N
+H
+N
+O
+NH2
+NH
+O
+O
+N
+N
+N
+N
+O
+O
+NH
+O
+N
+S
+N+
+O
+O-
+NH2
+S
+NH2
+O
+O
+NH
+O
+NH
+O
+N
+N
+NH
+O
+NH
+O
+O
+NH+
+F
+NH
+S
+O
+O
+N
+NH
+O
+Cl
+S
+N
+NH2
+O
+NH
+H
+HN
+N
+N
+O
+O
+O
+O
+N
+O
+S
+O
+O
+N-
+NH
+O
+N+
+F
+N
+O
+NH
+Cl
+N
+O
+N
+O
+NH
+OH
+O
+SH
+O
+O
+NH+
+N
+N
+O
+O
+NH
+O
+NH
+H
+O
+NH
+N+
+OH
+NH+
+NH2
+N
+NH+
+NH
+O
+N
+OH
+OH
+O
+S
+O
+O
+N
+N
+N
+N
+N
+S
+O
+N
+O
+O
+O
+O
+O
+S
+N
+N
+N
+H2N
+S
+NH
+S
+O
+O
+O
+O
+N
+O
+NH
+H
+H
+Br
+O
+NH
+N
+NH
+S
+O
+O
+O
+NH
+S
+NH+
+OH
+NH2
+O
+N
+S
+N
+NH
+O
+O
+O
+NH+
+N
+S
+NH2
++
+N
+O
+F
+N
+O
+N
+N
+O
+N
+F
+F
+F
+HO
+O
+N
+N
+F
+O
+NH
+NH3
++
+NH2
++
+NH+
+O
+N
+O
+O
+O
+N
+NH
+N
+O
+NH
+F
+S
+S
+O
+O
+NH
+N+
+O
+O-
+O
+F
+F
+N
+N
+N
+N
+O
+N
+O
+H
+H
+O
+NH
+O
+N
+S
+O
+O
+N
+N
+H3N+
+NH3
++
+N
+NH+
+O
+N
+N
+HS
+N
+N
+O
+N
+NH
+O
+O
+NH
+N
+S
+NH2
+N
+O
+O
+NH
+F
+Br
+N
+O
+NH
+O
+O
+O
+O
+N
+O
+N
+Br
+N
+O
+NH
+O
+NH
+H
+O
+NH
+S
+N
+S
+NH2
+O
+NH2
++
+NH
+N
+NH2
+O
+F
+S
+O
+O
+NH
+O
+NH
+N
+O
+NH
+O
+Cl
+O
+NH
+O
+OH
+N
+O
+NH
+O
+NH
+NH3
++
+NH2
++
+H
+O
+OH
+N
+S
+O
+NH
+N
+NH
+O
+N
+O
+NH
+O
+N
+O
+O
+N
+O
+NH+
+NH2
+O
+NH
+O
+N
+S
+N
+N
+O
+N
+N
+O
+O
+NH
+H2N
+NH
+O
+H3N+
+OH
+NH3
++
+NH2
++
+N
+O
+Cl
+N
+N
+O
+NH
+O
+N
+O
+NH
+O
+NH
+N
+N
+O
+O
+NH
+N
+N
+O
+O
+O
+NH2
+NH
+N
+NH
+OH
+NH
+H
+NH
+O
+O
+N
+N
+N
+F
+O
+N
+NH
+O
+H2N
+NH2+
+NH
+NH3
++
+F
+N
+S
+O
+N
+O
+NH
+S
+O
+O
+NH
+N
+NH2
+O
+N
+O
+N
+N
+OH
+O
+O
+N
+NH
+O
+NH
+S
+H
+O
+NH
+O
+N
+N
+S
+NH2
+O
+O
+O
+NH
+O
+N
+S
+NH
+O
+N
+N
+O
+Br
+NH+
+H2N
+NH
+NH+
+NH
+O
+N
+N
+NH2+
+S
+N
+NH
+O
+H
+O
+F
+NH
+N
+NH
+O
+O-
+O
+N
+O
+O
+NH
+N
+O
+NH
+H
+N
+O
+S
+NH
+N
+O
+O
+NH
+O
+NH2
+NH
+H3N+
+NH2+
+N
+O
+O
+NH2+
+OH
+NH
+S
+O
+O
+O-
+N
+O
+NH2+
+S
+H
+H
+HO
+NH
+O
+H3N+
+NH2+
+NH
+O
+N
+H2N
+N
+NH
+O
+SH
+O
+O
+N
+N
+NH2
+S
+Cl
+N
+NH
+N
+O
+OH
+N
+O
+S
+O
+O
+N
+NH2+
+N
+NH2+
+N
+HO
+O
+N
+S
+H
+H
+O
+NH
+O
+NH
+H2N
+H3N+
+NH3
++
+N
+O
+O
+N
+Cl
+N
+O
+O
+O
+N
+F
+N
+O
+NH
+O
+NH
+O
+SH
+O
+NH
+N
+NH
+NH
+O
+NH
+O
+F
+N-
+S
+O
+O
+NH2
+NH
+O
+O
+NH
+O
+OH
+O
+NH3+
+O
+N
+NH2+
+NH+
+O
+NH
+N
+O
+O
+O
+N
+O
+NH
+S
+O
+O
+NH
+O
+F
+N
+N
+O
+N
+N
+O
+NH
+N
+N
+NH
+O
+O
+NH2
+NH
+O
+N
+O
+NH
+O
+F
+O
+N
+Cl
+SH
+Br
+NH
+O
+NH
+N
+S
+O
+NH+
+NH
+O
+NH
+N
+S
+O
+NH
+F
+F
+N
+O
+NH
+S
+O
+O
+Cl
+N
+NH
+O
+O-
+N
+O
+N
+N
+HO
+H
+H
+H3N+
+S
+NH2
+Cl
+S
+N
+N
+O
+O
+N
+O
+N
+N
+O
+O
+N
+N
+N
+O
+O
+O
+N
+O
+O
+O
+O
+O
+NH+
+NH
+O
+O
+O
+N
+N
+S
+O
+O
+NH
+O
+O
+N
+N
+O
+N
+N
+NH
+O
+N
+O
+NH
+N
+N
+O
+O
+N
+N
+N
+N
+N-
+N
+OH
+N
+N
+O
+O
+N
+N
+O
+NH
+N
+O
+NH
+N
+O
+O
+NH
+N
+O
+NH
+O
+N
+NH2
++
+O
+NH
+O
+O
+N
+NH2+
+H2N
+N
+O
+NH
+OH
+N
+O
+O
+S
+O
+NH
+NH2
+NH
+OH
+F
+F
+S
+H2N
+O
+NH
+N
+N
+NH
+N
+O
+NH
+Br
+O
+O
+N
+N
+N
+NH3+
+NH
+O
+NH2+
+N
+O
+O-
+N
+NH3+
+S
+NH
+O
+O
+NH
+H2N
+NH
+N
+N+
+O
+O-
+NH
+O
+N
+N
+S
+O
+NH+
+NH+
+N
+OH
+O
+O
+N
+N
+O
+N
+N
+S
+O
+O
+NH
+NH
+O
+O
+S
+NH2
+N
+O
+O
+N
+NH2+
+O
+N
+N
+N
+N
+O
+O-
+N
+F
+S
+O
+NH
+O
+N
+S
+O
+O
+S
+O
+O
+NH
+O
+N
+NH+
+NH+
+O
+NH
+S
+N
+S
+O
+NH
+NH
+O
+O
+F
+H
+O
+N
+O
+N
+O
+NH
+F
+O
+NH
+N
+N
+O
+N
+NH+
+NH
+O
+O
+N
+N
+O
+N
+O
+O
+S
+N
+O
+NH
+HO
+N
+N
+N
+NH
+Cl
+O
+N
+NH
+H2N
+OH
+N
+O
+O
+NH
+NH3+
+N
+N
+O
+O
+NH
+O
+H2N
+NH2+
+NH
+O
+N
+H
+H
+S
+NH
+O
+NH2
+F
+F
+NH
+NH2
+S
+O
+O
+N
+O
+N
+N
+N
+O
+N
+O
+N
+O
+N
+NH
+S
+O
+O
+N
+Cl
+N
+N
+O
+O
+Cl
+NH
+NH+
+O
+NH
+N
+N
+H
+H
+O
+O
+N
+NH2+
+N
+N
+N
+N
+NH2
+O
+F
+N
+N
+N
+N
+N
+O
+O O
+H2N
+O
+N
+O
+N
+S
+O
+Br
+O
+NH
+N
+O
+O
+N
+O
+N
+S
+O
+O
+O
+NH
+O
+N
+O
+O
+N
+O
+N
+N
+N
+Cl
+S
+O
+O
+O
+NH
+NH
+N
+O
+O
+N
+N
+N
+O
+O
+N
+S
+O
+O
+N
+NH
+S
+O
+O
+N
+N
+N
+OH
+N-
+S
+O
+O
+O
+N
+O
+OH
+N
+S
+O
+NH
+N
+OH
+N
+O
+S
+Cl
+O
+O
+N
+O
+NH
+O
+H2N
+O
+NH
+O
+O
+H
+O
+NH
+OH
+NH2+
+NH2
+S
+O
+O
+O
+NH
+OH
+NH3+
+O
+NH
+O
+O
+NH
+S
+HO
+N
+NH+
+N
+O
+N
+O
+H
+H
+O
+O
+NH
+NH
+N
+H2N
+Br
+N
+O
+N
+O
+N
+NH
+S
+O
+O
+O
+N
+S
+N
+O
+N
+N
+O
+S
+O
+NH
+N
+O
+Cl
+S
+O
+N
+N
+O
+O-
+N
+O
+N
+NH
+O
+O
+H
+O
+S
+NH
+O
+O
+NH
+S
+Cl
+NH
+O
+O
+N
+F
+NH
+O
+N
+O
+HS
+O
+O
+Cl
+NH
+O
+S
+O
+NH
+S
+NH
+O
+O
+N
+N
+N
+NH
+NH2
+O
+N
+N
+NH+
+O
+N
+O
+N
+NH2
++
+NH3+
+N
+H
+H
+O
+NH
+O
+O
+O
+O
+O
+NH
+N
+O
+Figure 10. 250 molecules sampled from prior distribution N(0, I).
+
+Junction Tree Variational Autoencoder for Molecular Graph Generation
+O
+NH
+N
+N
+N
+N
+NH
+N
+N
+N
+N
+O
+N
+S
+NH
+N
+N
+N
+N
+N
+N
+N
+NH
+H
+N
+N
+N
+N
+NH
+H
+NH
+N
+N
+N
+N
+NH
+N
+N
+N
+N
+N
+NH
+N
+N
+N
+N
+NH
+N
+N
+N
+N
+NH
+N
+N
+N
+N
+NH
+N
+N
+N
+N
+NH
+N
+N
+N
+NH2
++
+NH3
++
+N
+N
+N
+N
+NH2
+N
+O
+NH
+N
+N
+N
+N
+NH
+N
+N
+N
+N
+H
+H
+NH
+N
+N
+N
+N
+H
+H
+NH
+N
+N
+N
+N
+H
+H
+N
+N
+N
+N
+NH
+H
+N
+N
+N
+N
+NH
+H
+NH
+N
+N
+N
+N
+NH
+N
+N
+N
+N
+NH
+N
+N
+N
+N
+N
+NH
+N
+N
+N
+N
+NH
+N
+N
+N
+NH2
++
+N
+NH
+N
+N
+N
+NH2
++
+N
+NH
+N
+N
+N
+NH+
+NH
+N
+N
+N
+N
+H
+H
+NH
+N
+N
+N
+N
+H
+H
+NH
+N
+N
+N
+N
+H
+H
+NH
+N
+N
+N
+N
+H
+H
+N
+N
+N
+N
+NH
+H
+NH2
++
+NH
+N
+N
+N
+N
+NH
+N
+N
+N
+N
+NH2
++
+NH
+N
+N
+N
+N
+NH2
++
+NH
+N
+N
+N
+N
+NH
+N
+N
+N
+N
+NH
+N
+N
+N
+N
+N
+NH
+N
+N
+N
+NH+
+N
+NH
+N
+N
+N
+NH+
+N
+NH
+NH2
+NH2
+S
+NH
+N
+N
+N
+N
+NH
+N
+N
+N
+N
+NH
+N
+N
+N
+N
+NH
+N
+N
+N
+N
+NH
+N
+N
+N
+N
+N
+N
+N
+N
+NH
+S
+O
+N
+N
+N
+N
+NH
+S
+O
+NH
+S
+O
+N
+N
+N
+N
+NH
+N
+N
+N
+N
+NH
+N
+N
+N
+N
+NH
+N
+N
+N
+N
+NH
+N
+N
+NH2
+NH
+N
+NH2
+S
+S
+NH
+N
+S
+NH2
+H
+H
+NH2
+N
+N
+NH
+N
+S
+NH2
+NH
+N
+N
+N
+N
+NH
+N
+N
+N
+N
+NH
+N
+N
+N
+N
+NH
+N
+N
+N
+N
+NH
+N
+N
+N
+N
+NH
+N
+N
+N
+N
+NH
+S
+O
+N
+N
+N
+N
+NH
+S
+O
+N
+N
+N
+N
+NH
+S
+O
+N
+N
+N
+N
+NH
+N
+N
+N
+N
+NH
+N
+N
+N
+NH2
+NH
+NH2
+NH
+N
+S
+NH2
+NH2
+N
+N
+NH
+N
+S
+NH2
+NH
+N
+N
+N
+N
+NH
+N
+N
+N
+N
+NH
+N
+N
+N
+N
+NH
+N
+N
+N
+N
+NH
+N
+N
+N
+N
+NH
+N
+N
+N
+N
+NH
+N
+N
+N
+N
+NH
+N
+N
+N
+N
+NH
+S
+O
+N
+N
+N
+N
+NH
+N
+N
+N
+NH2
+NH
+O
+N
+S
+N
+N
+NH2
+NH
+N
+N
+N
+NH
+N
+NH2
+S
+H
+S
+S
+NH
+N
+H2N
+S
+H
+H
+NH
+N
+H2N
+S
+N
+NH
+N
+N
+N
+N
+NH
+N
+N
+N
+N
+NH
+N
+N
+N
+N
+NH
+N
+N
+N
+N
+NH
+N
+N
+N
+N
+NH
+N
+N
+N
+N
+NH
+N
+N
+N
+N
+NH
+N
+N
+N
+N
+N
+N
+S
+N
+N
+NH2
+NH
+N
+N
+S
+N
+N
+NH2
+NH
+N
+N
+N
+NH
+N
+NH2
+S
+S
+S
+H
+H
+NH
+N
+NH2
+S
+N
+H
+NH
+N
+NH2
+S
+N
+S
+NH
+N
+NH2
+S
+N
+S
+NH
+N
+N
+N
+N
+NH
+N
+N
+N
+N
+NH
+N
+N
+N
+N
+NH
+N
+N
+N
+N
+NH
+N
+N
+N
+N
+NH
+N
+N
+N
+N
+NH
+N
+N
+N
+N
+NH
+S
+N
+N
+NH2
+NH
+N
+N
+S
+N
+N
+NH2
+NH
+N
+N
+N
+NH
+N
+NH2
+S
+S
+S
+H
+H
+N
+NH
+N
+H2N
+S
+NH
+N
+NH2
+S
+N
+S
+NH
+N
+NH2
+S
+N
+S
+N
+NH
+N
+NH2
+S
+S
+NH
+N
+N
+N
+N
+NH
+N
+N
+N
+N
+NH
+N
+N
+N
+N
+NH
+N
+N
+N
+N
+NH
+N
+N
+N
+N
+N
+N
+S
+N
+N
+NH2
+NH
+NH+
+NH
+N
+S
+N
+N
+NH2
+NH
+NH
+S
+N
+N
+NH2
+NH
+N
+N
+NH
+N
+NH2
+S
+S
+S
+H
+H
+N
+NH
+N
+NH2
+S
+S
+S
+H
+H
+NH
+N
+NH2
+S
+N
+O
+NH2+
+N
+NH
+N
+NH2
+S
+S
+N
+NH
+N
+NH2
+S
+S
+N
+NH
+N
+NH2
+S
+S
+NH
+N
+N
+N
+N
+NH
+N
+N
+N
+N
+NH
+N
+N
+N
+N
+N
+N
+S
+N
+N
+N
+NH+
+N
+N
+S
+N
+N
+NH2
+NH
+NH+
+N
+S
+N
+N
+NH2
+NH
+N
+NH+
+N
+S
+N
+N
+NH2
+NH
+N
+NH+
+N
+NH
+N
+NH2
+S
+S
+S
+H
+H
+N
+NH
+N
+NH2
+S
+S
+S
+H
+H
+NH
+N
+NH2
+S
+N
+O
+NH2
++
+NH
+N
+NH2
+S
+N
+O
+NH2
++
+N
+NH
+N
+H2N
+S
+S
+N
+NH
+N
+H2N
+S
+S
+N
+NH
+N
+NH2
+S
+S
+NH
+N
+N
+N
+N
+NH
+N
+N
+N
+N
+NH+
+N
+N
+S
+N
+N
+NH2
+NH
+NH+
+N
+N
+S
+N
+N
+NH2
+NH
+NH+
+N
+S
+N
+N
+NH2
+NH
+N
+NH+
+N
+S
+N
+N
+NH2
+NH
+N
+N
+O
+NH
+N
+H2N
+S
+N
+NH
+N
+NH2
+S
+S
+S
+H
+H
+N
+NH
+N
+NH2
+S
+S
+S
+H
+H
+N
+N
+NH
+N
+H2N
+S
+S
+O
+N
+N
+NH
+N
+H2N
+S
+S
+O
+N
+N
+NH
+N
+H2N
+S
+S
+O
+N
+N
+NH
+N
+H2N
+S
+S
+O
+NH
+N
+NH2
+S
+N
+N
+O
+N
+NH+
+N
+N
+S
+N
+N
+N
+NH+
+N
+N
+S
+N
+N
+NH2
+NH
+NH+
+N
+S
+N
+N
+NH2
+NH
+N
+NH+
+N
+S
+N
+N
+NH2
+NH
+N
+NH+
+N
+S
+N
+N
+NH2
+NH
+N
+N
+NH+
+NH
+S
+S
+N
+N
+NH
+N
+H2N
+S
+H2N+
+N
+NH
+N
+H2N
+S
+H2N+
+N
+N
+NH
+N
+H2N
+S
+NH
+O
+N
+N
+NH
+N
+NH2
+S
+N
+N
+N
+NH
+N
+H2N
+S
+S
+O
+N
+N
+NH
+N
+H2N
+S
+S
+O
+N
+N
+NH
+N
+NH2
+S
+N
+O
+N
+N
+NH
+N
+NH2
+S
+N
+O
+NH+
+N
+N
+S
+N
+N
+NH2
+NH
+NH+
+N
+S
+N
+N
+NH2
+NH
+N
+NH+
+N
+S
+N
+N
+NH2
+NH
+N
+NH+
+N
+S
+N
+N
+NH2
+NH
+N
+Figure 11. Neighborhood visualization of molecule C[C@H]1CC(Nc2cncc(-c3nncn3C)c2)C[C@H](C)C1.
+
+Junction Tree Variational Autoencoder for Molecular Graph Generation
+O
+NH+
+H2N
+O
+F
+O
+NH+
+F
+OH
+O
+N
+F
+O
+O
+N
+F
+NH3
++
+O
+O
+NH3
++
+N
+F
+O
+N
+F
+N
+O
+N
+Cl
+O
+NH2
++
+F
+N
+NH
+O
+Cl
+O
+NH2
++
+F
+N
+NH
+O
+OH
+O
+O
+NH2
++
+F
+N
+NH
+O
+O
+O
+NH2
++
+F
+N
+NH
+O
+O
+O
+NH+
+F
+N
+NH
+O
+O
+NH+
+F
+N
+NH
+O
+O
+F
+NH
+N
+O
+O
+NH+
+F
+F
+OH
+O
+NH2
++
+N
+F
+OH
+O
+NH2
++
+N
+F
+OH
+O
+NH2
++
+N
+F
+OH
+O
+NH+
+F
+F
+F
+OH
+O
+HO
+NH+
+F
+F
+F
+O
+O
+NH+
+F
+O
+O
+NH+
+F
+O
+O
+NH2
++
+F
+N
+NH
+O
+O
+O
+NH2
++
+F
+N
+NH
+O
+O
+O
+NH2
++
+F
+N
+NH
+O
+O
+O
+NH2
++
+F
+N
+NH
+O
+O
+N
+NH
+NH+
+F
+O
+O
+O
+NH2
++
+N
+N
+O
+O
+NH2
++
+N
+N
+O
+NH2
++
+N
+N
+N+
+O
+O-
+O
+O
+NH+
+F
+F
+F
+OH
+O
+NH+
+F
+F
+F
+OH
+O
+O
+NH+
+F
+F
+F
+O
+O
+NH+
+F
+O
+O
+NH+
+F
+O
+O
+NH+
+F
+O
+O
+NH+
+F
+O
+O
+NH2
++
+F
+N
+NH
+O
+O
+O
+NH2
++
+F
+N
+NH
+O
+O
+O
+NH2
++
+F
+N
+NH
+O
+O
+NH2
++
+N
+F
+F
+OH
+O
+O
+NH+
+F
+F
+O
+NH+
+F
+F
+F
+OH
+O
+O
+NH+
+F
+F
+F
+O
+O
+NH+
+F
+F
+F
+O
+O
+NH+
+F
+F
+F
+O
+O
+NH+
+F
+F
+F
+O
+O
+NH+
+F
+F
+F
+O
+O
+NH+
+F
+O
+O
+NH+
+F
+O
+O
+O
+NH+
+F
+O
+O
+O
+NH+
+F
+O
+O
+O
+S
+O
+O
+O
+NH
+N
+O
+O
+O
+NH+
+F
+F
+O
+O
+NH+
+F
+F
+O
+O
+NH+
+F
+F
+F
+O
+O
+NH+
+F
+F
+F
+O
+O
+NH+
+F
+F
+F
+O
+O
+NH+
+F
+F
+F
+O
+O
+NH+
+F
+F
+F
+O
+O
+NH+
+F
+F
+F
+O
+O
+NH+
+F
+F
+F
+O
+O
+NH+
+F
+F
+F
+O
+O
+NH+
+F
+F
+F
+O
+O
+NH+
+F
+O
+O
+H3N+
+S
+H2N
+O
+O
+F
+NH2
++
+O
+O
+O
+NH+
+F
+F
+O
+O
+NH+
+F
+F
+F
+O
+O
+NH+
+F
+F
+F
+O
+O
+NH+
+F
+F
+F
+O
+O
+NH+
+F
+F
+F
+O
+O
+NH+
+F
+F
+F
+O
+O
+NH+
+F
+F
+F
+O
+O
+NH+
+F
+F
+F
+O
+O
+NH+
+F
+F
+F
+O
+O
+NH+
+F
+F
+F
+O
+O
+NH+
+F
+F
+F
+O
+O
+NH3
++
+F
+F
+F
+NH2
++
+O
+H3N+
+F
+F
+F
+NH2
++
+O
+O
+O
+NH+
+F
+F
+O
+O
+NH+
+F
+F
+F
+O
+O
+NH+
+F
+F
+F
+O
+O
+NH+
+F
+F
+F
+O
+O
+NH+
+F
+F
+F
+O
+O
+NH+
+F
+F
+F
+O
+O
+NH+
+F
+F
+F
+O
+O
+NH+
+F
+F
+F
+O
+O
+NH+
+F
+F
+F
+O
+O
+NH+
+F
+F
+F
+O
+O
+NH+
+F
+F
+F
+O
+O
+NH+
+F
+F
+F
+O
+O
+NH3+
+F
+F
+F
+NH2
++
+O
+O
+NH+
+F
+F
+H
+O
+O
+NH+
+F
+F
+F
+O
+O
+NH+
+F
+F
+F
+O
+O
+NH+
+F
+F
+F
+O
+O
+NH+
+F
+F
+F
+O
+O
+NH+
+F
+F
+F
+O
+O
+NH+
+F
+F
+F
+O
+O
+NH+
+F
+F
+F
+O
+O
+NH+
+F
+F
+F
+O
+O
+NH+
+F
+F
+F
+O
+O
+NH+
+F
+F
+F
+O
+O
+NH+
+F
+F
+F
+O
+O
+F
+F
+O
+S
+O
+O
+NH2+
+O
+Br
+NH+
+OH
+O
+O
+NH+
+F
+F
+F
+O
+O
+NH+
+F
+F
+F
+O
+O
+NH+
+F
+F
+F
+O
+O
+NH+
+F
+F
+F
+O
+O
+NH+
+F
+F
+F
+O
+O
+NH+
+F
+F
+F
+O
+O
+NH+
+F
+F
+F
+O
+O
+NH+
+F
+F
+F
+O
+O
+NH+
+F
+F
+F
+O
+O
+NH+
+F
+F
+F
+O
+O
+NH+
+F
+F
+F
+O
+O
+O
+NH2
++
+S
+N
+NH+
+N
+O
+O
+N
+NH+
+HO
+F
+O
+O
+NH+
+F
+F
+F
+O
+O
+NH+
+F
+F
+F
+O
+O
+NH+
+F
+F
+F
+O
+O
+NH+
+F
+F
+F
+O
+O
+NH+
+F
+F
+F
+O
+O
+NH+
+F
+F
+F
+O
+O
+NH+
+F
+F
+F
+O
+O
+NH+
+F
+F
+F
+O
+O
+NH+
+F
+F
+F
+O
+O
+NH+
+F
+F
+F
+O
+O
+F
+F
+O
+S
+N
+NH2
++
+O
+N
+NH+
+F
+F
+O
+O
+O
+NH+
+HO
+N
+O
+NH+
+OH
+N
+O
+O
+NH+
+F
+F
+F
+O
+O
+NH+
+F
+F
+F
+O
+O
+NH+
+F
+F
+F
+O
+O
+NH+
+F
+F
+F
+O
+O
+NH+
+F
+F
+F
+O
+O
+NH+
+F
+F
+F
+O
+O
+NH+
+F
+F
+F
+O
+O
+NH+
+F
+F
+F
+O
+O
+N
+N
+O
+NH+
+S
+O
+O
+O
+O
+F
+F
+O
+S
+N
+NH2
++
+O
+N
+NH+
+F
+F
+O
+O
+O
+N
+NH+
+F
+F
+O
+O
+O
+NH+
+O
+N
+O
+NH+
+O
+N
+O
+O
+NH+
+F
+F
+F
+O
+O
+NH+
+F
+F
+F
+O
+O
+NH+
+F
+F
+F
+O
+O
+NH+
+F
+F
+F
+O
+O
+NH+
+F
+F
+F
+O
+O
+NH+
+F
+F
+F
+O
+O
+N
+N
+O
+NH+
+S
+O
+O
+O
+O
+N
+N
+O
+NH+
+S
+O
+O
+O
+O
+F
+F
+O
+S
+N
+NH2
++
+O
+NH+
+F
+F
+N
+O
+NH+
+F
+F
+N
+O
+NH+
+F
+F
+N
+O
+NH+
+O
+N
+O
+NH+
+O
+N
+O
+O
+NH+
+F
+F
+F
+O
+O
+NH+
+F
+F
+F
+O
+O
+NH+
+F
+F
+F
+O
+O
+NH+
+F
+F
+F
+O
+O
+NH+
+F
+F
+F
+O
+F
+NH+
+S
+N
+O
+O
+O
+NH+
+S
+N
+O
+O
+O
+F
+F
+O
+S
+N
+NH2
++
+Figure 12. Neighborhood visualization of molecule COc1cc(OC)cc([C@H]2CC[NH+](CCC(F)(F)F)C2)c1.
+
+Junction Tree Variational Autoencoder for Molecular Graph Generation
+O
+Cl
+O
+NH
+NH
+O
+NH
+5.30
+O
+NH
+O
+NH
+Cl
+Cl
+NH
+S
+NH
+Cl
+4.93
+O
+NH
+NH
+O
+NH
+F
+4.49
+O
+Cl
+Cl
+Cl
+4.45
+NH
+NH
+Cl
+Cl
+4.42
+O
+NH
+NH
+S
+NH
+Cl
+Cl
+4.42
+O
+NH
+NH
+S
+NH
+O
+NH
+Cl
+Cl
+4.40
+O
+NH
+NH
+S
+NH
+Cl
+Cl
+4.37
+Br
+S
+O
+Cl
+4.30
+O
+NH
+NH
+O
+NH
+Cl
+Cl
+4.26
+F
+S
+N
+NH
+S
+N
+F
+NH
+N
+4.23
+O
+NH
+O
+Cl
+4.18
+O
+NH
+O
+S
+4.17
+NH
+O
+NH
+NH
+S
+Cl
+4.08
+O
+NH
+Cl
+NH
+NH
+Cl
+Cl
+4.07
+S
+NH
+O
+NH
+NH
+O
+NH
+Cl
+Cl
+4.07
+O
+NH
+N
+Br
+S
+Cl
+Cl
+4.04
+O
+S
+O
+S
+Cl
+S
+4.04
+Cl
+S
+Cl
+Cl
+4.03
+O
+S
+NH
+Br
+Cl
+4.02
+NH
+O
+NH
+O
+NH
+Cl
+Cl
+4.01
+O
+NH
+O
+S
+4.00
+O
+N
+S
+N
+NH
+S
+3.99
+O
+NH
+S
+NH
+NH
+O
+NH
+Cl
+Cl
+3.98
+O
+NH
+NH
+Cl
+NH
+NH
+O
+Cl
+Cl
+3.96
+N
+Cl
+NH
+3.86
+Br
+Br
+N
+O
+S
+3.83
+O
+NH
+O
+NH
+Cl
+3.81
+Cl
+Cl
+Cl
+NH
+Cl
+3.79
+NH
+O
+N
+Cl
+3.72
+O
+I
+N
+Cl
+N
+Cl
+3.69
+Cl
+Cl
+Cl
+NH
+Cl
+3.68
+S
+O
+NH
+O
+O
+3.64
+O
+S
+N
+S
+3.61
+N
+Br
+O
+S
+S
+3.61
+N
+Br
+O
+S
+S
+3.61
+O
+Cl
+N
+Cl
+3.60
+NH
+Cl
+Cl
+Cl
+O
+3.58
+F
+Cl
+Cl
+Cl
+3.58
+S
+F
+Cl
+N
+3.58
+Cl
+S
+N
+3.57
+N
+N
+Cl
+S
+N
+O
+F
+3.56
+N
+S
+O
+O
+N
+N
+3.53
+NH
+O
+NH
+Cl
+N+
+O
+O-
+3.52
+O
+NH
+N
+S
+Cl
+Cl
+3.51
+O
+NH
+Cl
+Cl
+Cl
+3.51
+O
+NH
+F
+3.50
+O
+S
+3.50
+O
+O
+Br
+Br
+Br
+3.50
+O
+Br
+3.50
+Figure 13. Top 50 molecules found by Bayesian optimization using JT-VAE.
+
+Junction Tree Variational Autoencoder for Molecular Graph Generation
+N
+H
+N
+-S
+NH+
+S
+N
+N
+Br
+O
++H3N
+O
+O-
+O
+O
+N
+H
+O
+O
+N
++
+H
+N
+O
+N+O
+O-
+OH
+S
+O
+H
+N
+OH
+N
+N+ O
+-O
+O
+O-
+O
+N
+O
+N
+O
+S
++
+H
+N
+Cl
+N
+H
++
+N
+O
+S
+N
+HO
+N
+-2.05
+6.51
+6.69
+6.80
+O
+N
+H
+O
+N
+O
+N
++
+H
+N
+O
+O
+HN
+O
+N
+O
+O
+N
+O
+N
+H
+O
+O
+H2N
+O
+O-
+O
+O
+H
+N
+NH
+O
+Br
+S
+O
+O
+N
+N
+O
+O
+O-
+S
+O
+O
+N
+N
+O
++
+H
+N
+NH2
+O
+NH+
+NH2
+O
+NH2
+O
+-2.21
+4.52
+4.94
+5.69
+N
+H
+O
+N
+H
+S
+O
+O
+O
+O-
+N
+H
+O
+N
+H
+S
+O
+O
+O
+H
+N
+Br
+O
+N
+NH2+
+N
+O
+N
+N
+O
+N
+H
+O
+O-
+O
+N
+N
+O
+N
+H
+O
+N
+O
+OH
+N
+N
+N
+N+
+O
+-O
+OH
+N
+N
+N
++
+H
+N
+-1.92
+2.69
+3.03
+4.00
+Figure 14. Row 1-3: Molecule modiﬁcation results with similarity constraint sim(m, m′) ≥0.2, 0.4, 0.6. For each group, we plot the top
+three pairs that leads to actual property improvement, and one pair with decreased property. We can see that tighter similarity constraint
+forces the model to preserve the original structure.

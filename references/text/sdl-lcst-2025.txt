@@ -1,0 +1,858 @@
+Self-Driving Laboratory Optimizes the Lower Critical Solution
+Temperature of Thermoresponsive Polymers
+Guoyue Xu
+Renzheng Zhang
+Tengfei Luo*
+Department of Aerospace and Mechanical Engineering, University of Notre Dame, IN 46556, USA
+To overcome the inherent inefficiencies of traditional
+trial-and-error materials discovery, the scientific commu-
+nity is increasingly developing autonomous laboratories
+that integrate data-driven decision-making into closed-
+loop experimental workflows. In this work, we realize this
+concept for thermoresponsive polymers by developing
+a low-cost, "frugal twin" platform for the optimization
+of the lower critical solution temperature (LCST) of
+poly(N-isopropylacrylamide)
+(PNIPAM).
+Our
+system
+integrates robotic fluid-handling, on-line sensors, and
+Bayesian optimization (BO) that navigates the multi-
+component salt solution spaces to achieve user-specified
+LCST targets.
+The platform demonstrates conver-
+gence to target properties within a minimal number
+of experiments.
+It strategically explores the parameter
+space, learns from informative "off-target" results, and
+self-corrects to achieve the final targets. By providing an
+accessible and adaptable blueprint, this work lowers the
+barrier to entry for autonomous experimentation and ac-
+celerates the design and discovery of functional polymers.
+Introduction
+Integrating artificial intelligence with laboratory automa-
+tion has given rise to the self-driving laboratory (SDL) con-
+cept, a term first discussed by Isenhour in 19851. An SDL
+is a closed-loop system that enhances the scientific method
+by integrating automated hardware for executing experi-
+ments with intelligent software for data analysis and plan-
+ning subsequent steps. This paradigm can accelerate sci-
+entific discovery, with demonstrated potential to reduce re-
+search timelines by factors of 10 to 10002–4, while also
+cutting costs, waste, and energy consumption by 10 to
+100 times5. In addition to efficiency, SDLs enhance opera-
+tional consistency, ensuring experimental repeatability and
+reducing human-induced variability6.
+Foundational stud-
+ies, such as King et al.’s Robot Scientist "Adam"7, Granda et
+al.’s organic synthesis robot8, Burger et al.’s mobile robotic
+chemist9, and MacLeod et al.’s thin-film materials labo-
+ratory "Ada"10, have showcased SDL’s capabilities in au-
+tonomously driving discoveries in chemistry and materials
+science. Recent comprehensive reviews highlight advance-
+ments, challenges, and efforts in SDL technologies across
+various applications, including battery research11, addi-
+*Corresponding author: tluo@nd.edu
+tive manufacturing12, nanoparticle synthesis13,14, thin-film
+electronics10, and chemical reaction discovery8,9. Looking
+ahead, the community is focused on addressing the key chal-
+lenges inherent in establishing these complex systems15,
+with a growing emphasis on creating robust digital infras-
+tructures and community standards to democratize access
+to SDL technology6,16,17
+Over the past five years, a rich open-source software
+ecosystem has emerged to democratize SDL operation and
+data handling.
+Frameworks such as PyOpticon18 and
+IvoryOS19 auto-generate graphical user interfaces around
+Python device classes, while AlabOS20, HELAO-async21,
+and ChemOS 2.022,23 provide scalable workflow manage-
+ment. These open-source tools empower researchers to con-
+struct and control automated workflows more easily, lower-
+ing the entry barrier to autonomous science.
+Yet, the path to SDLs still faces challenges in hardware
+adaptability. Recent demonstrations show both the promise
+and the price of full hardware integration.
+At the high
+end, Hitosugi et al.
+built a dual-arm, dual-hexagon vac-
+uum cluster that deposits, transfers, and characterizes Nb-
+doped TiO2 films in a closed Bayesian optimization (BO)
+loop, yielding ≈12 samples per day at ≈2h per cycle24, but
+such chambers require a level of capital investment and in-
+frastructure that is typically inaccessible to individual aca-
+demic research groups.
+At the opposite end, the open-
+hardware community embraces low-cost, modular "frugal
+twins"—physical surrogates of high-end SDLs that capture
+core functionality at a fraction of the cost25.
+For exam-
+ple, the high cost of commercial high-throughput combi-
+natorial printing systems, often exceeding $100,000, puts
+them out of reach for most research groups. In contrast,
+the open-hardware "frugal-twin" offers a more accessible al-
+ternative. For example, the Archerfish system demonstrates
+this principle by retrofitting a consumer 3-D printer for ap-
+proximately $50026. Despite this 100-fold reduction in cost,
+the platform achieves a remarkable throughput of up to
+250 unique material compositions per minute. Such dra-
+matic cost compression is key to democratizing access to au-
+tonomous, data-rich experimentation and accelerating ma-
+terials innovation.
+In this work, we develop a "frugal-twin" autonomous plat-
+form for soft-material discovery that closes the loop for
+the data-driven exploration of functional polymers.
+As a
+testbed for our autonomous platform, we chose poly(N-
+1
+arXiv:2509.05351v1  [cond-mat.soft]  2 Sep 2025
+
+Figure 1 Schematic of the Closed-Loop Autonomous Experimental Workflow. (A) The view of the complete system, showing the parallel
+array of five modules and the integrated fluid-handling capability. (B) BO model update and recommend the most promising conditions
+for the subsequent experiment (C) Through the graphical user interface (GUI), a user specifies the volume of each stock solution to be
+dispensed, allowing for the precise formulation of each sample’s final composition (D) A detailed view of a single module highlights the key
+components: a multi-port sample holder, photodiode detector, a Peltier element for rapid heating and cooling, and a heat sink for thermal
+stability. This assembly enables automated, in-situ measurement of LCST by controlling both sample composition and temperature.
+isopropylacrylamide) (PNIPAM), the most widely studied
+thermoresponsive polymer27.
+In water, PNIPAM exhibits
+a sharp and reversible phase transition at its lower criti-
+cal solution temperature (LCST), typically around 32 °C.
+Below this temperature, the polymer chains exist as solu-
+ble, extended coils. Above it, they collapse into compact,
+hydrophobic globules. The proximity of this transition to
+physiological temperatures makes PNIPAM a candidate ma-
+terial for developing "smart" technologies, including con-
+trolled drug delivery systems28,29, tissue engineering scaf-
+folds30,31, and biosensors32,33.
+A critical feature of PNIPAM is that its LCST is tunable
+rather than fixed. It can be tuned by varying the concentra-
+tion and type of dissolved salts34. This phenomenon is gov-
+erned by the Hofmeister series, where different ions mod-
+ulate the phase transition by altering the structure of the
+water surrounding the polymer chains35. Salts can induce
+a "salting-out" effect, disrupting the polymer’s hydration
+shell and promoting hydrophobic interactions, which typi-
+cally lowers the LCST. Mechanistically, anions tend to ex-
+ert a more pronounced influence on the LCST than cations,
+in line with their established Hofmeister rankings36, which
+orders ions by their "salting-out" strength; for instance,
+strongly salting-out ions like sulfate cause a much greater
+LCST depression than weakly interacting ions like chloride.
+The behavior in multi-component solutions containing
+mixtures of two or three salts is more complex.
+These
+mixtures can exhibit synergistic effects that are difficult to
+predict, as the cations and anions compete to stabilize or
+destabilize the polymer’s hydration shell. This complexity
+presents both a challenge and an opportunity: using salt
+mixtures offers more degrees of freedom for fine-tuning the
+LCST, but the vast, non-linear design space makes optimiza-
+tion more difficult.
+In our "frugal-twin" autonomous platform, we demon-
+strate its capability by deploying BO to navigate the multi-
+component salt solution space of PNIPAM and precisely con-
+trol its LCST by tunning the types and concentrations of the
+salts. The results indicate that our integrated robotic and
+machine learning system can achieve desired material prop-
+erties with high efficiency and minimal human intervention,
+moving toward the accelerated and autonomous discovery
+of functional polymers with cost-effective systems.
+2
+
+Experimental
+Hardware
+The automated platform consists of five identical modules,
+integrated with a centralized fluid-handling system for au-
+tomated sample preparation and analysis, as shown in Fig-
+ure 1a.
+This modular architecture enables simultaneous,
+independent experiments. Each module works as an inde-
+pendent reactor and is designed to allow the automated,
+in-situ measurement of LCST. To determine the LCST, each
+module has an optical detection system consisting of a 600
+nm LED and a photodiode detector (FDS100) positioned
+across the sample vial. During a measurement cycle, the
+temperature is ramped from a starting point below the ex-
+pected LCST to a final point above it. The detector records
+the light intensity passing through the sample at each tem-
+perature step. The LCST is then defined as the tempera-
+ture at which the normalized transmittance reaches 50%
+of its initial value, determined by linear interpolation be-
+tween the two data points that span this threshold. A de-
+tailed view is shown in Figure 1D, highlighting the key
+components: a multi-port sample holder, photodiode detec-
+tor, a Peltier TEC-12706AJ thermoelectric module for heat-
+ing and cooling, and a heat sink to ensure thermal stabil-
+ity. The system’s Arduino Mega 2560 microcontroller imple-
+ments a Proportional-integral-derivative (PID) algorithm to
+precisely regulate the sample temperature, using feedback
+from a non-contact infrared sensor to modulate power to
+the thermoelectric module. The fluid-handling subsystem
+is responsible for creating samples with specific chemical
+compositions.
+This is achieved using a set of DC motor-
+driven peristaltic pumps, managed by DRV8825 stepper mo-
+tor drivers, for accurate liquid dispensing from source con-
+tainers. Solenoid valves, actuated via a switching circuit us-
+ing TN0106N3 MOSFETs, control the direction of fluid flow
+to the designated sample vials. The Arduino serves as the
+central controller for the entire platform, synchronizing the
+operation of the pumps, valves, and thermoelectric mod-
+ules, and providing integrated control over both liquid pro-
+portioning and temperature control based on user-defined
+parameters.
+Software
+The automated liquid distribution system is controlled by a
+Python application with a graphical user interface (GUI) de-
+veloped with the PyQt6 framework, which allows users to
+monitor and manage different components and processes in
+the system directly. Through the GUI, users can manage liq-
+uid dispensing, actuate valves for fluid distribution, and set
+and monitor temperature parameters for each sample. The
+software includes a data analysis module that allows users
+to select experimental data folders, visualize temperature
+profiles, and calculate the LCST.
+The program combines custom scripts and modules,
+leveraging the Python Standard Library alongside several
+third-party open-source libraries.
+Core functionalities in-
+clude hardware interfacing via pyfirmata for Arduino com-
+munication. The software architecture comprises separate
+functionalities, including motor control, temperature regu-
+lation, valve operation, and data visualization. This modu-
+lar design makes it easier to organize and expand the code-
+base. The Python code for system control and data analysis
+is available on GitHub.
+Chemicals and materials
+The precursor monomers and initiator solutions were
+first prepared to synthesize PNIPAM hydrogels.
+N-
+isopropylacrylamide (NIPAM,97%, Sigma-Aldrich) was dis-
+solved in deionized water (18.2 MΩ·cm) at 0.806 g per
+10 ml. The crosslinker, N,N’-methylenebisacrylamide (BIS,
+97%, purchased from Fisher Scientific), was prepared as a
+solution of 0.2196 g in 10 mL of deionized water. The initia-
+tor, potassium persulfate (KPS, 99. 0%, Sigma-Aldrich), was
+dissolved in deionized water at 0.135 g per 10 ml concen-
+tration.
+N,N,N’,N’-Tetramethylethylenediamine (TEMED,
+>98.0% (GC), TCI America, purchased from Fisher Scien-
+tific) was used as an accelerator and added directly as re-
+ceived. For a typical hydrogel synthesis, the following vol-
+umes of the prepared stock solutions and reagents were
+combined: 643 µL of the NIPAM solution, 85 µL of the BIS
+solution, 121 µL of the KPS solution, and 8.9 µL of TEMED.
+500 µL of deionized water was added to reach the final vol-
+ume. After polymerization, a gentle thermal treatment was
+used to separate the hydrogel from the surrounding liquid,
+which was then removed.
+Results and discussion
+Validation of Fluid Handling,
+Temperature
+Control, and Measurement Repeatability
+To establish a reliable and reproducible experimental plat-
+form, the system’s performance was characterized in three
+key areas: liquid handling precision, temperature control
+stability, and LCST measurement repeatability.
+First, the
+precision of the fluid handling system was confirmed over
+a broad range (20–1000 µL). As shown in Figure 2A, the
+measured values closely matched the commanded setpoints,
+yielding high linearity, R2 = 0.998, and demonstrating ac-
+curate fluid delivery. The platform’s temperature stability
+was assessed across a range of setpoints relevant to PNIPAM
+LCST transitions. For each setpoint, the temperature was
+measured using an IR sensor every 3 seconds for 8 min-
+utes.
+Figure 2B shows the platform’s thermal conditions
+and achieves accurate temperature control throughout the
+entire experimental range, with an average standard devi-
+ation across all setpoints of 0.30°C, demonstrating robust
+and precise thermal regulation essential for reproducible
+LCST measurements.
+Finally, the overall LCST measure-
+ment repeatability was evaluated by performing standard
+PNIPAM LCST determination at five independent sample
+modules. As illustrated in Figure 2C, the measured LCSTs
+across stations exhibited good consistency, with an average
+value of 30.59°C and a standard deviation of 0.15°C. Collec-
+tively, these results show that the automated platform deliv-
+3
+
+Figure 2 System validation and performance testing. (A) Liquid handling accuracy and precision, showing measured versus commanded
+volumes for automated dispensing. (B) Temperature control stability, showing measured temperatures versus set temperatures across the
+experimental range. Measurements were recorded every 3 seconds for 8 minutes at each setpoint, with an average standard deviation of
+0.30°C, confirming robust and precise temperature control. (C) Repeatability of standard PNIPAM LCST measurements performed at
+five independent sample modules, with an average LCST of 30.59°C and a standard deviation of 0.15°C. These results demonstrate the
+automated platform’s accuracy, temperature stability, and measurement reproducibility.
+ers reproducible results, establishing a reliable foundation
+for subsequent autonomous experimentation and machine
+learning-guided optimization.
+Autonomous experimentation with machine
+learning model
+To optimize the LCST of PNIPAM in two- and three-salt so-
+lutions, we implemented a machine learning-driven exper-
+imental loop guided by BO37. This data-driven approach
+has proven highly effective and data-efficient across a range
+of materials discovery challenges, such as for thermoelec-
+tric materials38,39, additive manufacturing40, and jet sinter-
+ing41.
+For our surrogate model, we chose Gaussian Process Re-
+gression (GPR) due to its ability to provide not only pre-
+dictions but also the quantification of uncertainty. The GP
+defines a probability distribution over functions, and our
+model assumes the LCST(f(x))) can be represented as:
+f(x) ∼G P(m(x),k(x,x′))
+(1)
+where m(x) is the mean function (assumed to be zero) and
+k(x,x′) is the covariance function, or kernel, which models
+the relationship between different points in the parameter
+space.
+The experimental framework comprises two models that
+operate on input vectors,
+x,
+representing either two-
+dimensional (x = [CNaCl,CNaBr]) or three-dimensional salt
+concentrations (x = [CNaCl,CNaBr,CCaCl2]). The LCST output,
+y, for each composition is the mean of three replicate exper-
+iments. To improve numerical stability, each feature and the
+response are standardized to zero mean and unit variance:
+˜x = x−µ x
+σ x
+,
+˜y = y−µy
+σy
+,
+(2)
+where µx and σx are the mean vector and standard devia-
+tion vector.
+k2-salt(˜x, ˜x′) =σ2
+f Maternν=1
+ ∥˜x −˜x′∥; ℓ
+
+|
+{z
+}
+σ2
+f =12.25
+ℓ=[12.3,15.3]
++
+σ2
+n δ˜x,˜x′
+| {z }
+σ2n =6.7×10−12
+(3)
+For the two-salt surrogate model (NaCl, NaBr), we adopted
+a composite kernel combining Matern and White Noise ker-
+nel. The model’s hyperparameters were optimized by maxi-
+mizing the log-marginal likelihood, and the final values re-
+veal key features of the system’s behavior. The fitted sig-
+nal variance is σ2
+f = 12.25, which sets the overall amplitude
+of LCST fluctuations captured by the smooth Matern com-
+ponent. The anisotropic length-scales are ℓNaCl = 12.3 and
+ℓNaBr = 15.3 (in standardized units), which suggests that the
+LCST is more sensitive to changes in NaCl concentration
+compared to the more gradual influence of NaBr. A smooth-
+ness parameter of ν = 1 was chosen for the Matern kernel to
+balance model complexity with the limited dataset. The per-
+formance of the GPR model was evaluated using leave-one-
+out cross-validation. The resulting parity plot, presented in
+Supplementary Information (SI) Figure S1, shows a strong
+correlation between the predicted and experimental values.
+The model exhibits high predictive accuracy, achieving a co-
+efficient of determination (R2) of 0.941.
+For the higher-dimensional three–salt space (NaCl, NaBr,
+CaCl2), a more complicate composite kernel was required to
+4
+
+Figure 3 Machine Learning-guided optimization of LCST in two-salt compositions. (A) The result from the second round of BO (star)
+yields an LCST of 25.76±0.12°C, closely approaching the target. (B, D) After this measurement, the GPR model is updated, generating
+a new LCST prediction map (B) and the corresponding EI landscape (D) to guide the third round. The EI map directs the platform to
+select the next candidate (cross) from the region of highest predicted value. (C) The third round experiment at this new BO-recommended
+location achieves the target with a measured LCST of 26.08±0.24°C.
+accurately model the LCST response.
+k3-salt(˜x, ˜x′) =σ2
+lin (˜x⊤˜x′)
+|
+{z
+}
+≈1.35
++σ2
+RBF exp
+ 
+−1
+2
+3
+∑
+d=1
+(˜xd −˜x′
+d)2
+ℓ2
+RBF,d
+!
+|
+{z
+}
+σ2
+RBF≈0.107
+ℓRBF=[0.334,1.87,0.535]
++σ2
+Mat Maternν=2.5
+ ∥˜x −˜x′∥; ℓMat
+
+|
+{z
+}
+σ2
+Mat≈0.061
+ℓMat=[0.0139,100,100]
++ σ2
+n δ˜x,˜x′
+| {z }
+σ2n =10−10
+(4)
+This complex kernel provides a robust model by simulta-
+neously capturing a dominant linear trend via a Dot Product
+component and modeling complex, non-linear interactions
+with RBF and Matern terms.
+These trained surrogate models are integrated into a BO
+framework, utilizing an expected improvement (EI) acquisi-
+tion function. As the objective is to identify a specific target
+LCST rather than a global optimum, the standard EI func-
+tion is adapted. For this target-seeking problem, ’improve-
+ment’, I(x), is mathematically defined as the negative abso-
+lute difference between the model’s predicted LCST and the
+specified target value.
+I(x) = −|ypred(x)−ytarget|
+(5)
+This formulation directs the optimization process toward re-
+gions of the parameter space predicted to be closer to the
+target.
+EI(x) = I(x)Φ(z)+σ(x)φ(z)
+(6)
+where:
+z = −|ypred(x)−ytarget|
+σ(x)
+(7)
+and Φ(·) and φ(·) are the standard normal CDF and PDF, re-
+spectively. EI not only accounts for the predicted improve-
+ment but also considers the uncertainty of the prediction,
+encouraging the exploration of less certain areas that still
+have potential. To determine the optimal experimental con-
+ditions, we evaluate EI across a dense grid of candidate con-
+centrations and select the condition that maximizes EI for
+subsequent experimental validation. After each optimiza-
+tion round, the corresponding GPR model is retrained using
+the expanded dataset, and subsequent experimental condi-
+tions are selected based on maximum EI values. By iter-
+atively updating the GP model and recalculating EI after
+each new experiment, our autonomous platform effectively
+navigates the chemical parameter space toward rapid con-
+vergence to desired LCST values with minimal experimental
+overhead.
+We first deployed our autonomous platform on the two-
+salt system (NaCl–NaBr) to perform a targeted optimization
+for an LCST of 26°C. Before initiating the closed-loop pro-
+cess detailed in Figure 3, the GPR model was initialized
+with a 13-point experimental dataset to provide broad cov-
+erage of the two-salt parameter space. This initial set was
+selected using a structured approach, sampling points along
+5
+
+Figure 4 Machine learning-guided optimization of LCST in three-salt compositions. (A) Optimization trajectories for targeting 25°C
+(blue) and 27°C (red). (B, C, E, F) Representative EI heat maps visualizing the model’s decision-making process. The algorithm identifies
+optimal candidates (yellow markers) by targeting regions predicted to offer the greatest improvement over the current best observation.
+Red circles denote previously measured experimental data points. (D) Tabulated salt concentrations (NaCl, NaBr, CaCl2) and resulting
+LCSTs for each experimental round.
+each axis and an interior point to capture a combined effect.
+Initially, the model-guided experiments yielded an average
+LCST of 24.55 ± 0.32°C, below the intended target (Figure
+S2). Figure 3A shows normalized transmittance data from
+the BO-recommended salt condition (NaCl: 0.452 mol/L,
+NaBr: 0.796 mol/L), resulting in LCST measurement of
+25.76 ± 0.12°C, approaching the target. The updated GPR
+model provided a new prediction of the LCST landscape
+(Figure 3B). Based on this updated model, the EI acquisition
+function is used to identify the optimal candidate for the
+next round of experiments. Figure 3C illustrates the subse-
+quent experimental validation at the next BO-selected con-
+centration (NaCl: 0.748 mol/L, NaBr: 0.38 mol/L), achiev-
+ing an LCST of 26.08 ± 0.24°C, within the acceptable mar-
+gin of the target. Figure 3D visualizes the corresponding
+EI landscape for the 26°C LCST target, clearly highlighting
+high-potential regions (bright yellow) used by the algorithm
+to efficiently steer experimentation toward optimal condi-
+tions. Together, these iterative results demonstrate how the
+autonomous experimental platform effectively leverages BO
+to guide experiments, achieving rapid convergence to the
+targeted LCST with minimal experimental effort. To confirm
+the general applicability and robustness of our system, ad-
+ditional validation experiments targeting LCSTs of 27°C and
+30°C were conducted, successfully identifying appropriate
+salt compositions. Detailed results of these validations are
+provided in Figure S3.
+To demonstrate the efficacy of our closed-loop optimiza-
+tion framework in a more complex parameter space, we
+used the three-salt GPR model (NaCl, NaBr, and CaCl2), ini-
+tialized with seven diverse data points, which was strategi-
+cally selected to provide a robust starting point for the opti-
+mization. This initial design of experiments included points
+along each axis to capture the effect of each individual salt,
+as well as interior points representing both two- and three-
+salt mixtures. This structured approach, chosen over ran-
+dom sampling, ensures the initial model is informed by a
+diverse set of conditions. The platform was used to perform
+a series of experiments aimed at identifying salt concentra-
+tions that met two distinct LCST targets, as illustrated in
+Figure 4. Task 1, targeting an LCST of 25°C, demonstrated
+the platform’s power for rapid, iterative refinement. The
+first BO-guided experiment (round 1) yielded an LCST of
+24.17 ± 0.33°C (Fig. 4D). While not at the target, this first
+step provided the model with information about the local
+parameter landscape.
+As illustrated in the SI, Figure S4,
+this new information significantly refined the GPR model,
+correcting its initially simplified prediction of the 25°C con-
+tour. With this updated understanding of the system, the
+platform’s EI acquisition function was then able to propose
+a more refined composition for the next iteration. This sec-
+ond BO-guided experiment (round 2) successfully achieved
+an LCST of 24.93±0.14°C , which within the error margin of
+the target. This process demonstrated the platform’s capac-
+ity to learn from each experiment and direct it towards the
+desired goal (Fig. 4A, blue trace).
+Task 2, targeting a 27°C LCST, highlighted the platform’s
+ability of exploration for complex problems. The initial ex-
+periment (round 1) yielded an LCST of 28.06 ± 0.21°C. The
+BO-guided experiment conducted in round 2 yielded a tem-
+perature of 25.92±0.16°C. While neither experiment hit the
+target, these results provided valuable data from a differ-
+6
+
+Figure 5 Five-round verification experiment targeting on 25°C LCST (A) The optimization trajectory for a five-round verification campaign
+(rounds 3-7). After two successful initial hits (purple square), the system makes two exploratory off-target measurements (orange diamond)
+and then successfully self-corrects to achieve a precise final hit on the 25°C target in round 7 (yellow star). (B, C) EI maps generated for
+round 7, with the star highlighting the selected EI candidate. (E, F) The corresponding prediction uncertainty maps illustrate how the
+model’s confidence changes throughout the experiment. The yellow diamond marks the round 5 candidate, which was specifically chosen
+on regions of high uncertainty. (D) Tabulated salt compositions and resulting LCSTs for each verification round.
+ent region of the parameter space. After incorporating the
+learnings from the previous two rounds, the GPR model gen-
+erated the updated Expected Improvement landscape for
+the third round, as shown in Figures 4E and 4F. Guided by
+this heat map, the platform selected its candidate for round
+3, which achieved an LCST of 26.83 ± 0.18°C. This brought
+the measurement to within 0.2°C of the target. The comple-
+tion of these two tasks shows the robustness and efficiency
+of the autonomous platform.
+To further test the platform’s capabilities, we conducted a
+five-round verification experiments targeting at 25°C LCST.
+Those experiments (rounds 3-7) were designed to show the
+system’s ability to self-correct and navigate a complex local
+landscape, as illustrated in Figure 5. The two successful ex-
+periments in round 3 and round 4 (Fig. 5A, purple squares),
+which confirmed the existence of a viable compositional re-
+gion near the 25°C target.
+Following this initial success,
+the platform strategically shifted from exploitation to explo-
+ration. The prediction uncertainty maps revealed regions
+where the model’s confidence was low, and guided by this,
+the algorithm intentionally selected a candidate in a high
+uncertainty area for round 5 (orange diamond, Fig. 5E, F).
+This exploratory approach, along with an additional inves-
+tigation in round 6, resulted in LCST values of 24.23 ± 0.35
+°C and 23.73±0.39 °C, both were off the target.
+From those failures, the exploratory data points were cru-
+cial for building a more accurate GPR model for the un-
+certain regimes in the parameter space. After incorporat-
+ing the points of both successful experiments and informa-
+tive misses, the platform recommends the final EI landscape
+shown for round 7 (Fig. 5B, C). With a much richer under-
+standing of the system, the algorithm made its final selec-
+tion (yellow star). This last experiment achieved an LCST
+of 25.04±0.19°C, which demonstrates the system’s ability to
+self-correct after exploratory steps and converge on the tar-
+get. These experiments demonstrate the platform’s ability
+to navigate the exploration-exploitation trade-off, which is
+critical for efficiently mapping a complex parameter space
+and rapidly converging on desired experimental results.
+Conclusions
+In this work, we have successfully designed, built, and
+demonstrated an autonomous closed-loop platform for the
+accelerated optimization of poly(N-isopropylacrylamide)’s
+LCST. We demonstrated that by integrating robotic fluid
+handling with a BO framework utilizing a GPR surrogate
+model, our system can efficiently navigate complex, multi-
+component chemical spaces.
+The comprehensive validation of the platform’s hardware
+confirmed its high precision in liquid handling, stability in
+temperature control, and reproducibility, establishing a re-
+liable framework for data-driven discovery.
+The machine
+learning-guided workflow was shown to be effective for op-
+timizing the LCST of PNIPAM in complex, multi-component
+salt solutions. In the experiments, the system converged on
+specified LCST targets in both two- and three-salt systems,
+showcasing its adaptability to problems of varying complex-
+ity.
+7
+
+We also demonstrated the platform’s ability to self-
+correct.
+The multi-round verification experiments high-
+lighted how the system strategically balances exploitation
+of known information with the exploration of uncertain re-
+gions. By intelligently learning from both on-target experi-
+ments and informative off-target experiments, the platform
+successfully recovered from deviations to achieve a final,
+high-precision objective. This capacity to leverage all ex-
+perimental outcomes for model improvement is fundamen-
+tal to the SDL’s stability, enabling it to converge on targets
+even after exploring non-optimal conditions.
+Conflicts of interest
+There are no conflicts to declare.
+Data availability
+All experimental code supporting the findings of this study
+is openly available in the associated GitHub repository:
+https://github.com/An-xu/SDL_LCST_OP. The repository
+contains the source code for automated control and data
+analysis.
+Notes and references
+[1] Thomas L Isenhour. Robotics in the laboratory. Journal
+of Chemical Information and Computer Sciences, 25(3):
+292–295, 1985.
+[2] Fernando Delgado-Licona and Milad Abolhasani. Re-
+search acceleration in self-driving labs: Technological
+roadmap toward accelerated materials and molecular
+discovery. Advanced Intelligent Systems, 5(4):2200331,
+2023.
+[3] Amanda A Volk and Milad Abolhasani. Performance
+metrics to unleash the power of self-driving labs in
+chemistry and materials science. Nature Communica-
+tions, 15(1):1378, 2024.
+[4] Florian Häse,
+Loïc M Roch,
+and Alán Aspuru-
+Guzik.
+Next-generation experimentation with self-
+driving laboratories. Trends in Chemistry, 1(3):282–
+291, 2019.
+[5] Tonghui Wang, Ruipeng Li, Hossein Ardekani, Lucía
+Serrano-Luján, Jiantao Wang, Mahdi Ramezani, Ryan
+Wilmington, Mihirsinh Chauhan, Robert W Epps,
+Kasra Darabi, et al. Sustainable materials acceleration
+platform reveals stable and efficient wide-bandgap
+metal halide perovskite alloys.
+Matter, 6(9):2963–
+2986, 2023.
+[6] Gary Tom, Stefan P Schmid, Sterling G Baird, Yang
+Cao, Kourosh Darvish, Han Hao, Stanley Lo, Sergio
+Pablo-García, Ella M Rajaonson, Marta Skreta, et al.
+Self-driving laboratories for chemistry and materials
+science. Chemical Reviews, 124(16):9633–9732, 2024.
+[7] Ross D King, Jem Rowland, Wayne Aubrey, Maria
+Liakata, Magdalena Markham, Larisa N Soldatova,
+Ken E Whelan, Amanda Clare, Mike Young, Andrew
+Sparkes, et al. The robot scientist adam. Computer, 42
+(8):46–54, 2009.
+[8] Jarosław M Granda, Liva Donina, Vincenza Dragone,
+De-Liang Long, and Leroy Cronin. Controlling an or-
+ganic synthesis robot with machine learning to search
+for new reactivity. Nature, 559(7714):377–381, 2018.
+[9] Benjamin Burger, Phillip M Maffettone, Vladimir V Gu-
+sev, Catherine M Aitchison, Yang Bai, Xiaoyan Wang,
+Xiaobo Li, Ben M Alston, Buyi Li, Rob Clowes, et al. A
+mobile robotic chemist. Nature, 583(7815):237–241,
+2020.
+[10] Benjamin P MacLeod, Fraser GL Parlane, Thomas D
+Morrissey, Florian Häse, Loïc M Roch, Kevan E Det-
+telbach, Raphaell Moreira, Lars PE Yunker, Michael B
+Rooney, Joseph R Deeth, et al. Self-driving laboratory
+for accelerated discovery of thin-film materials. Sci-
+ence Advances, 6(20):eaaz8867, 2020.
+[11] Adarsh Dave, Jared Mitchell, Sven Burke, Hongyi Lin,
+Jay Whitacre, and Venkatasubramanian Viswanathan.
+Autonomous optimization of nonaqueous battery elec-
+trolytes via robotic experimentation and machine
+learning. arXiv preprint arXiv:2111.14786, 2021.
+[12] Kelsey L Snapp, Aldair E Gongora, and Keith A Brown.
+Increasing throughput in fused deposition modeling
+by modulating bed temperature. Journal of Manufac-
+turing Science and Engineering, 143(9):094502, 2021.
+[13] Amanda A Volk, Robert W Epps, Daniel T Yonemoto,
+Benjamin S Masters, Felix N Castellano, Kristofer G
+Reyes, and Milad Abolhasani. Alphaflow: autonomous
+discovery and optimization of multi-step chemistry us-
+ing a self-driven fluidic lab guided by reinforcement
+learning. Nature Communications, 14(1):1403, 2023.
+[14] Milad Abolhasani and Eugenia Kumacheva. The rise
+of self-driving labs in chemical and materials sciences.
+Nature Synthesis, 2(6):483–492, 2023.
+[15] Martin Seifrid, Robert Pollice, Andres Aguilar-Granda,
+Zamyla Morgan Chan, Kazuhiro Hotta, Cher Tian
+Ser, Jenya Vestfrid, Tony C Wu, and Alan Aspuru-
+Guzik.
+Autonomous chemical experiments:
+Chal-
+lenges and perspectives on establishing a self-driving
+lab.
+Accounts of Chemical Research, 55(17):2454–
+2466, 2022.
+[16] Oliver Bayley, Elia Savino, Aidan Slattery, and Timothy
+Noël. Autonomous chemistry: Navigating self-driving
+labs in chemical and material sciences. Matter, 7(7):
+2382–2398, 2024.
+[17] Sayan Doloi, Maloy Das, Matthew Osvaldo, Yujia Li,
+Zen Han Cho, Xingchi Xiao, John V Hanna, and
+8
+
+Leonard Ng Wei Tat. Democratizing self-driving labs:
+Advances in low-cost 3d printing for laboratory au-
+tomation. Digital Discovery, 2025.
+[18] Richard Randall and Arun Majumdar. Pyopticon: An
+open-source python package for laboratory control,
+automation, and visualization. Chemistry of Materials,
+2025.
+[19] Wenyu Zhang, Lucy Hao, Veronica Lai, Ryan Corkery,
+Jacob Jessiman, Jiayu Zhang, Junliang Liu, Yusuke
+Sato, Maria Politi, Matthew E Reish, et al. Ivoryos: an
+interoperable web interface for orchestrating python-
+based self-driving laboratories.
+Nature Communica-
+tions, 16(1):1–8, 2025.
+[20] Yuxing Fei, Bernardus Rendy, Rishi Kumar, Olympia
+Dartsi, Hrushikesh P Sahasrabuddhe, Matthew J Mc-
+Dermott, Zheren Wang, Nathan J Szymanski, Lau-
+ren N Walters, David Milsted, et al. Alabos: a python-
+based reconfigurable workflow management frame-
+work for autonomous laboratories. Digital Discovery,
+3(11):2275–2288, 2024.
+[21] Dan Guevarra, Kevin Kan, Yungchieh Lai, Ryan JR
+Jones, Lan Zhou, Phillip Donnelly, Matthias Richter,
+Helge S Stein, and John M Gregoire. Orchestrating
+nimble experiments across interconnected labs. Digi-
+tal Discovery, 2(6):1806–1812, 2023.
+[22] Loïc M Roch, Florian Häse, Christoph Kreisbeck,
+Teresa Tamayo-Mendoza, Lars PE Yunker, Jason E
+Hein, and Alán Aspuru-Guzik.
+Chemos: orchestrat-
+ing autonomous experimentation. Science Robotics, 3
+(19):eaat5559, 2018.
+[23] Malcolm Sim, Mohammad Ghazi Vakili, Felix Strieth-
+Kalthoff, Han Hao, Riley J Hickman, Santiago Miret,
+Sergio Pablo-García, and Alán Aspuru-Guzik. Chemos
+2.0: An orchestration architecture for chemical self-
+driving laboratories. Matter, 7(9):2959–2977, 2024.
+[24] Ryota Shimizu, Shigeru Kobayashi, Yuki Watanabe, Ya-
+sunobu Ando, and Taro Hitosugi. Autonomous mate-
+rials synthesis by machine learning and robotics. APL
+Materials, 8(11), 2020.
+[25] Stanley Lo, Sterling G Baird, Joshua Schrier, Ben
+Blaiszik, Nessa Carson, Ian Foster, Andrés Aguilar-
+Granda, Sergei V Kalinin, Benji Maruyama, Maria
+Politi, et al.
+Review of low-cost self-driving labora-
+tories in chemistry and materials science: the “frugal
+twin” concept. Digital Discovery, 3(5):842–868, 2024.
+[26] Alexander E Siemenn, Basita Das, Eunice Aissi, Fang
+Sheng, Lleyton Elliott, Blake Hudspeth, Marilyn Mey-
+ers, James Serdy, and Tonio Buonassisi. Archerfish: a
+retrofitted 3d printer for high-throughput combinato-
+rial experimentation via continuous printing. Digital
+Discovery, 2025.
+[27] Avraham Halperin, Martin Kröger, and Françoise M
+Winnik. Poly (n-isopropylacrylamide) phase diagrams:
+fifty years of research.
+Angewandte Chemie Interna-
+tional Edition, 54(51):15342–15367, 2015.
+[28] Haydn T Mitchell,
+Spencer A Schultz,
+Philip J
+Costanzo,
+and
+Andres
+W
+Martinez.
+Poly
+(n-
+isopropylacrylamide) hydrogels for storage and de-
+livery of reagents to paper-based analytical devices.
+Chromatography, 2(3):436–451, 2015.
+[29] Zahra Ayar,
+Mehdi Shafieian,
+Narges Mahmoodi,
+Omid Sabzevari, and Zahra Hassannejad. A recharge-
+able drug delivery system based on pnipam hydrogel
+for the local release of curcumin. Journal of Applied
+Polymer Science, 138(40):51167, 2021.
+[30] Sajjad Ashraf, Hun-Kuk Park, Hansoo Park, and Soo-
+Hong Lee. Snapshot of phase transition in thermore-
+sponsive hydrogel pnipam: Role in drug delivery and
+tissue engineering. Macromolecular Research, 24:297–
+304, 2016.
+[31] Kun Wu, Yanan Hu, and Huiping Feng. Investigation
+of 3d-printed pnipam-based constructs for tissue en-
+gineering applications: a review. Journal of Materials
+Science, 58(47):17727–17750, 2023.
+[32] Anubhab Das, Anashwara Babu, Sourav Chakraborty,
+Joachim FR Van Guyse, Richard Hoogenboom, and
+Samarendra Maji. Poly (n-isopropylacrylamide) and
+its copolymers: a review on recent advances in the
+areas of sensing and biosensing. Advanced Functional
+Materials, 34(37):2402432, 2024.
+[33] Molla R Islam, Andrews Ahiabu, Xue Li, and Michael J
+Serpe.
+Poly (n-isopropylacrylamide) microgel-based
+optical devices for sensing and biosensing.
+Sensors,
+14(5):8984–8995, 2014.
+[34] Hongbo Du, Ranil Wickramasinghe, and Xianghong
+Qian. Effects of salt on the lower critical solution tem-
+perature of poly (n-isopropylacrylamide). The Journal
+of Physical Chemistry B, 114(49):16594–16604, 2010.
+[35] Christopher M Burba, Shawn M Carter, Kevin J
+Meyer, and Charles V Rice.
+Salt effects on poly (n-
+isopropylacrylamide) phase transition thermodynam-
+ics from nmr spectroscopy.
+The Journal of Physical
+Chemistry B, 112(34):10399–10404, 2008.
+[36] Kevin J Pastoor and Charles V Rice. Cation effects on
+the phase transition of n-isopropylacrylamide hydro-
+gels. Macromolecular chemistry and physics, 216(9):
+1024–1032, 2015.
+[37] Ke Wang and Alexander W Dowling. Bayesian opti-
+mization for chemical products and functional mate-
+rials.
+Current Opinion in Chemical Engineering, 36:
+100728, 2022.
+9
+
+[38] Kaidong Song, Guoyue Xu, Ali Newaz Mohammad
+Tanvir, Ke Wang, Md Omarsany Bappy, Haijian Yang,
+Wenjie Shang, Le Zhou, Alexander W Dowling, Tengei
+Luo, et al. Machine learning-assisted 3d printing of
+thermoelectric materials of ultrahigh performances at
+room temperature. Journal of Materials Chemistry A,
+12(32):21243–21251, 2024.
+[39] Mortaza Saeidi-Javash, Ke Wang, Minxiang Zeng,
+Tengfei Luo, Alexander W Dowling, and Yanliang
+Zhang. Machine learning-assisted ultrafast flash sin-
+tering of high-performance and flexible silver–selenide
+thermoelectric devices. Energy & Environmental Sci-
+ence, 15(12):5093–5104, 2022.
+[40] Ke Wang, Minxiang Zeng, Jialu Wang, Wenjie Shang,
+Yanliang Zhang, Tengfei Luo, and Alexander W Dowl-
+ing.
+When physics-informed data analytics outper-
+forms black-box machine learning: A case study in
+thickness control for additive manufacturing. Digital
+Chemical Engineering, 6:100076, 2023.
+[41] Zhongyu Cheng, Ke Wang, Ali MN Tanvir, Wenjie
+Shang, Tengfei Luo, Yanliang Zhang, Alexander W
+Dowling, and David B Go. Bayesian optimization of
+low-temperature nonthermal plasma jet sintering of
+nanoinks. ACS Applied Materials & Interfaces, 16(35):
+46897–46908, 2024.
+10

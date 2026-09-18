@@ -1,0 +1,1744 @@
+MACE: Higher Order Equivariant Message Passing
+Neural Networks for Fast and Accurate Force Fields
+Ilyes Batatia
+Engineering Laboratory,
+University of Cambridge
+Cambridge, CB2 1PZ UK
+Department of Chemistry,
+ENS Paris-Saclay, Université Paris-Saclay
+91190 Gif-sur-Yvette, France
+ilyes.batatia@ens-paris-saclay.fr
+Dávid Péter Kovács
+Engineering Laboratory,
+University of Cambridge
+Cambridge, CB2 1PZ UK
+Gregor N. C. Simm
+Engineering Laboratory,
+University of Cambridge
+Cambridge, CB2 1PZ UK
+Christoph Ortner
+Department of Mathematics
+University of British Columbia
+Vancouver, BC, Canada V6T 1Z2
+Gábor Csányi
+Engineering Laboratory,
+University of Cambridge
+Cambridge, CB2 1PZ UK
+Abstract
+Creating fast and accurate force ﬁelds is a long-standing challenge in computational
+chemistry and materials science. Recently, several equivariant message passing
+neural networks (MPNNs) have been shown to outperform models built using
+other approaches in terms of accuracy. However, most MPNNs suffer from high
+computational cost and poor scalability. We propose that these limitations arise
+because MPNNs only pass two-body messages leading to a direct relationship
+between the number of layers and the expressivity of the network. In this work,
+we introduce MACE, a new equivariant MPNN model that uses higher body order
+messages. In particular, we show that using four-body messages reduces the
+required number of message passing iterations to just two, resulting in a fast and
+highly parallelizable model, reaching or exceeding state-of-the-art accuracy on the
+rMD17, 3BPA, and AcAc benchmark tasks. We also demonstrate that using higher
+order messages leads to an improved steepness of the learning curves.
+1
+Introduction
+The earliest approaches for creating force ﬁelds (interatomic potentials) using machine learning tech-
+niques were using local atom-centered symmetric descriptors and feed-forward neural networks [6],
+Gaussian Process regression[2] or linear regression [44, 47]. The ﬁrst attempts to use graph neural net-
+works to model the potential energy of atomistic systems had only limited success. The DTNN [42],
+SchNet [41], HIP-NN [35], PhysNet [48], or DimeNet [20, 29] approaches could only come close
+to but not improve upon the atomic descriptor-based methods in terms of computational efﬁciency
+36th Conference on Neural Information Processing Systems (NeurIPS 2022).
+arXiv:2206.07697v2  [stat.ML]  26 Jan 2023
+
+and accuracy on public benchmarks. Furthermore, most MPNN interatomic potentials use 2-body
+invariant messages, making them non-universal approximators [38].
+The MACE architecture presented here allows for the efﬁcient computation of equivariant messages
+with high body order. As a result of the increased body order of the messages, only two message
+passing iterations are necessary to achieve high accuracy - unlike the typical ﬁve or six iterations
+of MPNNs, making it scalable and parallelizable. Finally, our implementation has remarkable
+computational efﬁciency, reaching state-of-the-art results on the 3BPA benchmark after 30 mins of
+training on NVIDIA A100 GPUs.
+We summarise our main contributions as follows:
+• We introduce MACE, a novel architecture combining equivariant message passing with
+efﬁcient many-body messages. The MACE models achieve state-of-the-art performance
+on challenging benchmark tests. They also display greater generalization capabilities over
+other approaches on extrapolation benchmarks.
+• We demonstrate that many-body messages change the power of the empirical power-law of
+the learning curves. Furthermore, we show experimentally that the addition of equivariant
+messages only shifts the learning curves but does not change the power law when higher
+order messages are used.
+• We show that MACE does not only outperform previous approaches in terms of accuracy
+but also does so while being signiﬁcantly faster to train and evaluate than the previous most
+accurate models.
+2
+Background
+2.1
+MPNN Interatomic Potentials
+MPNNs [22, 9] are a type of graph neural network (GNN, [40, 4, 27, 51]) that parametrises a
+mapping from a labeled graph to a target space, either a graph or a vector space. When applied to
+parameterise properties of atomistic structures (materials or molecules), the graph is embedded in
+3-dimensional (3D) Euclidean space, where each node represents an atom, and edges connect nodes
+if the corresponding atoms are within a given distance of each other. We represent the state of each
+node i in layer t of the MPNN by a tuple
+σ(t)
+i
+= (ri, zi, h(t)
+i ),
+(1)
+where ri ∈R3 is the position of atom i, zi the chemical element, and h(t)
+i
+are its learnable features.
+A forward pass of the network consists of multiple message construction, update, and readout steps.
+During message construction, a message m(t)
+i
+is created for each node by pooling over its neighbors:
+m(t)
+i
+=
+M
+j∈N(i)
+Mt(σ(t)
+i , σ(t)
+j ),
+(2)
+where Mt is a learnable message function and L
+j∈N(i) is a learnable, permutation invariant pooling
+operation over the neighbors of atom i (e.g., a sum). In the update step, the message m(t)
+i
+is
+transformed into new features
+h(t+1)
+i
+= Ut(σ(t)
+i , m(t)
+i ),
+(3)
+where Ut is a learnable update function. After T message construction and update steps, the learnable
+readout functions Rt map the node states σ(t)
+i
+to the target, in this case the site energy of atom i,
+Ei =
+T
+X
+t=1
+Rt(σ(t)
+i ).
+(4)
+2.2
+Equivariant Graph Neural Networks
+In equivariant GNNs, internal features h(t)
+i
+transform in a speciﬁed way under some group action [1,
+12, 32, 46, 49]. When modelling the potential energy of an atomic structure, the group of interest is
+2
+
+O(3), specifying rotations and reﬂections of the particles.1 We call a GNN O(3) equivariant if it has
+internal features that transform under the rotation Q ∈O(3) as
+h(t)
+i (Q · (r1, ..., rN)) = D(Q)h(t)
+i (r1, ..., rN),
+(5)
+where Q · (r1, ..., rN) denotes the action of the rotation on the set of atomic positions and D(Q) is a
+matrix representing the rotation Q, acting on message h(t)
+i . In general, elements of the feature vector
+can be labeled according to the irreducible representation they transform with. We will write h(t)
+i,kLM
+to indicate a collection of features on atom i, indexed by k, that transform according to
+h(t)
+i,kLM(Q · (r1, . . . , rN)) =
+X
+M ′
+DL
+M ′M(Q)h(t)
+i,kLM ′(r1, . . . , rN),
+(6)
+where DL(Q) ∈R(2L+1)×(2L+1) is a Wigner D-matrix of order L. A feature labelled with L = 0
+describes an invariant scalar. Features labeled with L > 0, describe equivariant features, formally
+corresponding to equivariant vectors, matrices or higher order tensors. The features of invariant
+models, such as SchNet[41] and DimeNet[29], transform according to D(Q) = 1, the identity matrix.
+Models such as NequIP [5], equivariant transformer [45], PaiNN [43], or SEGNNs [8], in addition to
+invariant scalars, employ equivariant internal features that transform like vectors or tensors.
+3
+Related Work
+ACE - Higher Order Local Descriptors
+In the last few years, there have been two signiﬁcant
+breakthroughs in machine learning force ﬁelds. First, the Atomic Cluster Expansion (ACE) [16]
+provided a systematic framework for constructing high body order complete polynomial basis
+functions (features) at a constant cost per basis function, independent of body order [17]. It has also
+been shown that ACE includes many previously developed atomic environment representations as
+special cases, including Atom Centred Symmetry Functions [6], the Smooth Overlap of Atomic
+Positions (SOAP) descriptor [2], Moment Tensor Potential basis functions [44], and the hyperspherical
+bispectrum descriptor [2] used by the SNAP model [47]. These local models are limited by their
+cutoff distance and their relatively rigid architecture compared to the overparametrised MPNNs,
+leading to somewhat lower accuracy, in particular, for molecular force ﬁelds.
+Equivariant MPNNs
+The second breakthrough was using equivariant internal features in MPNNs.
+These equivariant MPNNs, such as Cormorant [1], Tensor Field Networks [46], EGNN [39],
+PaiNN [43], Equivariant Transformers [45], SEGNN [8], NewtonNet [23], and NequIP [5] were able
+to achieve higher performance than previous local descriptor-based models. However, they suffer
+from two signiﬁcant limitations: ﬁrst, the most accurate models used L = 3 spherical tensors as
+messages and 4 to 6 message passing iterations [5], which resulted in a relatively high computational
+cost. Second, using this many iterations signiﬁcantly increased the receptive ﬁeld of the network,
+making them difﬁcult to parallelise across multiple GPUs [36].
+Higher Order Message Passing
+Most MPNNs use a message passing scheme based on two-body
+messages, meaning they simultaneously depend on the states of two atoms. It has been recognised
+that it can be beneﬁcial to include angles into the features, effectively creating 3-body invariant
+messages [29]. This idea has also been exploited in other invariant MPNNs, in particular, by
+SphereNet [34] and GemNet [30]. Even though these models improved the accuracy compared to
+the 2-body message passing, they were limited by the computational cost associated with explicitly
+summing over all triplets or quadruplets to compute the higher order features.
+Multi-ACE Framework
+Recently, multi-ACE has been proposed as a unifying framework of
+E(3)-equivariant atom-centered interatomic potentials, extending the ACE framework to include
+methods built on equivariant MPNNs [3]. A similar unifying theories were also put forward by
+[37] and [7]. The idea is to parameterise the message m(t)
+i
+in terms of invariant or equivariant
+ACE models. This framework sets out a design space in which each model can be characterised
+in terms of: (1) the number of layers, (2) the body order of the messages, (3) the equivariance (or
+invariance) of the messages, and (4) the number of features in each layer. The framework highlights
+the relationship between the overall body order of the models and message passing, also previously
+1Translation invariance is trivially incorporated through the use of relative distances.
+3
+
+discussed in Kondor [31]. Most previously published models achieved high accuracy by either using
+4 to 6 layers [5, 43] or increasing the local body order with a single layer [33, 36]. With our model,
+we fall in between these two extremes by combining high body order with message passing.
+4
+The MACE Architecture
+Our MACE model follows the general framework of MPNNs outlined in Section 2. Our key
+innovation is a new message construction mechanism. We expand the messages m(t)
+i
+in a hierarchical
+body order expansion,
+m(t)
+i
+=
+X
+j
+u1
+
+σ(t)
+i ; σ(t)
+j
+
++
+X
+j1,j2
+u2
+
+σ(t)
+i ; σ(t)
+j1 , σ(t)
+j2
+
++ · · · +
+X
+j1,...,jν
+uν
+
+σ(t)
+i ; σ(t)
+j1 , . . . , σ(t)
+jν
+
+,
+(7)
+where the u functions are learnable, the sums run over the neighbors of i, and ν is a hyper-parameter
+corresponding to the maximum correlation order, the body order minus 1, of the message function
+with respect to the states. Even though we refer to the message as (ν + 1)-body with respect to the
+states, the overall body order with respect to the positions can be larger depending on the body order of
+the states themselves. Crucially, by writing P
+j1,...,jν, which includes self-interaction (e.g., j1 = j2),
+we will later obtain a tensor product structure with a computationally efﬁcient parameterisation,
+that allows us to circumvent the seemingly exponential scaling of the computational cost with the
+correlation order ν. This contrasts with previous models, such as DimeNet [28, 29], that compute
+3-body features via the more standard many-body expansion P
+j1<···<jν. Below, we describe the
+MACE architecture in detail. To better understand the architecture, we report in A.4 a table of the
+introduced tensors along with their shapes.
+Message Construction
+At each iteration, we ﬁrst embed the edges using a learnable radial basis
+R(t)
+kl1l2l3, a set of spherical harmonics Y m1
+l1 , and a learnable embedding of the previous node features
+h(t)
+j,˜kl2m2 using weights W (t)
+k˜kl2. The A(t)
+i -features are obtained by pooling over the neighbours N(i)
+to obtain permutation invariant 2-body features whilst, crucially, retaining full directional information,
+and thus, full information about the atomic environment:
+A(t)
+i,kl3m3 =
+X
+l1m1,l2m2
+Cl3m3
+l1m1,l2m2
+X
+j∈N(i)
+R(t)
+kl1l2l3(rji)Y m1
+l1 (ˆrji)
+X
+˜k
+W (t)
+k˜kl2h(t)
+j,˜kl2m2,
+(8)
+where Cl3m3
+l1m1,l2m2 are the standard Clebsch-Gordan coefﬁcients ensuring that A(t)
+i,kl3m3 maintain the
+correct equivariance, rji is the (scalar) interatomic distance, and ˆrji is the corresponding unit vector.
+R(t)
+kl1l2l3 is obtained by feeding a set of radial features that embed the radial distance rji using Bessel
+functions multiplied by a smooth polynomial cutoff (cf. Ref. [29]) to a multi-layer perceptron (MLP).
+See Section A.5 for details. In the ﬁrst layer, the node features h(t)
+j
+correspond to the (invariant)
+chemical element zj. Therefore, (8) can be further simpliﬁed:
+A(1)
+i,kl1m1 =
+X
+j∈N(i)
+R(1)
+kl1(rji)Y m1
+l1 (ˆrji)W (1)
+kzj.
+(9)
+This simpliﬁed operation is much cheaper, making the computational cost of the ﬁrst layer low.
+The key operation of MACE is the efﬁcient construction of higher order features from the A(t)
+i -
+features. This is achieved by ﬁrst forming tensor products of the features, and then symmetrising:
+B(t)
+i,ηνkLM =
+X
+lm
+CLM
+ην,lm
+ν
+Y
+ξ=1
+X
+˜k
+w(t)
+k˜klξA(t)
+i,˜klξmξ,
+lm = (l1m1, . . . , lνmν)
+(10)
+where the coupling coefﬁcients CLM
+ην
+corresponding to the generalised Clebsch-Gordan coefﬁcients
+(details in A.3) ensuring that B(t)
+i,ηνkLM are L-equivariant, the weights w(t)
+k˜klξ are mixing the channels
+(k) of A(t)
+i , and ν is a given correlation order. CLM
+ην,lm is very sparse and can be pre-computed
+such that (10) can be evaluated efﬁciently (see Appendix A.3.3). The additional index ην simply
+enumerates all possible couplings of l1, . . . , lν features that yield the selected equivariance speciﬁed
+4
+
+by the L index. The B(t)
+i -features are constructed up to some maximum ν . This variable in (10) is
+the order of the tensor product, and hence, can be identiﬁed as the order of the many-body expansion
+terms in (7). The computationally expensive multi-dimensional sums over all triplets, quadruplets,
+etc., are thus circumvented and absorbed into (9) and (8).
+The message m(t)
+i
+can now be written as a linear expansion
+m(t)
+i,kLM =
+X
+ν
+X
+ην
+W (t)
+zikL,ηνB(t)
+i,ηνkLM,
+(11)
+where W (t)
+zikL,ην is a learnable weight matrix that depends on the chemical element zi of the receiving
+atom and message symmetry L. Thus, we implicitly construct each term u in (7) by a linear
+combination of B(t)
+i,ηνkLM features of the corresponding body order.
+Under mild conditions on the two-body bases A(t)
+i , the higher order features B(t)
+i,ηνkLM can be
+interpreted as a complete basis of many-body interactions [17], which can be computed at a cost
+comparable to pairwise interactions. Because of this, the expansion (11) is systematic. It can in
+principle be converged to represent any smooth (ν + 1)-body equivariant mapping in the limit of
+inﬁnitely many features (proof in [17]).
+Update
+In MACE, the update is a linear function of the message and the residual connection [25]:
+h(t+1)
+i,kLM = U kL
+t
+(σ(t)
+i , m(t)
+i ) =
+X
+˜k
+W (t)
+kL,˜kmi,˜kLM +
+X
+˜k
+W (t)
+zikL,˜kh(t)
+i,˜kLM.
+(12)
+Readout
+In the readout phase, the invariant part of the node features is mapped to a hierarchical
+decomposition of site energies via readout functions:
+Ei = E(0)
+i
++ E(1)
+i
++ ... + E(T )
+i
+,
+where
+E(t)
+i
+= Rt
+
+h(t)
+i
+
+=
+
+
+
+
+
+P
+˜k W (t)
+readout,˜kh(t)
+i,˜k00
+if t < T
+MLP(t)
+readout
+n
+h(t)
+i,k00
+o
+k
+
+if t = T
+(13)
+The readout only depends on the invariant features h(t)
+i,k00 to ensure that the site energy contributions
+E(t)
+i
+are invariant as well. To maintain body ordering, we use linear readout functions for all layers
+except the last, where we use a one-layer MLP.
+5
+Results
+5.1
+Effect of Higher Order Messages
+Number of Layers
+In this section, we investigate the effect of using higher order messages.
+Many MPNN architectures [41, 48] exclusively pass two-body invariant messages resulting in an
+incomplete representation of the local environment [38]. Equivariant message-passing schemes [5,
+43, 8] lift the degeneracy of most structures by containing directional information in the messages.
+MPNNs that only employ two-body messages at each layer can increase the body order either by
+stacking layers [31] which simultaneously increases the model’s receptive ﬁeld or by using non-linear
+activation functions, generate only a subset of all possible higher order features. By constructing
+higher order messages using the MACE architecture, we disentangle the increase in body order from
+the increase of the receptive ﬁeld.
+In Figure 1, we show the accuracy of MACE, NequIP, and BOTNet [3] on the 3BPA benchmark [33]
+as a function of the number of message passing layers. Approaches employing 2-body message
+passing require up to ﬁve iterations for their accuracy to converge. By constructing many body
+messages, the number of required layers to converge in accuracy reduces to just two. In all subsequent
+experiments, we use two-layer MACE models.
+Furthermore, we compare BOTNet, which does not use any non-linearities in the update step to
+NequIP, which does. Otherwise, the two models are very similar. We observe that the increase in body
+5
+
+101
+102
+RMSE F [meV/A]
+300K
+102
+103
+600K
+102
+103
+1200K
+MACE
+NequIP
+BOTNet
+1
+2
+3
+4
+5
+Number of layers
+101
+102
+RMSE E [meV]
+1
+2
+3
+4
+5
+Number of layers
+101
+102
+1
+2
+3
+4
+5
+Number of layers
+102
+103
+Figure 1: Energy and force errors of BOTNet, NequIP, and MACE (L = 2) on the 3BPA dataset at
+different temperatures as a function of the number of layers.
+order through non-linearities within the update provides only marginal improvement, highlighting
+the difference between an increase in body order through non-linearities (NequIP) and higher order
+symmetric messages (MACE). Consequently, higher order message passing allows one to reduce the
+number of layers, thereby increasing speed and ease of parallelization over multiple GPUs. We note
+that MACE does not improve after two layers as the diameter of the 3BPA molecule is about 9 Å and
+radial cutoff in each layer is 5 Å.
+Learning Curves
+We study how higher order message passing affects the learning curves. A
+recent study of the NequIP model [5] showed that the inclusion of equivariant features results in
+enhanced data efﬁciency, increasing the slope of the log-log plot of predictive error as a function of
+the dataset size. They showed that adding equivariance not only shifts the learning curves, but also
+changes the powers in the empirical power law of the learning curves, which is usually constant for a
+given dataset [26].
+On the left panel of Figure 2, we replicate the experiments of [5] by training a series of invariant
+MACE models with increasing correlation order ν on the aspirin molecule from the rMD17 dataset.
+We observe that adding higher order messages changes the steepness of the learning curves, even
+without equivariant messages. The model with correlation order ν = 1 corresponds to a two-layer
+2-body invariant model, similar to SchNet. This model is the least accurate due to the incomplete
+nature of 2-body invariant representations of the local environment [38]. The invariant messages with
+ν = 2 are akin to those in DimeNet, which explicitly puts angular information into the messages. We
+see that including higher order information signiﬁcantly improves the model’s accuracy. Finally, by
+going beyond any current message passing potential by setting ν = 3, we achieve similar performance
+to a highly-accurate 2-body, equivariant MPNN while only using higher order invariant messages.
+On the middle panel of Figure 2, we keep the correlation order ﬁxed at ν = 3 and gradually increase
+the symmetry order L of the messages. While the slope remains nearly unchanged, the curves are
+shifted. In the right panel of Figure 2, we keep the correlation order ﬁxed at ν = 1 and gradually
+increase the symmetry order L of the messages. We see only a marginal slope change when adding
+equivariant features, which could be attributable to the relatively low expressiveness of a two-layer
+MACE restricted to correlation order ν = 1. These results suggest two routes to improve invariant
+2-body MPNN models: creating higher correlation order messages or incorporating equivariant
+messages. By exploiting both of these options, the MACE model achieves state-of-the-art accuracy.
+5.2
+Scaling and Computational Cost
+Chemical Elements
+A signiﬁcant limitation of existing atomic environment representations is that
+their size grows with the number of chemical elements S and correlation order ν as Sν. Data-driven
+compression schemes have been proposed [50] to solve this issue, and MPNNs incorporate similar
+6
+
+102
+103
+Number of training data
+10
+2
+10
+1
+MAE F [eV/A]
+L
+L
+= 0,
+= 1, s=-0.33
+= 0,
+= 2, s=-0.51
+L = 0,
+= 3, s=-0.64
+102
+103
+Number of training data
+L = 0,
+= 3, s=-0.64
+L = 1,
+= 3, s=-0.63
+L = 2,
+= 3, s=-0.64
+102
+103
+Number of training data
+L = 0,
+= 1, s=-0.33
+L = 1,
+= 1, s=-0.44
+L = 2,
+= 1, s=-0.45
+Figure 2:
+Learning curve of force errors (MAE in eV / Å) for aspirin from the rMD17 dataset
+for different models. Left: Two layers of invariant (L = 0) MACE with increasing body order
+ν ∈{1, 2, 3}. Center: Two layers of MACE with ν = 3 and increasing equivariance L ∈{0, 1, 2}.
+Right: Two layers of MACE with ν = 1 and increasing equivariance L ∈{0, 1, 2}. In each case the
+slope (s) is indicated.
+embeddings of the chemical elements into a ﬁxed-size vector space. MACE uses a continuous species
+embedding and when constructing the higher order features in (10), it does not include the species
+dimension k in the tensor product resulting in O(1) scaling of the model with the number of chemical
+elements S.
+Receptive Field
+A severe limitation of many previously published MPNNs was their large
+receptive ﬁeld, making it difﬁcult to parallelize the evaluation across multiple GPUs. In traditional
+MPNNs, the total receptive ﬁeld of each node, which grows with each message passing iteration,
+can be up to 30 Å. This scaling results in the number of neighbours being in the thousands in a
+condensed phase simulation, preventing any efﬁcient parallelization [36]. By decoupling the increase
+in correlation order of the messages from the number of message passing iterations, MACE only
+requires two layers resulting in a much smaller receptive ﬁeld. With a local radial cutoff of 4 to 5 Å,
+the overall receptive ﬁeld remains small, making the model more parallelisable.
+Computational Cost
+The computational bottleneck of equivariant MPNNs is the equivariant
+tensor product (8). This tensor product is evaluated on edges. In MACE, we only evaluate this
+expensive tensor product once, within the second layer, and build up correlations through the tensor
+product of (10). Importantly, this operation is carried out on nodes. Typically the number of nodes is
+orders of magnitudes smaller than the number of edges resulting in a computational advantage. In
+addition, we developed a loop tensor contraction algorithm for the efﬁcient implementation of (10)
+and (11) detailed in Section A.3.
+We report evaluation times for BOTNet, NequIP, and multiple versions of MACE in Table 2. We
+observe that the invariant MACE (L = 0) is close to 10 times faster than BOTNet and NequIP
+while achieving similar accuracy at high temperatures. MACE with L = 1 and L = 2 is 5 and 4
+times faster than BOTNet and NequIP, respectively, while outperforming them at every temperature.
+We acknowledge that accurate speed comparisons between codes are hard to obtain, and further
+investigations need to be carried out. It is also essential to consider training times. In order to do a fair
+comparison, all the timings were realised using the mace code that implements all the above models.
+Models that are signiﬁcantly faster to train are better suited for applications of active learning, which
+is typically how databases for materials science applications are built [13–15]. The MACE model
+reported in Table 2 takes approximately 30 mins to reach the accuracy of a converged BOTNet model,
+taking more than a day to be trained on the 3BPA dataset using NVIDIA A100 GPUs.
+5.3
+Benchmark Results 2
+5.3.1
+rMD17: Molecular Dynamics Trajectory
+The revised MD17 (rMD17) dataset contains train test splits randomly selected from a long molecular
+dynamics trajectory of ten small organic molecules [11]. For each molecule, the splits consist of 1000
+training and test conﬁgurations. Table 1 shows that MACE achieves excellent accuracy, improving
+2Training details and hyper-parameters for all experiments can be found in Appendix A.5
+7
+
+Table 1: Mean absolute errors on the rMD17 dataset [11]. Energy (E, meV) and force (F, meV/Å)
+errors of different models trained on 950 conﬁgurations and validated on 50. The models on the right
+of the ﬁrst vertical line, DimeNet and NewtonNet, were trained on the original MD17 dataset [10].
+The models on the right of the second (double) vertical line were trained on just 50 conﬁgurations.
+MACE
+Allegro [36]
+BOTNet [3]
+NequIP [5]
+GemNet (T/Q) [30]
+ACE [33]
+FCHL [18]
+GAP [2]
+ANI [19]
+PaiNN [43]
+DimeNet [29]
+NewtonNet [24]
+ACE [33]
+NequIP [5]
+MACE
+Ntrain = 1000
+Ntrain = 50
+Aspirin
+E
+2.2
+2.3
+2.3
+2.3
+-
+6.1
+6.2
+17.7
+16.6
+6.9
+8.8
+7.3
+26.2
+19.5
+17.0
+F
+6.6
+7.3
+8.5
+8.2
+9.5
+17.9
+20.9
+44.9
+40.6
+16.1
+21.6
+15.1
+63.8
+52.0
+43.9
+Azobenzene
+E
+1.2
+1.2
+0.7
+0.7
+-
+3.6
+2.8
+8.5
+15.9
+-
+-
+6.1
+9.0
+6.0
+5.4
+F
+3.0
+2.6
+3.3
+2.9
+-
+10.9
+10.8
+24.5
+35.4
+-
+-
+5.9
+28.8
+20.0
+17.7
+Benzene
+E
+0.4
+0.3
+0.03
+0.04
+-
+0.04
+0.35
+0.75
+3.3
+-
+3.4
+-
+0.2
+0.6
+0.7
+F
+0.3
+0.2
+0.3
+0.3
+0.5
+0.5
+2.6
+6.0
+10.0
+-
+8.1
+-
+2.7
+2.9
+2.7
+Ethanol
+E
+0.4
+0.4
+0.4
+0.4
+-
+1.2
+0.9
+3.5
+2.5
+2.7
+2.8
+2.6
+8.6
+8.7
+6.7
+F
+2.1
+2.1
+3.2
+2.8
+3.6
+7.3
+6.2
+18.1
+13.4
+10.0
+10.0
+9.1
+43.0
+40.2
+32.6
+Malonaldehyde
+E
+0.8
+0.6
+0.8
+0.8
+-
+1.7
+1.5
+4.8
+4.6
+3.9
+4.5
+4.1
+12.8
+12.7
+10.0
+F
+4.1
+3.6
+5.8
+5.1
+6.6
+11.1
+10.3
+26.4
+24.5
+13.8
+16.6
+14.0
+63.5
+52.5
+43.3
+Naphthalene
+E
+0.5
+0.2
+0.2
+0.9
+-
+0.9
+1.2
+3.8
+11.3
+5.1
+5.3
+5.2
+3.8
+2.1
+2.1
+F
+1.6
+0.9
+1.8
+1.3
+1.9
+5.1
+6.5
+16.5
+29.2
+3.6
+9.3
+3.6
+19.7
+10.0
+9.2
+Paracetamol
+E
+1.3
+1.5
+1.3
+1.4
+-
+4.0
+2.9
+8.5
+11.5
+-
+-
+6.1
+13.6
+14.3
+9.7
+F
+4.8
+4.9
+5.8
+5.9
+-
+12.7
+12.3
+28.9
+30.4
+-
+-
+11.4
+45.7
+39.7
+31.5
+Salicylic acid
+E
+0.9
+0.9
+0.8
+0.7
+-
+1.8
+1.8
+5.6
+9.2
+4.9
+5.8
+4.9
+8.9
+8.0
+6.5
+F
+3.1
+2.9
+4.3
+4.0
+5.3
+9.3
+9.5
+24.7
+29.7
+9.1
+16.2
+8.5
+41.7
+35.0
+28.4
+Toluene
+E
+0.5
+0.4
+0.3
+0.3
+-
+1.1
+1.7
+4.0
+7.7
+4.2
+4.4
+4.1
+5.3
+3.3
+3.1
+F
+1.5
+1.8
+1.9
+1.6
+2.2
+6.5
+8.8
+17.8
+24.3
+4.4
+9.4
+3.8
+27.1
+15.1
+12.1
+Uracil
+E
+0.5
+0.6
+0.4
+0.4
+-
+1.1
+0.6
+3.0
+5.1
+4.5
+5.0
+4.6
+6.5
+7.3
+4.4
+F
+2.1
+1.8
+3.2
+3.1
+3.8
+6.6
+4.2
+17.6
+21.4
+6.1
+13.1
+6.4
+36.2
+40.1
+25.9
+the state of the art for some molecules, particularly those with the highest errors. As several methods
+achieve similar accuracy on the standard task of predicting energies and forces based on the whole
+training set, we also trained MACE and NequIP, another accurate model, on just 50 conﬁgurations to
+increase the difﬁculty of the benchmark. In this case, we found that MACE outperformed NequIP for
+most molecules.
+5.3.2
+3BPA: Extrapolation to Out-of-domain Data
+The 3BPA dataset introduced in [33] tests a model’s extrapolation capabilities. Its training set contains
+500 geometries sampled from 300 K molecular dynamics simulation of the large and ﬂexible drug-like
+molecule 3-(benzyloxy)pyridin-2-amine. The three test sets contain geometries sampled at 300 K,
+600 K, and 1200 K to assess in- and out-of-domain accuracy. A fourth test set consists of optimized
+geometries, where two of the molecule’s dihedral angles are ﬁxed, and a third is varied between 0
+and 360 degrees resulting in so-called dihedral slices through regions of the PES far away from the
+training data.
+The root-mean-squared errors (RMSE) on energies and forces for several models are shown in Table 2.
+It can be seen that MACE outperforms the other models on all tasks. In particular, when extrapolating
+to 1200 K data, MACE with L = 2 outperforms NequIP and Allegro models by about 30%. Further,
+MACE with L = 2 outperforms the next best model, BOTNet, by 40% on energies for the dihedral
+slices. Finally, the MACE model with invariant messages (L = 0) often nearly matches or exceeds
+the performance of competitive equivariant models.
+Table 2: Root-mean-square errors on the 3BPA dataset. Energy (E, meV) and force (F, meV/Å)
+errors of models trained and tested on conﬁgurations collected at 300 K of the ﬂexible drug-like
+molecule 3-(benzyloxy)pyridin-2-amine (3BPA). Standard deviations are computed over three runs
+and shown in brackets if available. In order to facilitate measuring the efﬁciency of architectures we
+implemented the NequIP and BOTNet architectures in the same code that we used for MACE and
+which is published together with this paper. For the precise speciﬁcation of our NequIP implementa-
+tion see the Appendix A.5.2. All PyTorch timings were realised on an NVIDIA A100 GPU custom
+implementations.
+Allegro (L=3)
+NequIP (L=3)
+NequIP (L=3)
+BOTNet (L=3)
+MACE (L=0)
+MACE (L=1)
+MACE (L=2)
+Code
+allegro [36]
+nequip [5]
+mace
+mace
+mace
+mace
+mace
+300 K
+E
+3.84 (0.08)
+3.3 (0.1)
+3.1 (0.1)
+3.1 (0.13)
+4.5 (0.25)
+3.4 (0.2)
+3.0 (0.2)
+F
+12.98 (0.17)
+10.8 (0.2)
+11.3 (0.2)
+11.0 (0.14)
+14.6 (0.5)
+10.3 (0.3)
+8.8 (0.3)
+600 K
+E
+12.07 (0.45)
+11.2 (0.1)
+11.3 (0.31)
+11.5 (0.6)
+13.7 (0.16)
+9.9 (0.8)
+9.7 (0.5)
+F
+29.17 (0.22)
+26.4 (0.1)
+27.3 (0.3)
+26.7 (0.29)
+33.3 (1.35)
+24.6 (1.1)
+21.8 (0.6)
+1200 K
+E
+42.57 (1.46)
+38.5 (1.6)
+40.8 (1.3)
+39.1 (1.1)
+37.1 (0.8)
+31.7 (0.5)
+29.8 (1.0)
+F
+82.96 (1.77)
+76.2 (1.1)
+86.4 (1.5)
+81.1 (1.5)
+81.6 (3.89)
+67.8 (1.8)
+62.0 (0.7)
+Dihedral Slices
+E
+-
+-
+23.2
+16.3 (1.5)
+12.3 (0.8)
+11.5 (0.6)
+7.8 (0.6)
+F
+-
+-
+23.1
+20.0 (1.2)
+26.1 (2.8)
+19.3 (0.6)
+16.5 (1.7)
+Time latency [ms]
+-
+-
+103.5
+101.2
+10.5
+17.5
+24.3
+8
+
+MACE shows excellent results while also featuring low computational cost compared to many other
+models. The L = 0 model, which approaches previous models in terms of accuracy, outpaces them
+by nearly a factor of 10, whereas the L = 2 model achieves state-of-the-art accuracy and is around
+four times faster than other equivariant MPNN models. In the table, we characterise the evaluation
+speed of the models by reporting the “latency” which is deﬁned as the time it takes to compute forces
+on a structure, which is typically independent of the number of atoms until GPU threads are ﬁlled
+(typically 10,000 atoms for these models on an Nvidia A100 80GB GPU).
+In Figure 3, we compare the BOTNet, NequIP, and MACE (L = 2) by inspecting their energy proﬁle
+for three dihedral slices. Overall, it can be seen that all models produce smooth energy proﬁles and
+that, in general, MACE comes closest to the ground truth. The fact that MACE outperforms the
+0
+60
+120
+180
+240
+300
+[°]
+10
+0
+10
+20
+30
+40
+50
+E [meV]
+=71.0°, =120.0°
+0
+60
+120
+180
+240
+300
+[°]
+40
+20
+0
+20
+40
+60
+=67.0°,
+=150.0°
+0
+60
+120
+180
+240
+300
+[°]
+0
+10
+20
+30
+40
+50
+=151.0°, =180.0°
+DFT
+BOTNet
+NequIP
+MACE
+Figure 3:
+Energy predictions on three cuts through the potential energy surface of the 3-
+(benzyloxy)pyridin-2-amine (3BPA) molecule by BOTNet, NequIP, and MACE (L = 2). The
+ground-truth energy (DFT) is shown in black. For each cut, the curves have been shifted vertically so
+that the lowest ground-truth energy is zero.
+other methods in the middle panel, which contains geometries furthest from the training dataset [3],
+suggests superior extrapolation capabilities.
+5.3.3
+AcAc: Flexibility and Reactivity
+A similar benchmark dataset assessing a model’s extrapolation capabilities to higher temperatures,
+bond breaking, and bond torsions of the acetylacetone molecule was proposed in [3]. In Table 3,
+we show that MACE achieves state-of-the-art results on this dataset as well. For details, see Ap-
+pendix 5.3.3.
+Table 3: Root-mean-square errors on the acetylacetone dataset. Energy (E, meV) and force (F,
+meV/Å) errors of models trained on conﬁgurations of the acetylacetone molecule sampled at 300 K
+and tested on conﬁgurations sampled at 300 K and 600 K. Standard deviations are computed over
+three runs.
+BOTNet
+NequIP
+MACE
+300 K
+E
+0.89 (0.0)
+0.81 (0.04)
+0.9 (0.03)
+F
+6.3 (0.0)
+5.90 (0.38)
+5.1 (0.10)
+600 K
+E
+6.2 (1.1)
+6.04 (1.26)
+4.6 (0.3)
+F
+29.8 (1.0)
+27.8 (3.29)
+22.4 (0.9)
+N° Parameters
+2,756,416
+3,190,488
+2,803,984
+6
+Discussions
+With MACE, we extend traditional (equivariant) MPNNs from 2-body to many-body message passing
+in a computationally efﬁcient manner. Our experiments show that the approach reduces the required
+9
+
+number of message passing, leading to efﬁcient and parallelizable models. Furthermore, we have
+demonstrated the high accuracy and good extrapolation capabilities of MACE, reaching state-of-the-
+art accuracy on the rMD17, 3BPA, and AcAc benchmarks. Future development should concentrate
+on testing MACE on larger systems, including condensed phases and solids.
+7
+Reproducibility Statements
+We have included error bars via different seeds and various ablation studies wherever necessary and
+appropriate. We have stated all hyper-parameters and data description in the Appendix A.5. Source
+code is available at https://github.com/ACEsuit/mace.
+8
+Ethical Statements
+The societal impact of MACE is challenging to predict. However, better force ﬁelds have a positive
+impact on society by speeding up drug discovery and through helping to understand, control, and
+design new materials. However, machine learning force ﬁelds rely on generating ab initio training
+data leading to heavy computation and large energy consumption. Machine learned force ﬁelds do
+alleviate the costs of doing molecular modelling signiﬁcantly when compared with using solely ab
+initio methods.
+Acknowledgments and Disclosure of Funding
+9
+Acknowledgement
+The authors acknowledge useful discussions with Simon Batzner, Albert Musaelian and William
+Baldwin. This work was performed using resources provided by the Cambridge Service for Data
+Driven Discovery (CSD3) operated by the University of Cambridge Research Computing Service
+(www.csd3.cam.ac.uk), provided by Dell EMC and Intel using Tier-2 funding from the Engineering
+and Physical Sciences Research Council (capital grant EP/T022159/1), and DiRAC funding from
+the Science and Technology Facilities Council (www.dirac.ac.uk). DPK acknowledges support from
+AstraZeneca and the Engineering and Physical Sciences Research Council. CO is supported by
+Leverhulme Research Project Grant RPG-2017-191 and by the Natural Sciences and Engineering
+Research Council of Canada (NSERC) [funding reference number IDGR019381].
+References
+[1] Brandon Anderson, Truong Son Hy, and Risi Kondor.
+Cormorant: Covariant molecular
+neural networks. In H. Wallach, H. Larochelle, A. Beygelzimer, F. d'Alché-Buc, E. Fox,
+and R. Garnett, editors, Advances in Neural Information Processing Systems, volume 32.
+Curran Associates, Inc., 2019. URL https://proceedings.neurips.cc/paper/2019/
+file/03573b32b2746e6e8ca98b9123f2249b-Paper.pdf.
+[2] Albert P Bartók, Mike C Payne, Risi Kondor, and Gábor Csányi. Gaussian approximation
+potentials: the accuracy of quantum mechanics, without the electrons. Phys. Rev. Lett., 104(13):
+136403, April 2010.
+[3] Ilyes Batatia, Simon Batzner, Dávid Péter Kovács, Albert Musaelian, Gregor N. C. Simm,
+Ralf Drautz, Christoph Ortner, Boris Kozinsky, and Gábor Csányi. The design space of E(3)-
+equivariant atom-centered interatomic potentials, 2022. URL https://arxiv.org/abs/
+2205.06643.
+[4] Peter W. Battaglia, Jessica B. Hamrick, Victor Bapst, Alvaro Sanchez-Gonzalez, Vinícius Flo-
+res Zambaldi, Mateusz Malinowski, Andrea Tacchetti, David Raposo, Adam Santoro, Ryan
+Faulkner, Çaglar Gülçehre, H. Francis Song, Andrew J. Ballard, Justin Gilmer, George E. Dahl,
+Ashish Vaswani, Kelsey R. Allen, Charles Nash, Victoria Langston, Chris Dyer, Nicolas Heess,
+Daan Wierstra, Pushmeet Kohli, Matthew M. Botvinick, Oriol Vinyals, Yujia Li, and Razvan
+Pascanu. Relational inductive biases, deep learning, and graph networks. CoRR, abs/1806.01261,
+2018. URL http://arxiv.org/abs/1806.01261.
+10
+
+[5] Simon Batzner, Albert Musaelian, Lixin Sun, Mario Geiger, Jonathan P. Mailoa, Mordechai
+Kornbluth, Nicola Molinari, Tess E. Smidt, and Boris Kozinsky. E(3)-equivariant graph neural
+networks for data-efﬁcient and accurate interatomic potentials. Nature Communications, 13(1):
+2453, 2022.
+[6] Jörg Behler and Michele Parrinello.
+Generalized neural-network representation of high-
+dimensional potential-energy surfaces. Phys. Rev. Lett., 98:146401, Apr 2007. doi: 10.1103/
+PhysRevLett.98.146401. URL https://link.aps.org/doi/10.1103/PhysRevLett.98.
+146401.
+[7] Anton Bochkarev, Yury Lysogorskiy, Christoph Ortner, Gábor Csányi, and Ralf Drautz. Multi-
+layer atomic cluster expansion for semi-local interactions, 2022. URL https://arxiv.org/
+abs/2205.08177.
+[8] Johannes Brandstetter, Rob Hesselink, Elise van der Pol, Erik J Bekkers, and Max Welling.
+Geometric and physical quantities improve e(3) equivariant message passing, 2021. URL
+https://arxiv.org/abs/2110.02905.
+[9] Michael M. Bronstein, Joan Bruna, Taco Cohen, and Petar Veliˇckovi´c. Geometric deep learning:
+Grids, groups, graphs, geodesics, and gauges, 2021. URL https://arxiv.org/abs/2104.
+13478.
+[10] Stefan Chmiela, Alexandre Tkatchenko, Huziel E Sauceda, Igor Poltavsky, Kristof T Schütt,
+and Klaus-Robert Müller. Machine learning of accurate energy-conserving molecular force
+ﬁelds. Science advances, 3(5):e1603015, 2017.
+[11] Anders S. Christensen and O. Anatole von Lilienfeld. On the role of gradients for machine
+learning of molecular energies and forces. Machine Learning: Science and Technology, 1, 2020.
+ISSN 23318422. doi: 10.1088/2632-2153/abba6f.
+[12] Taco S. Cohen and Max Welling. Group equivariant convolutional networks, 2016. URL
+https://arxiv.org/abs/1602.07576.
+[13] Volker L Deringer, Chris J Pickard, and Gábor Csányi. Data-driven learning of total and local
+energies in elemental boron. Physical review letters, 120(15):156001, 2018.
+[14] Volker L Deringer, Miguel A Caro, and Gábor Csányi. A general-purpose machine-learning
+force ﬁeld for bulk and nanostructured phosphorus. Nature communications, 11(1):1–11, 2020.
+[15] Volker L Deringer, Albert P Bartók, Noam Bernstein, David M Wilkins, Michele Ceriotti, and
+Gábor Csányi. Gaussian process regression for materials and molecules. Chemical Reviews,
+121(16):10073–10141, 2021.
+[16] Ralf Drautz. Atomic cluster expansion for accurate and transferable interatomic potentials.
+Phys. Rev. B Condens. Matter, 99(1):014104, January 2019.
+[17] Genevieve Dusson, Markus Bachmayr, Gabor Csanyi, Ralf Drautz, Simon Etter, Cas van der
+Oord, and Christoph Ortner. Atomic cluster expansion: Completeness, efﬁciency and stability.
+Journal of Computational Physics, page 110946, 2022.
+[18] Felix A. Faber, Anders S. Christensen, Bing Huang, and O. Anatole von Lilienfeld. Alchemical
+and structural distribution based representation for universal quantum machine learning. The
+Journal of Chemical Physics, 148(24):241717, 2018. doi: 10.1063/1.5020710. URL https:
+//doi.org/10.1063/1.5020710.
+[19] Xiang Gao, Farhad Ramezanghorbani, Olexandr Isayev, Justin S. Smith, and Adrian E. Roitberg.
+Torchani: A free and open source pytorch-based deep learning implementation of the ani neural
+network potentials. Journal of Chemical Information and Modeling, 60(7):3408–3415, 2020.
+doi: 10.1021/acs.jcim.0c00451.
+URL https://doi.org/10.1021/acs.jcim.0c00451.
+PMID: 32568524.
+[20] Johannes Gasteiger, Shankari Giri, Johannes T. Margraf, and Stephan Günnemann. Fast and
+uncertainty-aware directional message passing for non-equilibrium molecules, 2020. URL
+https://arxiv.org/abs/2011.14115.
+11
+
+[21] Mario Geiger and Tess Smidt. e3nn: Euclidean neural networks, 2022. URL https://arxiv.
+org/abs/2207.09453.
+[22] Justin Gilmer, Samuel S. Schoenholz, Patrick F. Riley, Oriol Vinyals, and George E. Dahl. Neural
+message passing for quantum chemistry, 2017. URL https://arxiv.org/abs/1704.01212.
+[23] Mojtaba Haghighatlari, Jie Li, Xingyi Guan, Oufan Zhang, Akshaya Das, Christopher J. Stein,
+Farnaz Heidar-Zadeh, Meili Liu, Martin Head-Gordon, Luke Bertels, Hongxia Hao, Itai Leven,
+and Teresa Head-Gordon. Newtonnet: A newtonian message passing network for deep learning
+of interatomic potentials and forces, 2021. URL https://arxiv.org/abs/2108.02913.
+[24] Mojtaba Haghighatlari, Jie Li, Xingyi Guan, Oufan Zhang, Akshaya Das, Christopher J. Stein,
+Farnaz Heidar-Zadeh, Meili Liu, Martin Head-Gordon, Luke Bertels, Hongxia Hao, Itai Leven,
+and Teresa Head-Gordon. Newtonnet: A newtonian message passing network for deep learning
+of interatomic potentials and forces, 2021.
+[25] Kaiming He, Xiangyu Zhang, Shaoqing Ren, and Jian Sun. Deep residual learning for image
+recognition, 2015.
+[26] Joel Hestness, Sharan Narang, Newsha Ardalani, Gregory Diamos, Heewoo Jun, Hassan
+Kianinejad, Md. Mostofa Ali Patwary, Yang Yang, and Yanqi Zhou. Deep learning scaling is
+predictable, empirically, 2017. URL https://arxiv.org/abs/1712.00409.
+[27] Thomas N. Kipf and Max Welling. Semi-supervised classiﬁcation with graph convolutional
+networks, 2016. URL https://arxiv.org/abs/1609.02907.
+[28] Johannes Klicpera, Shankari Giri, Johannes T. Margraf, and Stephan Günnemann.
+Fast
+and uncertainty-aware directional message passing for non-equilibrium molecules. CoRR,
+abs/2011.14115, 2020. URL https://arxiv.org/abs/2011.14115.
+[29] Johannes Klicpera, Janek Groß, and Stephan Günnemann. Directional message passing for
+molecular graphs, 2020.
+[30] Johannes Klicpera, Florian Becker, and Stephan Günnemann. Gemnet: Universal directional
+graph neural networks for molecules. In A. Beygelzimer, Y. Dauphin, P. Liang, and J. Wortman
+Vaughan, editors, Advances in Neural Information Processing Systems, 2021. URL https:
+//openreview.net/forum?id=HS_sOaxS9K-.
+[31] Risi Kondor. N-body networks: a covariant hierarchical neural network architecture for learning
+atomic potentials. arXiv preprint arXiv:1803.01588, 2018.
+[32] Risi Kondor and Shubhendu Trivedi. On the generalization of equivariance and convolution
+in neural networks to the action of compact groups, 2018. URL https://arxiv.org/abs/
+1802.03690.
+[33] Dávid Péter Kovács, Cas van der Oord, Jiri Kucera, Alice E. A. Allen, Daniel J. Cole, Christoph
+Ortner, and Gábor Csányi. Linear atomic cluster expansion force ﬁelds for organic molecules:
+Beyond rmse. Journal of Chemical Theory and Computation, 17(12):7696–7711, 2021. doi:
+10.1021/acs.jctc.1c00647. URL https://doi.org/10.1021/acs.jctc.1c00647. PMID:
+34735161.
+[34] Yi Liu, Limei Wang, Meng Liu, Xuan Zhang, Bora Oztekin, and Shuiwang Ji. Spherical
+message passing for 3d graph networks, 2021. URL https://arxiv.org/abs/2102.05013.
+[35] Nicholas Lubbers, Justin S Smith, and Kipton Barros. Hierarchical modeling of molecular
+energies using a deep neural network. The Journal of chemical physics, 148(24):241715, 2018.
+[36] Albert Musaelian, Simon Batzner, Anders Johansson, Lixin Sun, Cameron J. Owen, Mordechai
+Kornbluth, and Boris Kozinsky. Learning local equivariant representations for large-scale
+atomistic dynamics, 2022. URL https://arxiv.org/abs/2204.05249.
+[37] Jigyasa Nigam, Sergey Pozdnyakov, Guillaume Fraux, and Michele Ceriotti. Uniﬁed theory of
+atom-centered representations and message-passing machine-learning schemes. The Journal of
+Chemical Physics, 0(ja):null, 0. doi: 10.1063/5.0087042. URL https://doi.org/10.1063/
+5.0087042.
+12
+
+[38] Sergey N Pozdnyakov and Michele Ceriotti. Incompleteness of graph convolutional neural
+networks for points clouds in three dimensions. arXiv preprint arXiv:2201.07136, 2022.
+[39] Victor Garcia Satorras, Emiel Hoogeboom, and Max Welling. E(n) equivariant graph neural
+networks, 2021. URL https://arxiv.org/abs/2102.09844.
+[40] Franco Scarselli, Marco Gori, Ah Chung Tsoi, Markus Hagenbuchner, and Gabriele Monfardini.
+The graph neural network model. IEEE Transactions on Neural Networks, 20(1):61–80, 2009.
+doi: 10.1109/TNN.2008.2005605.
+[41] Kristof Schütt, Pieter-Jan Kindermans, Huziel Enoc Sauceda Felix, Stefan Chmiela, Alexandre
+Tkatchenko, and Klaus-Robert Müller. Schnet: A continuous-ﬁlter convolutional neural network
+for modeling quantum interactions. In I. Guyon, U. V. Luxburg, S. Bengio, H. Wallach,
+R. Fergus, S. Vishwanathan, and R. Garnett, editors, Advances in Neural Information Processing
+Systems, volume 30. Curran Associates, Inc., 2017. URL https://proceedings.neurips.
+cc/paper/2017/file/303ed4c69846ab36c2904d3ba8573050-Paper.pdf.
+[42] Kristof T Schütt, Farhad Arbabzadah, Stefan Chmiela, Klaus R Müller, and Alexandre
+Tkatchenko. Quantum-chemical insights from deep tensor neural networks. Nature com-
+munications, 8(1):1–8, 2017.
+[43] Kristof T. Schütt, Oliver T. Unke, and Michael Gastegger. Equivariant message passing for the
+prediction of tensorial properties and molecular spectra. CoRR, abs/2102.03150, 2021. URL
+https://arxiv.org/abs/2102.03150.
+[44] Alexander V. Shapeev.
+Moment tensor potentials: A class of systematically improvable
+interatomic potentials.
+Multiscale Modeling Simulation, 14(3):1153–1173, 2016.
+doi:
+10.1137/15M1054183. URL https://doi.org/10.1137/15M1054183.
+[45] Philipp Thölke and Gianni De Fabritiis. Equivariant transformers for neural network based
+molecular potentials. In International Conference on Learning Representations, 2022. URL
+https://openreview.net/forum?id=zNHzqZ9wrRB.
+[46] Nathaniel Thomas, Tess Smidt, Steven M. Kearnes, Lusann Yang, Li Li, Kai Kohlhoff, and
+Patrick Riley. Tensor ﬁeld networks: Rotation- and translation-equivariant neural networks for
+3d point clouds. CoRR, abs/1802.08219, 2018. URL http://arxiv.org/abs/1802.08219.
+[47] A.P. Thompson, L.P. Swiler, C.R. Trott, S.M. Foiles, and G.J. Tucker.
+Spectral neigh-
+bor analysis method for automated generation of quantum-accurate interatomic potentials.
+Journal of Computational Physics, 285:316–330, 2015.
+ISSN 0021-9991.
+doi: https:
+//doi.org/10.1016/j.jcp.2014.12.018. URL https://www.sciencedirect.com/science/
+article/pii/S0021999114008353.
+[48] Oliver T Unke and Markus Meuwly. Physnet: A neural network for predicting energies, forces,
+dipole moments, and partial charges. Journal of chemical theory and computation, 15(6):
+3678–3693, 2019.
+[49] Maurice Weiler, Mario Geiger, Max Welling, Wouter Boomsma, and Taco Cohen.
+3d steerable cnns:
+Learning rotationally equivariant features in volumetric data.
+In NeurIPS, pages 10402–10413,
+2018.
+URL http://papers.nips.cc/paper/
+8239-3d-steerable-cnns-learning-rotationally-equivariant-features-in-volumetric-data.
+[50] Michael J Willatt, Félix Musil, and Michele Ceriotti. Feature optimization for atomistic machine
+learning yields a data-driven construction of the periodic table of the elements. Physical
+Chemistry Chemical Physics, 20(47):29661–29668, 2018.
+[51] Jie Zhou, Ganqu Cui, Shengding Hu, Zhengyan Zhang, Cheng Yang, Zhiyuan Liu, Lifeng
+Wang, Changcheng Li, and Maosong Sun. Graph neural networks: A review of methods and
+applications, 2018. URL https://arxiv.org/abs/1812.08434.
+13
+
+Checklist
+1. For all authors...
+(a) Do the main claims made in the abstract and introduction accurately reﬂect the paper’s
+contributions and scope? [Yes]
+(b) Did you describe the limitations of your work? [Yes]
+(c) Did you discuss any potential negative societal impacts of your work? [Yes]
+(d) Have you read the ethics review guidelines and ensured that your paper conforms to
+them? [Yes]
+2. If you are including theoretical results...
+(a) Did you state the full set of assumptions of all theoretical results? [N/A]
+(b) Did you include complete proofs of all theoretical results? [N/A]
+3. If you ran experiments...
+(a) Did you include the code, data, and instructions needed to reproduce the main experi-
+mental results (either in the supplemental material or as a URL)? [Yes]
+(b) Did you specify all the training details (e.g., data splits, hyper-parameters, how they
+were chosen)? [Yes]
+(c) Did you report error bars (e.g., with respect to the random seed after running experi-
+ments multiple times)? [Yes]
+(d) Did you include the total amount of compute and the type of resources used (e.g., type
+of GPUs, internal cluster, or cloud provider)? [Yes]
+4. If you are using existing assets (e.g., code, data, models) or curating/releasing new assets...
+(a) If your work uses existing assets, did you cite the creators? [Yes]
+(b) Did you mention the license of the assets? [N/A]
+(c) Did you include any new assets either in the supplemental material or as a URL? [N/A]
+(d) Did you discuss whether and how consent was obtained from people whose data you’re
+using/curating? [N/A]
+(e) Did you discuss whether the data you are using/curating contains personally identiﬁable
+information or offensive content? [N/A]
+5. If you used crowdsourcing or conducted research with human subjects...
+(a) Did you include the full text of instructions given to participants and screenshots, if
+applicable? [N/A]
+(b) Did you describe any potential participant risks, with links to Institutional Review
+Board (IRB) approvals, if applicable? [N/A]
+(c) Did you include the estimated hourly wage paid to participants and the total amount
+spent on participant compensation? [N/A]
+14
+
+A
+Appendix
+A.1
+Acetylacetone Dataset: Additional Experiments
+We ran additional experiments with the acetylacetone dataset introduced in [3] to further investigate
+the generalization capabilities of MACE [3]. Figure 4 shows the energy predictions of BOTNet [3],
+NequIP [5], MACE, and (linear) ACE [33] for two trajectories on the acetylacetone’s potential energy
+surface (PES). The left panel shows the energy proﬁle for a rotation around an O-C-C-C dihedral
+angle. Since the training set only contains dihedral angles below 30° (see lower panel), accurate
+predictions for angles up to 180° require signiﬁcant extrapolation capabilities. Also the energy barrier
+of the rotation is with 1 eV well outside the energy range of the training set which is sampled at
+300 K. It can be seen that all models solve this task surprisingly well.
+In the right panel of Figure 4, we show energy predictions along a minimum energy path of an
+intramolecular hydrogen transfer reaction. This task probes a model’s ability to describe a bond
+breaking reaction, something it has not seen in the training data. It should be noted that this reaction
+occurs in a region of the PES that is not too far from the training data as can be seen from the
+histogram below. All models accurately reproduce the barrier’s shape with the MPNN models closely
+matching the barrier height as well.
+0
+500
+1000
+1500
+E [meV]
+DFT
+BOTNet
+NequIP
+linACE
+MACE
+0.0
+2.5
+5.0
+7.5
+10.0
+12.5
+0
+30
+60
+90
+120
+150
+180
+Dihedral Angle [°]
+0
+200
+Count
+Training data
+1.05
+1.10
+1.15
+1.20
+1.25
+1.30
+1.35
+1.40
+1.45
+Distance [Å]
+0
+5
+Count
+Figure 4:
+Left: energy predictions for a dihedral slice of the DFT potential energy surface of
+acetylacetone. Right: energy predictions for the proton transfer in acetylacetone. Error bars indicate
+one standard deviation computed over three runs. The histograms show the distribution of the training
+data along the relevant coordinate.
+A.2
+Description of the Datasets
+A.2.1
+rMD17 Dataset
+The revised MD17 (rMD17) dataset contains ﬁve train test splits of 10 different small organic
+molecules [11]. Each of the splits contains 1000 conﬁgurations for each molecule sampled randomly
+from a long Ab initio molecular dynamics simulation carried out at 500 K computed with DFT. We
+note that the older version of the dataset, called MD17, has been shown to contain noisy labels [11].
+A.2.2
+3BPA Dataset
+The 3BPA dataset contains DFT train test splits of a ﬂexible drug-like organic molecule sampled
+from different temperature molecular dynamics trajectories [33]. The models is trained on 500
+snapshots sampled at 300K and tested on three independent test sets for each temperature (300K,
+600K, 1200K). The models can also be tested on the challenging task of computing the energy along
+dihedral rotations of the molecule. This test directly probes the smoothness and accuracy of the part
+of PES that determines which conformers are present in a simulation, and hence has a direct inﬂuence
+on properties of interest such as binding free energies to protein targets.
+15
+
+A.2.3
+Acetylacetone Dataset
+The acetylacetone dataset contains trajectories of a small reactive molecule sampled at different
+temperature. The task is to train on snapshot sampled at 300K and test on independent test sets
+sampled at 300K and 600K. Moreover the extrapolation is measured both in temperature and along
+two internal coordinates of the molecule, the hydrogen transfer path and a partially conjugated double
+bond rotation, which has a very high barrier for rotation.
+A.3
+Implementation Details
+A.3.1
+Symmetrised One-particle Basis
+For the implementation of the one-particle basis, we use e3nn [21] for the spherical harmonics and
+for symmetrising the tensor product of (8). Consequently, we also use their internal normalization.
+A.3.2
+Generalized Clebsch-Gordan Coefﬁcients
+The generalised Clebsch-Gordan coefﬁcients are deﬁned as product of Clebsch-Gordan coefﬁcients:
+CLM
+l1m1,..,lnmn = CL2M2
+l1m1,l2m2CL3M3
+L2M2,l3m3...CLNMN
+LN−1MN−1,lNmN ,
+(14)
+where L ≡(L2, .., LN), |l1 −l2| ≤L2 ≤l1 + l2 ∀i ≥3|Li−1 −li| ≤Li ≤Li−1 + li, and
+Mi ∈{mi| −li ≤mi ≤li}.
+A.3.3
+Higher Order Features Via Loop Tensor Contractions
+We implement the construction of the higher order features of Equation (10) and the message of
+Equation (11) in a single efﬁcient loop tensor contraction algorithm. Below, we drop the t superscript
+for clarity. The input variables are deﬁned in Section 4. We give here a brief reminder, along with
+shape of the tensors to contract.
+Algorithm 1 Efﬁcient implementation of (10) and (11) through tensor contractions of A-features
+Ai,klm of size [Natoms, Nchannels, (lmax+1)2], generalized Clebsch-Gordan coefﬁcients CLM
+η,l1m1,...,l˜νm˜ν
+of size [Ncoupling,˜ν] × [(lmax + 1)2]˜ν, and weights WzikL,η˜ν of size [Nelements, Nchannels, Ncoupling,˜ν] for
+a given correlation order ˜ν. lmax is the highest symmetry order of the spherical expansion of the
+A-features and L is the targeted symmetry order. Ncoupling is the number of couplings of l1 . . . l˜ν that
+yield L. In practice, we vectorize over M ∈{−L, −L + 1, ..., L −1, L}.
+1: function LOOPEDTENSORCONTRACTION(Ai,klm, {WzikL,η˜ν}˜ν≤ν, {CLM
+η,l1m1,...,l˜νm˜ν}˜ν≤ν, ν)
+2:
+˜czikLM
+l1m1,...,lνmν ←P
+η
+CLM
+η,l1m1,...,lνmνWzikL,ην
+▷Contract coupling coefﬁcients and weights
+3:
+azikLM
+i,l1m1,...,lν−1mν−1 ←P
+lνmν
+˜czikLM
+l1m1,...,lνmνAi,klνmν
+4:
+for ˜ν ←ν −1 to 1 do
+▷Iterate over correlation orders
+5:
+˜czikLM
+l1m1,...,l˜νm˜ν ←P
+η
+CLM
+η,l1m1,...,l˜νm˜νWzikL,η˜ν
+6:
+˜azikLM
+i,l1m1,...,l˜νm˜ν ←azikLM
+i,l1m1,...,l˜νm˜ν + ˜czikLM
+l1m1,...,l˜νm˜ν
+7:
+azikLM
+i,l1m1,...,l˜ν−1m˜ν−1 ←P
+l˜νm˜ν
+˜azikLM
+i,l1m1,...,l˜νm˜νAi,kl˜νm˜ν
+8:
+end for
+9:
+return azikLM
+i
+▷Return message mi,kLM
+10: end function
+The algorithm starts at correlation ν. The ﬁrst step of the algorithm is to contract the generalized
+Clebsch-Gordan coefﬁcients with the weights of the product basis. This contractions trades the
+computational cost of several products for that of a sum which is computationally very advantageous.
+Then, the last dimension of ˜cν is contracted with the Ai-features’ last dimension resulting in the
+a-tensor with correlation order ν −1. The algorithm then loops over the correlation order ˜ν in
+descending order until ˜ν = 1. In each step, we ﬁrst create the tensor ˜c by contracting the Clebsch-
+Gordan coefﬁcients of correlation order ˜ν with the weights. Then, the previous a-tensor is added to
+16
+
+the ˜c-tensor. This operation ensures that at the end of the loop, the product basis of every correlation
+order are created. In fact, the a contains the products for ν to ˜ν. The updated tensor is then contracted
+again with the atomic basis increasing the correlation order by 1 for all the products presented in a.
+The last a tensor is exactly the message of (11).
+A.4
+Tensor shapes
+A glossary of the shapes of the various tensors in the MACE architecture.
+Tensor
+Shapes
+Equation
+h(t)
+i,kl2m2
+[N_atoms, N_channels, (lmax
+2
++ 1)2]
+(8)
+R(t)
+kl1l2l3(rji)
+[N_edges, N_channels, N_basis]
+(8)
+Cl3m3
+l1m1,l2m2
+[2 × l3 + 1, 2 × l1 + 1, 2 × l2 + 1]
+(8)
+A(t)
+i,kl3m3
+[N_atoms, N_channels, (lmax
+3
++ 1)2]
+(8)
+CLM
+ην,lm
+[(2 × L + 1), [(lmax + 1)2]ν, N_path]
+(10)
+B(t)
+i,ηνkLM
+[N_atoms, N_channels, N_path, (2 × L + 1)]
+(10)
+WzikL,ην
+[N_channels, N_elements, N_path]
+(10)
+m(t)
+i,kLM
+[N_atoms, N_channels, (L + 1)2]
+(11)
+A.5
+Training Details
+We used three codes for the paper. All MACE experiments were run with the mace code. All BOTNet
+experiments were run within the mace code. For NequIP experiments, we detail hereafter what code
+was used for what experiment. We train with float64 precision for 3BPA and AcAc and float32
+precision for rMD17.
+A.5.1
+MACE
+Models were trained on an NVIDIA A100 GPU in single GPU training. Typical training time for
+MACE models is between 2 to 6 hours depending on the dataset. The revised MD17 models were
+trained with a total budget of 1,000 conﬁgurations, split into 950 for training and 50 for validation.
+The 3BPA models were trained on 500 structures, split into 450 for training and 50 for validation.
+The AcAc models were trained on 500 structures, split into 450 for training and 50 for validation.
+The data set was reshufﬂed after each epoch. We use two layers and 256 uncoupled feature channels
+and lmax = 3. For all models, radial features are generated using 8 Bessel basis functions and a
+polynomial envelope for the cutoff with p = 5 [29]. The radial features are fed to an MLP of size [64,
+64, 64, 1024], using SiLU nonlinearities on the outputs of the hidden layers. The readout function of
+the ﬁrst layer is implemented as a simple linear transformation. The readout function of the second
+layer is a single-layer MLP with 16 hidden dimensions. We used a 5 Å cutoff for all molecules. We
+use the following loss function:
+L = λE
+B
+B
+X
+b
+
+ˆEb −Eb
+2
++
+λF
+3BN
+B·N
+X
+i=1
+3
+X
+α=1
+ 
+−∂ˆE
+∂ri,α
+−Fi,α
+!2
+,
+(15)
+where B denotes the number of batches, N the number of atoms in the batch, Eb the ground-truth
+energy, ˆEb the predicted energy, Fi,α the force component of atom i in the direction α ∈{ˆx, ˆy, ˆz}.
+λE and λF are weights set to 1 and 1, 000, respectively.
+Models were trained with AMSGrad variant of Adam, with default parameters of β1 = 0.9, β2 =
+0.999, and ϵ = 10−8. We used a learning rate of 0.01 and a batch size of 5. The learning rate was
+reduced using an on-plateau scheduler based on the validation loss with a patience of 50 and a decay
+factor of 0.8. We use an exponential moving average with weight 0.99 to evaluate on the validation
+set as well as for the ﬁnal model, an exponential weight decay of 5e−7 on the weights of equation 10
+and 11, and a per-atom shift via the average per-atom energy over all the training set and a per-atom
+scale as the root mean-square of the components of the forces over the training set.
+17
+
+A.5.2
+NequIP
+We use two implementations of NequIP for the results in the paper. We trained models on NVIDIA
+A100 GPU in single GPU training. Typical training time for NequIP models is between 6 hours
+to 2 days depending on the dataset. The results for 50 conﬁgurations rMD17 molecule were done
+using nequip code. The models with increasing number of layers was trained in the mace code. The
+timings for NequIP were also done in the mace code.
+Original nequip code base [5]
+The NequIP model was trained on 50 conﬁgurations of rMD17
+used the same model speciﬁcations as for rMD17 in [5] with the same training procedure. λE and
+λF were set to 1 and 1, 000, respectively.
+Reimplementation of NequIP in the mace code base
+For the increasing layer experiment, the
+NequIP model was trained on 450 conﬁgurations and 50 conﬁgs were used for validation. We use
+5 layers with 64 channels for even and odd parity, and L = 3 messages. We use a cutoff radius of
+4Å. Radial features are generated using 8 Bessel basis functions and a polynomial envelope for the
+cutoff with p = 6. We use λE and λF weights set to 1 and 1, 000, respectively. Models were trained
+with AMSGrad variant of Adam, with default parameters of β1 = 0.9, β2 = 0.999, and ϵ = 10−8. We
+used a learning rate of 0.01 and a batch size of 5. The learning rate was reduced using an on-plateau
+scheduler based on the validation loss with a patience of 50 and a decay factor of 0.8. We use an
+exponential moving average with weight 0.99 to evaluate on the validation set as well as for the ﬁnal
+model.
+For the 3BPA timings model, we use the same model speciﬁcation as in [36] with the important
+difference of using a polynomial envelope for the cutoff with p = 6 instead of p = 2. .
+18

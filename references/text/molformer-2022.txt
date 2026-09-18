@@ -1,0 +1,1917 @@
+Large-Scale Chemical Language Representations
+Capture Molecular Structure and Properties
+Jerret Ross1,*, Brian Belgodere1, Vijil Chenthamarakshan1, Inkit Padhi1, Youssef
+Mroueh1, and Payel Das1,*
+1IBM Research, Yorktown Heights, NY 10598, USA
+*rossja@us.ibm.com and daspa@us.ibm.com
+ABSTRACT
+Predicting the properties of a chemical molecule is of great importance in many applications, including drug discovery and
+material design. Machine learning-based models promise to enable more accurate and faster molecular property predictions
+than the current state-of-the-art techniques, such as Density Functional Theory calculations or wet-lab experiments. Various
+supervised machine learning models, including graph neural nets, have demonstrated promising performance in molecular
+property prediction tasks. However, the vast chemical space and the limited availability of property labels make supervised
+learning challenging, calling for learning a general-purpose molecular representation. Recently, unsupervised transformer-
+based language models pre-trained on large unlabeled corpus have produced state-of-the-art results in many downstream
+natural language processing tasks. Inspired by this development, we present molecular embeddings obtained by training
+an efﬁcient transformer encoder model, MoLFormer, which uses rotary positional embeddings. This model employs a linear
+attention mechanism, coupled with highly distributed training, on SMILES sequences of 1.1 billion unlabeled molecules from
+the PubChem and ZINC datasets. Experiments show that utilizing the learned molecular representation outperforms existing
+baselines on downstream tasks, including supervised and self-supervised graph neural net baselines and language models, on
+several classiﬁcation and regression tasks from ten benchmark datasets while performing competitively on two others. Further
+analyses, speciﬁcally through the lens of attention, demonstrate that MoLFormer trained on chemical SMILES indeed learns
+the spatial relationships between atoms within a molecule. These results provide encouraging evidence that the large-scale
+molecular language models can capture sufﬁcient chemical and structural information to predict various distinct molecular
+properties, including quantum-chemical properties.
+Main
+Machine Learning (ML) has emerged as an appealing, computationally efﬁcient approach for predicting molecular properties,
+with implications in drug discovery and material engineering. ML models for molecules can be trained directly on pre-deﬁned
+chemical descriptors, such as unsupervised molecular ﬁngerprints1, or hand-derived derivatives of geometric features such as a
+Coulomb Matrix (CM)2. However, more recent ML models have focused on automatically learning the features either from the
+natural graphs that encode the connectivity information or from the line annotations of molecular structures, such as the popular
+SMILES3 (Simpliﬁed Molecular-Input Line Entry System) representation. SMILES deﬁnes a character string representation of
+a molecule by performing a depth-ﬁrst pre-order spanning tree traversal of the molecular graph, generating symbols for each
+atom, bond, tree-traversal decision, and broken cycles. Therefore, the resulting character string corresponds to a ﬂattening of a
+spanning tree of the molecular graph. Learning on SMILES has been widely adopted for molecular property prediction4–7 as
+SMILES is generally more compact than other methods of representing structure, including graphs. Additionally, meaningful
+substructures such as branches, cyclic structures, and chirality information are explicitly represented in SMILES strings, which
+is not the case for the graph representation.
+However, the SMILES grammar is complex and restrictive; most sequences over the appropriate character set do not
+belong to well-deﬁned molecules. Alternative string-based representations exist, such as SMARTS8 and SELFIES9. Comparing
+beneﬁts of these alternative representations with respect to SMILES is an active area of research. For example10, focusing on
+molecular optimization tasks on the learned representation space, suggested no obvious shortcoming of SMILES with respect
+to SELFIES in terms of optimization ability and sample efﬁciency, particularly when the language model is more advanced.
+Nevertheless, string-based representations are thought to not be topologically-aware, while graphs are. Due to these limitations,
+deep chemical language models may focus on learning the grammar of molecular strings and not the implicit topological
+structure of the molecular graphs. Accordingly, while string-based deep neural nets have been employed in predicting molecular
+properties5–7,11, they are typically outperformed by graph neural networks (GNNs)12 and their variants13–21. GNN frameworks
+can be generally viewed as “message passing”, which includes local neighborhood information aggregation and information
+arXiv:2106.09553v3  [cs.LG]  14 Dec 2022
+
+updates across different levels of granularity, e.g., nodes, edges, or the full graph, according to the graph’s connectivity structure.
+One challenge with supervised training of GNNs and language models for molecular property prediction is the scarcity
+of labeled data. Label annotation of molecules is typically expensive and this problem is compounded by the fact that the
+size of the space consisting of plausible chemicals in need of annotation is astronomically large (1060 to 10100)22. Such a
+scenario creates the need for molecular representation learning which can be generalizable to various property prediction tasks
+in an un-/self-supervised setting. The recent success of large transformer-based23 foundation models24, using the paradigm of
+learning a task-agnostic language representation, obtained by pre-training on large unlabeled corpora and subsequently using it
+for ﬁne-tuning on downstream tasks of interest, has been extended to other domains.
+Pre-trained Language Models (LMs)25 and GNNs26 have only recently started to emerge for predicting molecular properties.
+However, to what extent pre-trained LMs, trained on a large corpus of billions of molecules, are able to capture the molecule-
+property relationships across various downstream tasks remains unexplored.
+Towards this direction, here we present molecular SMILES transformer models referred to as MOLFORMER (Molecular
+Language transFormer). We name our best performing MOLFORMER variant MOLFORMER-XL. MOLFORMER-XL was
+obtained using an efﬁcient linear attention mechanism trained on a large corpus of 1.1 billion molecules (see Figure 1).
+Results show, for the ﬁrst time, that pre-trained transformer encoders of molecular SMILES perform competitively with
+existing supervised or unsupervised LM and GNN baselines on predicting a wide variety of molecular properties, including
+quantum-mechanical properties.
+Our main contributions are:
+• We train a large-scale and efﬁcient Molecular Language model transFormer (MOLFORMER) on over a billion molecules,
+with relatively limited hardware resources (up to 16 V100 GPUs). We owe our scalability and speedups to efﬁcient linear
+time attention, adaptive bucketing of batches, and open-source parallelization provided in PyTorch Lightning and NCCL.
+With the combination of bucketing and linear attention we are able to achieve a batch size of 1600 molecules per GPU.
+Using 16 GPUs we need 208 hours to complete 4 epochs of pre-training for MOLFORMER-XL. To complete training in
+the same amount of time without bucketing and linear attention we would be limited to less than 50 molecules per GPU
+and require over 1000 GPUs for the task.
+• We explore the difference between absolute and relative position embeddings in representing molecular SMILES. We
+also provide a new, efﬁcient, and accurate linear attention approximation of the recently proposed relative position
+RoFormer27.
+• We perform extensive experimentation and ablation studies on several classiﬁcation and regression tasks from 10
+benchmark datasets, covering quantum mechanical, physical, biophysical, and physiological property prediction of small
+molecule chemicals from MoleculeNet28.
+• Our results provide encouraging evidence that MOLFORMER representations can accurately capture sufﬁcient chemical
+and structural information to predict a diverse range of chemical properties. Furthermore, the performance of MOL-
+FORMER is either better or on par with state-of-the-art GNNs that learn from precise graph topology information and
+beyond (e.g., bond distances).
+• We provide further analyses to demonstrate that MOLFORMER can capture substructures, as well as spatial interatomic
+distances within a molecule from SMILES annotations only.
+To our knowledge, the present study is the ﬁrst one that explores the representational power of pre-trained chemical language
+models on predicting a broad range of downstream molecular properties from quantum chemical to physiological. In particular,
+predicting quantum-chemical properties from SMILES strings alone is non-trivial, as those properties are largely dependent on
+the accurate 3D molecular geometric information, which is considered privileged information and not available in general.
+Results and Discussion
+MoLFormer Framework
+The goal of MOLFORMER is to learn a universal molecular representation from large scale chemical SMILES data and
+then evaluate the representation on various downstream molecular property prediction tasks, as shown in Figure 1. To do
+so, MOLFORMER model is developed using the masked language model framework29,30, which randomly masks a certain
+percentage of tokens within a SMILES sequence during training and then predicts those tokens. The masked language modeling
+thus exploits self-supervision and enables contextual learning. To allow better contextual learning and faster training, rotary
+positional embedding27 was used instead absolute positional embedding, along with linear attention31 (See Methods and
+Supplementary Information for further details on model architecture and training). We saw increased stability and faster
+convergence in training loss behavior when pre-training using rotary embeddings in contrast to absolute embeddings as observed
+/
+
+in Figure 2. To demonstrate the effectiveness of the pre-trained MOLFORMER as a universal and task-agnostic molecular
+representation, we benchmarked its adaptation performance on numerous challenging classiﬁcation and regression tasks from
+MoleculeNet28. Details of the benchmark datasets can be found in SI Section C.
+Derivation of MOLFORMER Embeddings
+We encode a chemical SMILES by extracting the mean of all embeddings of the last hidden state from the encoder model. The
+resulting embedding is used for all downstream tasks. The downstream tasks themselves can be divided into two categories,
+The ﬁrst category being called Frozen and the second being called Fine-tuned. The Frozen setting is deﬁned by training a
+fully connected model for each task, while keeping the encoder embeddings ﬁxed. The second setting, Fine-tuned, involves
+ﬁne-tuning the weights of the encoder model jointly with the fully connected model for each downstream task. The ideal
+conﬁguration and hyperparameters for the frozen strategy are discovered through a grid search as described in SI Table 1.
+For the ﬁne-tuned strategy, we use a 2-layer fully connected network with a hidden dimension of 768 (matching the encoder
+embedding) with Dropout (set to 0.1) and GELU layers in-between, on top of a ﬁnal single output dimension for regression
+tasks.
+Performance of MOLFORMER Embeddings on Downstream Tasks
+We evaluate the performance of MOLFORMER embeddings and compare them with existing baselines on six classiﬁcation
+and ﬁve regression tasks from the MoleculeNet benchmark28, as discussed below. We refer to MOLFORMER which has
+been pre-trained on the entire training set comprised of ≈1.1 B molecules (all molecules from both PubChem and Zinc) as
+MOLFORMER-XL. Unless stated otherwise, the MOLFORMER-XL is trained with linear attention using rotary positional
+embeddings and the performance reported is of the model ﬁne-tuned on the downstream task (see Methods for details). To
+predict various properties on the downstream tasks we ﬁned-tuned the model as described in the previous section. We use the
+training, validation and testing data split as deﬁned by the MoleculeNet benchmark for all tasks (see SI C).
+Classiﬁcation Tasks
+We choose six classiﬁcation tasks from the MoleculeNet benchmark with nine total baselines, four
+supervised and ﬁve self-supervised, for comparison against MOLFORMER-XL. The supervised baselines consist of shallow
+machine learning models trained on molecular ﬁngerprints (RF and SVM in Table 1) and graph neural nets. Among the
+pre-trained/self-supervised baselines, Hu, et al.32 pre-trains a Graph Isomorphism Network (GIN, a GNN that uses an MLP and
+weighted sum of node features in the aggregation) on molecular graphs that includes edge features involved in aggregation.
+N-gram graph33 uses a simple unsupervised representation for molecules by ﬁrst embedding the nodes in a graph and then
+constructing a compact representation of the graph by assembling the vertex embeddings in short walks in the graph. MolCLR26
+is a self-supervised learning framework based on GIN, which uses contrastive loss34,35. GraphMVP-C is the Graph Multi-
+View Pre-training (GraphMVP) framework proposed by reference 36, where self-supervised learning (SSL) is performed
+by leveraging the correspondence and consistency between 2D topological structures and 3D geometric views. We have
+considered three other geometry-aware GNN baselines, one supervised (DimeNet37), and two self-supervised (GeomGCL36 and
+GEM38). ChemBERTa25 is a pre-trained molecular language model trained on a smaller chemical dataset. Table 1 documents
+the performance comparison of MOLFORMER with these baselines on six classiﬁcation benchmarks using the MoleculeNet
+scaffold data splits. MOLFORMER-XL outperforms all baselines in three (BBBP, ClinTox, and SIDER) out of six benchmarks
+and comes a close second in the other three (Tox21, HIV, and BACE).
+Regression Tasks
+Next, we evaluate MOLFORMER-XL on more challenging regression tasks from MoleculeNet. We report
+our performance on ﬁve regression benchmarks, namely QM9, QM8, ESOL, FreeSolv, and Lipophilicity, in Table 2. In
+particular, QM9 and QM8 involve predicting several quantum chemical measures, which is considered challenging without
+having access to privileged 3D geometric information. Again we use the train, validation and test split as suggested in28 for these
+tasks. The baselines considered are a molecular graph convolutional network (GC, a GNN that utilizes a mean-pooling over
+the node and its neighbors before the linear transformation)39, the attentive-FP (A-FP) model40, and an MPNN variant18 that
+learns edge features such as pairwise interatomic distances. Results show that MOLFORMER-XL upon task-speciﬁc ﬁne-tuning
+outperforms the existing supervised GNN baselines, speciﬁcally GC, A-FP, and MPNN (augmented with bond distances for
+QM8 and QM9), on all ﬁve tasks. Table 7 further shows MOLFORMER outperforming geometry-aware GNNs (DimeNet,
+GeomGCL, and GEM) on three physical property regression benchmarks. These results, combined with MOLFORMER-XL
+performance on the classiﬁcation benchmarks conﬁrm its generalizability.
+A Closer Look at QM9
+Table 9 further compares MoLFormer-XL performance on the QM9 atomization energies and enthalpy
+(internal energy/enthalpy corrected for reference atomic energy, in eV) prediction tasks with two exemplary supervised 3D
+GNNs , such as SchNet41 and Dimenet37. MOLFORMER-XL trained on SMILES alone is outperformed by both those models
+in all of the four tasks. However, SchNet, and DimeNet, which directly encode 3D information with specialized architecture
+for modeling quantum interactions, beats MOLFORMER-XL only by roughly a factor of 8 and by roughly a factor of 10,
+/
+
+respectively. This result, along with Tables 1 and 2, reinstates the power of learning an universal molecular representation from
+readily available information, such as SMILES, at a broader scale, while conﬁrming the crucial role of privileged geometric
+information for quantum-chemical energy prediction. Further, results from this comparison opens up the door for future
+investigations, with the goal of estimating emergence of geometric awareness in MoLFormer (see later sections) or how the
+expressiveness of SMILES-only MoLFormer can be further enhanced by adding partial or complete 3D geometric information.
+Ablation Studies
+In this section we discuss several different ablations of MOLFORMER-XL in an attempt to provide insights into its impressive
+performance. The ablations we performed can be broadly divided in the following three categories (1) the effect of size and the
+nature of the pre-training data and model depth, and (2) the results with (frozen) and with (ﬁne-tuned) model ﬁne-tuning on the
+downstream data, (3) the effect of absolute and rotary positional embeddings.
+Data/Model Size
+First we investigate how pre-training dataset size affects the performance of MOLFORMER-XL on several
+downstream tasks from the MoleculeNet benchmark. To accomplish this we chose 3 different weighted combinations of the
+PubChem and Zinc datasets, speciﬁcally a set consisting of 10% of Zinc and 10% PubChem, another with 100% of PubChem
+mixed with 10% of Zinc, and then one with 100% Zinc molecules and 0% PubChem. We also investigate the inﬂuence of
+model depth by pre-training a 6 layer model, named MOLFORMER-Base, on the complete Zinc and Pubchem dataset.All
+models are pre-trained with rotary embeddings and linear attention and then compared to MOLFORMER-XL. Identical learning
+rates, data splits, optimization, etc. are used for pre-training and ﬁne-tuning. Tables 1 and 2 summarize these results. While
+MOLFORMER-XL performs better on average, we report two interesting observations. The ﬁrst is that the model that is
+pre-trained on the second biggest data set, 100% Zinc, consistently performs worse than all other pre-trained models. A
+possible explanation for the poor performance of the model trained on only Zinc is due to the Zinc dataset consisting of a much
+smaller vocabulary than all other dataset combinations as well as much shorter molecules with little variance with respect to
+molecule length. The other point of interest is that when MOLFORMER-XL falls behind, it is only by a very small margin (See
+performance on ESOL, QM8, FreeSolv benchmarks in Table 2). Tables 1 and 2 further show that MOLFORMER-Base has a
+weaker performance than MOLFORMER-XL in majority of tasks, implying a deeper model helps in learning.
+Fine-tuned versus Frozen
+Table 3 further summarizes the two remaining ablation experiments using the QM9 benchmark.
+For simplicity we observe that the ﬁne-tuned ablation experiments achieves such a convincing win over the frozen experiments
+on all pre-training dataset sizes that we opted to only investigate ﬁne-tuning for all other benchmarks. These results provide
+empirical insights onto the neural and data scaling behavior of MOLFORMER.
+Position embeddings
+The positional embeddings ablation results are collected in Table 3, which show that MOLFORMER
+with Rotary embeddings and ﬁne-tuning is behind the Absolute positional embedding model for the smaller datasets, but then
+wins as the dataset size passes 1 Billion molecules.
+Insights into MOLFORMER
+Molecular Similarity Recovery
+Next, we analysed the correlation between pairwise similarities estimated using the Tanimoto distance, a popular measure
+of pairwise distance between chemicals, on the molecular ﬁngerprints and those estimated using the Euclidean distance on
+the MOLFORMER-XL embeddings. We further looked into the correlation between the number of atoms in the maximum
+common subgraph of a pair of molecules with their corresponding euclidean distance in the embedding space for a set of
+random molecules picked from PubChem. The results are summarized in Table 4 and show that MOLFORMER-XL embeddings
+are better correlated with known molecule similarity measures when compared to ChemBERTa. These results are suggestive of
+MOLFORMER embeddings being informative of chemical structure similarity.
+Attention Analyses
+Finally, we inspect the average pooled attention matrices of MOLFORMER-XL to explore the chemical information embedded
+in them. For this purpose, we utilize the cosine similarities between attention values and the spatial distances between atoms
+within a molecule from the QM9 test set. Spatial distances are obtained from the corresponding energy-minimized geometries
+provided within QM9 benchmark28. MOLFORMER-XL is compared with a MOLFORMER variant trained with full attention
+and rotary embeddings on the entire PubChem+Zinc dataset. Note that the MOLFORMER models here are not ﬁne-tuned for the
+QM9 dataset. The frozen MOLFORMER with full attention shows a much higher average MAE (≥12) on QM9 downstream
+tasks, performance is particularly worse on internal energies (U and U0), enthalpy (H), and free energy (G). We present attention
+results separately for three different categories of interatomic spatial distances: short (≤2 Å; that are mostly reﬂective of typical
+covalent bonds in the molecule, C-C single bond distance being 1.5 Å), medium (2-4 Å) and long (≥4Å), and summarize
+/
+
+them in Table 3. Interestingly, attentions in MOLFORMER with linear or full attention (and rotary positional embeddings)
+show strong similarity with interatomic distances in both the short and medium categories, while revealing a weak (around 0.2)
+similarity with longer interatomic distances. This is an interesting observation, indicating that MOLFORMER is able to capture
+spatial relations between atomic tokens that are not necessarily neighbors in the SMILES sequence. The observed attentions in
+MOLFORMER-XL are slightly more in line with medium and long range distances, when compared to MOLFORMER with full
+attention. This observation suggests MOLFORMER-XL, with linear-attention, does in fact capture spatial relations between
+atoms more effectively.
+Figure 3 further elaborates this point showing the average learned attention coefﬁcients in an intermediate attention layer
+of MOLFORMER-XL with rotary positional embeddings. Attentions between different pairs of atomic tokens are compared
+to the corresponding covalent bond connectivity and 3D distances between atom pairs (complete attention matrices for the
+same molecules across all layers are shown in Figures 5 and 6 in SI). We chose two molecules from the QM9 test set whose
+attention values show a high cosine similarity with the medium range spatial distances for this visualization. Visual inspection
+indicates that an aggregation of heads on the intermediate rotary attention layer corresponds well to the covalent bonding
+pattern, while also capturing the signature of the spatial relations between non-bonded atoms within a molecule. These attention
+analysis results suggest that MOLFORMER-XL is able to recover molecular structural information from corresponding SMILES
+sequence to a signiﬁcant extent. This capability likely stems from pre-training on a large corpus of chemical SMILES which
+also allows MOLFORMER-XL to learn fundamental properties of chemicals, including structural information and various
+downstream properties, ranging from quantum chemical to physiological. A similar observation has been reported in recent
+work on protein sequence modeling42,43. To our knowledge, this is the ﬁrst conﬁrmation that structural and diverse property
+information emerges in the representation learned by a chemical language model pre-trained on large-scale data.
+Conclusion
+In this work, we have explored the power of unsupervised large-scale pre-trained molecular language models at various
+molecular property prediction tasks. Unlike graphs, molecular languages such as SMILES do not explicitly encode molecular
+topology. However, with well-designed self-supervised training on a large-scale corpus and with an expressive architecture,
+such as a contextualized transformer-based language model with a linear attention mechanism, and a parallelized training
+protocol, our MOLFORMER can efﬁciently learn implicit rich structure-property relationship information.
+Speciﬁcally, MOLFORMER outperforms existing graph-based baselines on a wide variety of molecular regression and
+classiﬁcation benchmarks. To our knowledge, this is the ﬁrst work that validates the power of large-scale self-supervised
+pre-trained molecular language models on predicting molecular properties across the entire range from quantum chemical to
+physiological. Further, by analysing the learned attentions, we show that MOLFORMER trained on SMILES sequences indeed
+is aware of interatomic relations within a molecule, even beyond the 2D topology. Finally, on the large-scale learning end, we
+showcased with MOLFORMER an efﬁcient and environment-friendly use of computational resources, reducing the number of
+GPUs needed to perform the training by a factor of 60 (1000 vs. 16).
+MOLFORMER has immediate potential for faster in silico screening of molecules across diverse targets, which is important
+for material design and drug discovery applications with positive societal impact. However, it should be noted that misuse of
+such technology without a proper experimental and scientiﬁc validation in a wet lab can have harmful implications. Further, it
+has been shown that accurate property prediction models (for example., for predicting toxicity) along with generative models
+can be exploited for designing highly toxic molecules44. This highlights the need for a responsible framework around the use of
+these emerging powerful technologies. In addition, the present work calls for further exploration of the representational power
+of MOLFORMER in the context of its ability to learn structural molecular information directly from chemical language and can
+be extended beyond the small organic molecules studied in this work. Future work will also aim to improve MOLFORMER by
+employing larger models and larger training data, using improved and/or domain-speciﬁc self-supervised tasks, and using other
+string-based representations like SELFIES9.
+Methods
+Model Details
+As we aim to train a large scale masked language model of chemical SMILES efﬁciently and effectively, while utilizing
+relatively limited hardware resources, we leveraged transformer-based neural nets23. Transformers process inputs through
+a series of blocks alternating between self-attention and feed-forward connections. Transformers encode the position in the
+sequence via a positional embedding, termed the absolute positional embedding. The input feature at a position m is therefore
+concatenated with its corresponding absolute position embedding. Self-attention enables the network to construct complex
+representations that incorporate context from across the sequence. Attention mechanisms transform the features in the sequence
+into queries (q), keys (k), and value (v) representations. These representations produce the output of the attention at position m
+/
+
+as follows:
+Attentionm(Q,K,V) = ∑N
+n=1 exp(⟨qm,kn⟩)vn
+∑N
+n=1 exp(⟨qm,kn⟩) .
+A well known computational bottlenecks of the vanilla transformer23 architecture is that the attention mechanism suffers
+from a quadratic computational cost with respect to the sequence length. Linear complexity attention models31,45 have tackled
+this issue utilizing kernel approximations and random feature approximations variants. This led us to design MOLFORMER that
+utilizes an encoder based on a transformer with linear attention31. MOLFORMER with linear attention consists of 12 layers, 12
+attention heads per layer, and has a hidden state size of 768. A Generalized Feature map31 for the linear attention was chosen
+(see SI Section A.1.1 for details).
+As mentioned above, in a transformer architecture the dependency between tokens at different position of a (chemical)
+sequence is modeled under the supervision of position encoding. The seminal work of23 investigated absolute position
+embeddings to encode the position of a token in the sequence. More recent work46–48 showed that use of relative position
+embeddings between tokens results in improved performance. Rotary position embeddings were introduced in RoFormer27 as a
+means to enhance the relative encoding via position dependent rotations Rm of the query and the keys at a position m. These
+rotations can be efﬁciently implemented as pointwise multiplications and do not result in a dramatic computational increase.
+In order to leverage Rotary embeddings with linear transformers, the use of the following approximation was proposed in27:
+Attentionm(Q,K,V) = ∑N
+n=1⟨Rmϕ(qm),Rnϕ(kn)⟩vn
+∑N
+n=1⟨ϕ(qm),ϕ(kn)⟩
+,
+where Q,K,V are the query, key, and value respectively, and ϕ a random feature map.
+After preliminary experimentation with this linear Roformer, we found it performed worse than its absolute position
+counterpart. We propose the following modiﬁcation to Roformer that we found to train more gracefully (the training loss
+falls faster and lower) than the original Roformer, as well as observing better performance than the model using absolute
+embeddings:
+Attentionm(Q,K,V) = ∑N
+n=1⟨ϕ(Rmqm),ϕ(Rnkn)⟩vn
+∑N
+n=1⟨ϕ(Rmqm),ϕ(Rnkn)⟩.
+When compared with27 we rotate the original keys and queries instead of the transformed ones with the feature map ϕ.
+Datasets and Tokenization
+We constructed several datasets for pre-training by combining the PubChem49 and ZINC50 datasets with varying proportion
+from each. The PubChem dataset consists of 111 million molecules, while the much larger ZINC dataset contains over 1
+billion molecules. To construct a vocabulary, we utilize the tokenizer from51. All molecules from both PubChem and ZINC
+are converted to a canonical format utilizing RDKit52 then tokenized. All unique tokens extracted from the resulting output
+gives us a vocabulary of 2357 tokens plus 5 special tokens, resulting in a total of 2362 vocabulary tokens which are used for all
+pre-trained models considered in this paper, irrespective of pre-training dataset size. In other words, all models have the same
+embedding capacity with a ﬁxed vocabulary size. However, the total unique tokens that they are pre-trained on might only
+contain a subset of the model vocabulary capacity. The post tokenization sequence length of the molecules range from 1 to
+just over 2000 tokens. We decide to restrict the sequence length range from 1 token to 202 tokens, special tokens inclusive, to
+reduce computation time. Since over 99.4 percent of all molecules from our dataset contain less than 202 tokens we hypothesize
+that the removal of molecules with more than 202 tokens would be of minimal negative impact on pre-training.
+Large Scale Training and Parallelization
+For pre-training we use the masked language model method deﬁned in30. Initially 15% of the tokens are selected for possible
+denoising. From that selection, 80% of the tokens will be randomly selected and replaced with the [MASK] token, 10% of the
+tokens will be randomly selected to be replaced with a random token, while the remaining 10% of the tokens will be unchanged.
+Training was performed for 4 epochs through the entire PubChem+ZINC dataset with a ﬁxed learning rate of 1.6e−4 and a
+batch size of 1600 molecules per GPU on a total of 16 GPUs over 2 servers connected via Inﬁniband fabric. It should be noted
+that as the number of GPUs utilized increased we found an increase in learning rate was necessary up to a factor of 8.
+In order to scale our training to large datasets (1 Billion+ data points), we relied on adaptive bucketing of mini-batches by
+sequence length, as well as parallelization via distributed training (see Supplementary Information (SI) A for details). Using
+Linear attention and bucketing allowed us to reduce the number of GPUs needed from roughly 1000 for quadratic attention
+with no bucketing to 16.
+/
+
+Data availability
+Datasets used for model pre-training and ﬁnetuning on benchmark tasks are available at https://github.com/IBM/
+molformer.
+Code availability
+Python codes for MoLFormer training and ﬁne-tuning, and python notebooks for MoLFormer attention visualization, as well as
+instances of pre-trained models are available at https://github.com/IBM/molformer. For other enquiries contact
+the corresponding authors.
+/
+
+Figures and Tables
+Large chemical 
+data sets
+ZINC (1 Billion)
+PubChem (111 Million)
+Chemicals
+Chemical 
+language
+representation
+(SMILES)
+MolFormer learns a 
+compressed 
+representation of 
+chemical molecules
+.
+Fine-tuning on 
+Benchmarks 
+QM9, QM8, ESOL, 
+FreeSolv, Lipophilicity,
+BBBP, Tox21, ClinTox,
+HIV, BACE, SIDER
+Linear Attention 
+Relative Position 
+Embeddings
+Property 
+Prediction
+Attention 
+Visualization
+Molecule
+Similarity
+Figure 1
+0
+3 k
+6 k
+9 k
+12 k
+15 k
+Step
+0.5
+1.0
+1.5
+2.0
+Training Loss
+(a)
+Absolute Embedings
+Rotary Embedings
+3 k
+6 k
+9 k
+12 k
+Step
+0.2
+0.4
+0.6
+0.8
+1.0
+1.2
+1.4
+Validation Loss
+(b)
+Absolute Embedings
+Rotary Embedings
+Figure 2
+/
+
+(a)
+(b)
+Figure 3
+/
+
+Dataset
+BBBP
+Tox21
+ClinTox
+HIV
+BACE
+SIDER
+Tasks
+1
+12
+2
+1
+1
+27
+RF
+71.4
+76.9
+71.3
+78.1
+86.7
+68.4
+SVM
+72.9
+81.8
+66.9
+79.2
+86.2
+68.2
+MGCN53
+85.0
+70.7
+63.4
+73.8
+73.4
+55.2
+D-MPNN54
+71.2
+68.9
+90.5
+75.0
+85.3
+63.2
+DimeNet37
+–
+78.0
+76.0
+–
+–
+61.5
+Hu, et al.32
+70.8
+78.7
+78.9
+80.2
+85.9
+65.2
+N-Gram33
+91.2
+76.9
+85.5
+83.0
+87.6
+63.2
+MolCLR26
+73.6
+79.8
+93.2
+80.6
+89.0
+68.0
+GraphMVP-C36
+72.4
+74.4
+77.5
+77.0
+81.2
+63.9
+GeomGCL36
+–
+85.0
+91.9
+–
+–
+64.8
+GEM38
+72.4
+78.1
+90.1
+80.6
+85.6
+67.2
+ChemBerta25
+64.3
+–
+90.6
+62.2
+–
+–
+MOLFORMER-XL
+93.7
+84.7
+94.8
+82.2
+88.21
+69.0
+Table 1
+Dataset
+QM9
+QM8
+ESOL
+FreeSolv
+Lipophilicity
+GC
+4.3536
+0.0148
+0.970
+1.40
+0.655
+A-FP
+2.6355
+0.0282
+0.5030
+0.736
+0.578
+MPNN
+3.1898
+0.0143
+0.58
+1.150
+0.7190
+MOLFORMER-XL
+1.5894
+0.0102
+0.2787
+0.2308
+0.5289
+Table 2
+Distance-Category
+Attention
+1
+3
+5
+7
+9
+11
+Short
+Full (✓Rotary)
+0.615
+0.604
+0.603
+0.615
+0.601
+0.598
+Linear (✓Rotary)
+0.596
+0.597
+0.602
+0.597
+0.600
+0.594
+Medium
+Full (✓Rotary)
+0.716
+0.724
+0.724
+0.716
+0.727
+0.727
+Linear (✓Rotary)
+0.729
+0.728
+0.724
+0.727
+0.726
+0.730
+Long
+Full (✓Rotary)
+0.204
+0.207
+0.208
+0.205
+0.208
+0.210
+Linear (✓Rotary)
+0.211
+0.210
+0.210
+0.211
+0.209
+0.210
+Table 3
+/
+
+Figure and Table Captions
+Figure 1. Overview of MoLFormer pipeline. The transformer neural network based model is trained on the SMILES
+sequences corresponding to a large collection of chemical molecules from PubChem and Zinc, two public chemical databases
+in a self-supervised fashion. MOLFORMER was designed with an efﬁcient linear attention mechanism and relative positional
+embeddings, with the goal of learning a meaningful and compressed representation of chemical molecules. This foundation
+model was then adopted to different downstream molecular property prediction tasks via ﬁne-tuning on task-speciﬁc data. The
+representative power was further tested by recovering molecular similarity using the MOLFORMER encodings, as well as by
+analyzing the correspondence between the interatomic spatial distance and attention value for a given molecule.
+Figure 2. (a) Training and (b) validation losses of our Linear attention MOLFORMER with rotary (relative) and absolute
+position embeddings on PubChem. We see that both rotary and absolute MOLFORMER have graceful training curves. Our
+Rotary Linear attention MOLFORMER leads to lower training and validation losses than MOLFORMER with absolute position
+embeddings.
+Figure 3. Visualization of the learned attention map (using either full or linear attention) under rotary embedding and correspond-
+ing molecular structure (bond connectivity and 3D distance in Angstroms) for two random molecules: ‘CC1(C)C(C)(O)C1(C)O’
+(a) and ‘CC(C)C(C)(C)O’ (b). The attention map (only tokens that map to constituent atoms are shown for clarity), com-
+prised of the average-pooled heads of an intermediate attention layer, exhibits awareness of both covalent bond connectivity
+and interatomic long-range spatial relationship. The linear attention variant captures (encircled in green) the medium 3D range
+distance better in comparison to its counterpart.
+Table 1. Comparison of ﬁne-tuned MOLFORMER with existing supervised and pre-trained/self-supervised baselines on
+multiple classiﬁcation benchmarks. Bold indicates the top-performing model. All models were evaluated by AUC-ROC on
+scaffold splits. Baseline performances are adopted from references25,26,36, ’-’ signiﬁes that the values were not reported for the
+corresponding task. .
+Table 2. Performance of ﬁne-tuned MOLFORMER and other supervised GNN baselines on QM9, QM8, ESOL, FreeSolv, and
+Lipophilicity regression benchmarks. For QM9 and QM8, we report average MAE, while RSME is reported for the remaining
+tasks. Baseline performances are taken from references28,40. Bold indicates the top-performing model..
+Table 3. Comparison of MOLFORMER models with respect to cosine similarity between the interatomic spatial distance map
+and the attention map, across three different distance categories for 7806 molecules from QM9 test set. Short, Medium, and
+Long distance categories are deﬁned with interatomic distances in the range of ≤2, 2-4, and 4-10 Å, respectively. Bold indicates
+the top-performing model.
+/
+
+Acknowledgements
+We thank IBM Research for supporting this work.
+Author information
+Contributions
+All authors conceived the project, developed the MoLFormer framework, and designed experiments. J.R., B.B., V.C., and I.P.
+performed model training, ﬁne-tuning, and inference experiments. I.P. and P.D. performed attention map analyses. All authors
+analysed the results and wrote the paper.
+Ethics declarations
+Competing interests
+The authors declare no competing interests.
+/
+
+References
+1. Rogers, D. & Hahn, M. Extended-connectivity ﬁngerprints. J. chemical information modeling 50, 742–754 (2010).
+2. Rupp, M., Tkatchenko, A., Müller, K.-R. & Von Lilienfeld, O. A. Fast and accurate modeling of molecular atomization
+energies with machine learning. Phys. review letters 108, 058301 (2012).
+3. Weininger, D. Smiles, a chemical language and information system. 1. introduction to methodology and encoding rules. J.
+chemical information computer sciences 28, 31–36 (1988).
+4. Goh, G. B., Hodas, N. O., Siegel, C. & Vishnu, A. Smiles2vec: An interpretable general-purpose deep neural network for
+predicting chemical properties. arXiv preprint arXiv:1712.02034 (2017).
+5. Öztürk, H., Özgür, A. & Ozkirimli, E. Deepdta: deep drug–target binding afﬁnity prediction. Bioinformatics 34, i821–i829
+(2018).
+6. Paul, A. et al. Chemixnet: Mixed dnn architectures for predicting chemical properties using multiple molecular representa-
+tions. arXiv preprint arXiv:1811.08283 (2018).
+7. Shin, B., Park, S., Kang, K. & Ho, J. C. Self-attention based molecule representation for predicting drug-target interaction.
+In Machine Learning for Healthcare Conference, 230–248 (PMLR, 2019).
+8. Daylight Chemical Information Systems, I. Smarts™—a language for describing molecular patterns (2007).
+9. Krenn, M., Häse, F., Nigam, A., Friederich, P. & Aspuru-Guzik, A. Self-referencing embedded strings (SELFIES): A 100%
+robust molecular string representation. Mach. Learn. Sci. Technol. 1, 045024, DOI: 10.1088/2632-2153/aba947 (2020).
+10. Gao, W., Fu, T., Sun, J. & Coley, C. W. Sample efﬁciency matters: A benchmark for practical molecular optimization. In
+Thirty-sixth Conference on Neural Information Processing Systems Datasets and Benchmarks Track (2022).
+11. Jo, J., Kwak, B., Choi, H.-S. & Yoon, S. The message passing neural networks for chemical property prediction on smiles.
+Methods 179, 65–72 (2020). Interpretable machine learning in bioinformatics.
+12. Duvenaud, D. et al. Convolutional networks on graphs for learning molecular ﬁngerprints. In Proceedings of the 28th
+International Conference on Neural Information Processing Systems - Volume 2, NIPS’15 (2015).
+13. Defferrard, M., Bresson, X. & Vandergheynst, P. Convolutional neural networks on graphs with fast localized spectral
+ﬁltering. Adv. neural information processing systems 29 (2016).
+14. Kipf, T. N. & Welling, M. Semi-supervised classiﬁcation with graph convolutional networks. In International Conference
+on Learning Representations (2017).
+15. Li, Y., Tarlow, D., Brockschmidt, M. & Zemel, R. S. Gated graph sequence neural networks. In Bengio, Y. & LeCun,
+Y. (eds.) 4th International Conference on Learning Representations, ICLR 2016, San Juan, Puerto Rico, May 2-4, 2016,
+Conference Track Proceedings (2016).
+16. Veliˇckovi´c, P. et al. Graph attention networks. In International Conference on Learning Representations (2018).
+17. Hamilton, W., Ying, Z. & Leskovec, J. Inductive representation learning on large graphs. Adv. neural information
+processing systems 30 (2017).
+18. Gilmer, J., Schoenholz, S. S., Riley, P. F., Vinyals, O. & Dahl, G. E. Neural message passing for quantum chemistry. In
+International conference on machine learning, 1263–1272 (PMLR, 2017).
+19. Schlichtkrull, M. et al. Modeling relational data with graph convolutional networks. In European semantic web conference,
+593–607 (Springer, 2018).
+20. Liao, R., Zhao, Z., Urtasun, R. & Zemel, R. S. Lanczosnet: Multi-scale deep graph convolutional networks. In 7th Interna-
+tional Conference on Learning Representations, ICLR 2019, New Orleans, LA, USA, May 6-9, 2019 (OpenReview.net,
+2019).
+21. Chen, P., Liu, W., Hsieh, C.-Y., Chen, G. & Zhang, S. Utilizing edge features in graph neural networks via variational
+information maximization. arXiv preprint arXiv:1906.05488 (2019).
+22. Kirkpatrick, P. & Ellis, C. Chemical space. Nature 432, 823–824 (2004).
+23. Vaswani, A. et al. Attention is all you need. Adv. neural information processing systems 30 (2017).
+24. Bommasani, R. et al. On the opportunities and risks of foundation models. arXiv preprint arXiv:2108.07258 DOI:
+10.48550/ARXIV.2108.07258 (2021).
+25. Chithrananda, S., Grand, G. & Ramsundar, B. Chemberta: large-scale self-supervised pretraining for molecular property
+prediction. arXiv preprint arXiv:2010.09885 (2020).
+/
+
+26. Wang, Y., Wang, J., Cao, Z. & Barati Farimani, A. Molecular contrastive learning of representations via graph neural
+networks. Nat. Mach. Intell. 4, 279–287 (2022).
+27. Su, J., Lu, Y., Pan, S., Wen, B. & Liu, Y. Roformer: Enhanced transformer with rotary position embedding. arXiv preprint
+arXiv:2104.09864 (2021).
+28. Wu, Z. et al. Moleculenet: a benchmark for molecular machine learning. Chem. science 9, 513–530 (2018).
+29. Liu, Y. et al. Roberta: A robustly optimized bert pretraining approach. arXiv preprint arXiv:1907.11692 (2019).
+30. Devlin, J., Chang, M.-W., Lee, K. & Toutanova, K. BERT: Pre-training of deep bidirectional transformers for language
+understanding. In Proceedings of the 2019 Conference of the NAACL: HLT, Vol 1 (2019).
+31. Katharopoulos, A., Vyas, A., Pappas, N. & Fleuret, F. Transformers are rnns: Fast autoregressive transformers with linear
+attention. In International Conference on Machine Learning, 5156–5165 (PMLR, 2020).
+32. Hu*, W. et al. Strategies for pre-training graph neural networks. In International Conference on Learning Representations
+(2020).
+33. Liu, S., Demirel, M. F. & Liang, Y. N-gram graph: Simple unsupervised representation for graphs, with applications to
+molecules. In NeurIPS, 8464–8476 (2019).
+34. Chen, T., Kornblith, S., Norouzi, M. & Hinton, G. A simple framework for contrastive learning of visual representations.
+In III, H. D. & Singh, A. (eds.) Proceedings of the 37th International Conference on Machine Learning, vol. 119 of
+Proceedings of Machine Learning Research, 1597–1607 (PMLR, 2020).
+35. Oord, A. v. d., Li, Y. & Vinyals, O.
+Representation learning with contrastive predictive coding.
+arXiv preprint
+arXiv:1807.03748 (2018).
+36. Liu, S. et al. Pre-training molecular graph representation with 3d geometry. In International Conference on Learning
+Representations (2022).
+37. Gasteiger, J., Groß, J. & Günnemann, S. Directional message passing for molecular graphs. In International Conference
+on Learning Representations (2020).
+38. Fang, X. et al. Geometry-enhanced molecular representation learning for property prediction. Nat. Mach. Intell. 4, 127–134
+(2022).
+39. Altae-Tran, H., Ramsundar, B., Pappu, A. S. & Pande, V. Low data drug discovery with one-shot learning. ACS central
+science 3, 283–293 (2017).
+40. Xiong, Z. et al. Pushing the boundaries of molecular representation for drug discovery with the graph attention mechanism.
+J. medicinal chemistry 63, 8749–8760 (2019).
+41. Schütt, K. et al. Schnet: A continuous-ﬁlter convolutional neural network for modeling quantum interactions. In Guyon, I.
+et al. (eds.) Advances in Neural Information Processing Systems, vol. 30 (Curran Associates, Inc., 2017).
+42. Rives, A. et al. Biological structure and function emerge from scaling unsupervised learning to 250 million protein
+sequences. Proc. Natl. Acad. Sci. USA 118, e2016239118, DOI: 10.1073/pnas.2016239118 (2021).
+43. Vig, J. et al. Bertology meets biology: Interpreting attention in protein language models. In 9th International Conference
+on Learning Representations, ICLR 2021, Virtual Event, Austria, May 3-7, 2021 (OpenReview.net, 2021).
+44. Urbina, F., Lentzos, F., Invernizzi, C. & Ekins, S. Dual use of artiﬁcial-intelligence-powered drug discovery. Nat. Mach.
+Intell. 4, 189–191, DOI: 10.1038/s42256-022-00465-9 (2022).
+45. Choromanski, K. M. et al. Rethinking attention with performers. In 9th International Conference on Learning Representa-
+tions, ICLR 2021, Virtual Event, Austria, May 3-7, 2021 (OpenReview.net, 2021).
+46. Shaw, P., Uszkoreit, J. & Vaswani, A. Self-attention with relative position representations. In NAACL-HLT, 464–468
+(Association for Computational Linguistics, New Orleans, Louisiana, 2018).
+47. Raffel, C. et al. Exploring the limits of transfer learning with a uniﬁed text-to-text transformer. JMLR 21, 1–67 (2020).
+48. Ke, G., He, D. & Liu, T.-Y. Rethinking positional encoding in language pre-training. In ICLR (2021).
+49. Kim, S. et al. PubChem 2019 update: improved access to chemical data. Nucleic Acids Res. (2018).
+50. Irwin, J. J. & Shoichet, B. K. ZINC–a free database of commercially available compounds for virtual screening. J. Chem.
+Inf. Model. 45, 177–182 (2005).
+51. Schwaller, P. et al. Molecular transformer: A model for uncertainty-calibrated chemical reaction prediction. ACS Cent. Sci.
+5, 1572–1583, DOI: 10.1021/acscentsci.9b00576 (2019).
+/
+
+52. RDKit: Open-source cheminformatics. http://www.rdkit.org (2021). [Online; accessed 28-May-2021].
+53. Lu, C. et al. Molecular property prediction: A multilevel quantum interactions modeling perspective. In AAAI, 1052–1060,
+DOI: 10.1609/aaai.v33i01.33011052 (AAAI Press, 2019).
+54. Yang, K. et al. Analyzing learned molecular representations for property prediction. J. Chem. Inf. Model. 59, 3370–3388
+(2019).
+55. Raffel, C. et al. Exploring the limits of transfer learning with a uniﬁed text-to-text transformer. JMLR (2020).
+56. Beltagy, I., Peters, M. E. & Cohan, A. Longformer: The long-document transformer. arXiv:2004.05150 (2020).
+57. Kitaev, N., Kaiser, L. & Levskaya, A. Reformer: The efﬁcient transformer. In ICLR (2020).
+58. Wang, S., Li, B. Z., Khabsa, M., Fang, H. & Ma, H. Linformer: Self-attention with linear complexity (2020). 2006.04768.
+59. Bjerrum, E. J. Smiles enumeration as data augmentation for neural network modeling of molecules (2017). 1703.07076.
+60. Coley, C. W., Barzilay, R., Green, W. H., Jaakkola, T. S. & Jensen, K. F. Convolutional embedding of attributed molecular
+graphs for physical property prediction. J. chemical information modeling 57, 1757–1772 (2017).
+61. Morris, C. et al. Weisfeiler and leman go neural: Higher-order graph neural networks. In AAAI, vol. 33, 4602–4609 (2019).
+62. Maron, H., Ben-Hamu, H., Serviansky, H. & Lipman, Y. Provably powerful graph networks. Adv. neural information
+processing systems 32 (2019).
+63. Elnaggar, A. et al. Prottrans: towards cracking the language of lifes code through self-supervised deep learning and high
+performance computing. IEEE transactions on pattern analysis machine intelligence (2021).
+64. Xue, D. et al. X-mol: large-scale pre-training for molecular understanding and diverse molecular analysis. bioRxiv DOI:
+10.1101/2020.12.23.424259 (2020).
+65. Wang, S., Guo, Y., Wang, Y., Sun, H. & Huang, J. Smiles-bert: large scale unsupervised pre-training for molecular property
+prediction. In Proceedings of the 10th ACM international conference on bioinformatics, computational biology and health
+informatics, 429–436 (2019).
+66. Kim, H., Lee, J., Ahn, S. & Lee, J. R. A merged molecular representation learning for molecular properties prediction with
+a web-based service. Sci. Reports 11, 1–9 (2021).
+67. Irwin, R., Dimitriadis, S., He, J. & Bjerrum, E. J. Chemformer: a pre-trained transformer for computational chemistry.
+Mach. Learn. Sci. Technol. 3, 015022 (2022).
+68. Rong, Y. et al. Self-supervised graph transformer on large-scale molecular data. Adv. Neural Inf. Process. Syst. 33,
+12559–12571 (2020).
+69. Zhang, Z., Liu, Q., Wang, H., Lu, C. & Lee, C.-K. Motif-based graph self-supervised learning for molecular property
+prediction. Adv. Neural Inf. Process. Syst. 34, 15870–15882 (2021).
+70. Wang, Y., Magar, R., Liang, C. & Barati Farimani, A. Improving molecular contrastive learning via faulty negative
+mitigation and decomposed fragment contrast. J. Chem. Inf. Model. (2022).
+71. Zhu, J. et al. Dual-view molecule pre-training. arXiv preprint arXiv:2106.10234 (2021).
+72. Stärk, H. et al. 3d infomax improves gnns for molecular property prediction. In International Conference on Machine
+Learning, 20479–20502 (PMLR, 2022).
+73. You, Y. et al. Large batch optimization for deep learning: Training bert in 76 minutes. In International Conference on
+Learning Representations (2020).
+74. Falcon, e. a., WA. Pytorch lightning. GitHub. Note: https://github.com/PyTorchLightning/pytorch-lightning 3 (2019).
+75. Rupp, M., Tkatchenko, A., Müller, K.-R. & von Lilienfeld, O. A. Fast and accurate modeling of molecular atomization
+energies with machine learning. Phys. Rev. Lett. 108, 058301, DOI: 10.1103/PhysRevLett.108.058301 (2012).
+76. Schütt, K. T., Arbabzadah, F., Chmiela, S., Müller, K. R. & Tkatchenko, A. Quantum-chemical insights from deep tensor
+neural networks. Nat. communications 8, 1–8 (2017).
+77. Vignac, C., Loukas, A. & Frossard, P. Building powerful and equivariant graph neural networks with structural message-
+passing. Adv. Neural Inf. Process. Syst. 33, 14143–14155 (2020).
+78. van der Maaten, L. & Hinton, G. Visualizing data using t-sne. J. Mach. Learn. Res. 9, 2579–2605 (2008).
+/
+
+Extended data
+Dataset
+BBBP
+HIV
+BACE
+SIDER
+Clintox
+Tox21
+10% ZINC + 10% PubChem
+91.5
+81.3
+86.6
+68.9
+94.6
+84.5
+10% ZINC + 100% PubChem
+92.2
+79.2
+86.3
+69.0
+94.7
+84.5
+100% ZINC
+89.9
+78.4
+87.7
+66.8
+82.2
+83.2
+MOLFORMER-Base
+90.9
+77.7
+82.8
+64.8
+61.3
+43.2
+MOLFORMER-XL
+93.7
+82.2
+88.2
+69.0
+94.8
+84.7
+Extended data Table 1. Comparison of MOLFORMER-XL with ﬁne-tuned MOLFORMER models that are either of smaller
+size or pre-trained on smaller datasets on BBBP, HIV, Sider, Clintox, Tox21 and BACE classiﬁcation benchmarks.
+Dataset
+QM9
+QM8
+ESOL
+FreeSolv
+Lipophilicity
+10% Zinc + 10% Pub
+1.7754
+0.0108
+0.3295
+0.2221
+0.5472
+10% Zinc + 100% Pub
+1.9093
+0.0102
+0.2775
+0.2050
+0.5331
+100% Zinc
+1.9403
+0.0124
+0.3023
+0.2981
+0.5440
+MOLFORMER-Base
+2.2500
+0.0111
+0.2798
+0.2596
+0.6492
+MOLFORMER-XL
+1.5984
+0.0102
+0.2787
+0.2308
+0.5298
+Extended data Table 2. Performance comparison of ﬁne-tuned MOLFORMER-XL with ﬁne-tuned MOLFORMER models
+are either of smaller size or pre-trained on smaller datasets on QM9 (avg MAE), QM8 (avg MAE), ESOL (RMSE), FreeSolv
+(RMSE), and Lipophilicity (RMSE) regression benchmarks.
+Pre-training Data →
+QM9 Only
+PubChem Only
+PubChem+ZINC
+Dataset Size →
+111 × 103
+111 × 106
+> 1.1 × 109
+Measure ↓
+Frozen
+× Rotary
+Fine-tuned
+× Rotary
+Fine-tuned
+✓Rotary
+Frozen
+× Rotary
+Fine-tuned
+× Rotary
+Fine-tuned
+✓Rotary
+Frozen
+× Rotary
+Fine-tuned
+× Rotary
+Fine-tuned
+✓Rotary
+Avg MAE
+8.3808
+2.4621
+2.6604
+8.2600
+2.9680
+3.3990
+2.5497
+1.8620
+1.5894
+Avg std MAE
+0.2390
+0.0843
+0.0937
+0.2447
+0.0801
+0.1355
+0.0978
+0.0611
+0.0567
+Extended data Table 3. Comparison of different MOLFORMER variants on QM9 test set, in terms of average MAE and
+average standard MAE. Variants considered are MOLFORMER pre-trained using QM9 only, PubChem only, and
+PubChem+ZINC dataset. The variants with and without ﬁne-tuning on downstream task are compared, as well as models with,
+(✓)Rotary, and without ,(×)Rotary, rotary embeddings. Our best candidate variant (for Table 8) is chosen based on the average
+MAE (Mean Absolute Error) score, lower is better.
+Correlation
+ChemBERTa
+MOLFORMER-XL
+Fingerprint
+0.48
+0.64
+MCS
+-0.44
+-0.60
+Extended data Table 4. Correlation with structural similarity metrics on 10000 randomly selected pairs of molecules from
+the PubChem dataset. Reported correlations are between (1) the pairwise similarities estimated using molecular Fingerprints
+and those using MOLFORMER-XL (or ChemBERTa) embeddings and (2) the number of atoms in the maximum common
+subgraph (MCS) of two molecules and their corresponding Euclidean distance in the embedding space.
+/
+
+Supplementary Information
+Supplementary Figs. 1–6, Discussion, and Tables 1–11.
+/
+
+Supplementary Information
+Related Work
+Large Scale Training of Language Model
+The recent advancement of transformer-based masked language models (MLMs)29,30
+and preﬁx language models (PLMs)55 have shown remarkable performance on various natural language understanding tasks.
+Self-supervised pre-trained representation learning of sequences through MLMs randomly masks input tokens during training
+and predicts these masked tokens, whereas PLMs require adding task-speciﬁc text tags to the input sequences. These language
+models show substantial performance improvements on downstream tasks via increasing transformer models size and pre-
+training using large-scale data corpora. Recent efforts have addressed the resulting cost and memory challenges encountered
+due to scaling up models and data. One such effort is the linear-time attention transformers introduced in45,56–58 which address
+the quadratic memory challenges within the attention mechanism and allowing for more efﬁciency in training MLMs.
+Molecular Representation Learning
+To represent molecules in vector space, traditional chemical ﬁngerprints such as ECFP1,
+have been used. Deep neural nets were further trained on chemical ﬁngerprints for supervised learning. Recurrent Neural
+Network (RNN) based models have been used for molecular representation learning using SMILES and other linear molecular
+annotations as inputs59. At the same time, graph convolutional networks have been used to learn the neural ﬁngerprints of
+molecules12,60. Previous work18 implemented a single common framework to learn from graphs, referred to as a message
+passing framework, which computes node embeddings by aggregating neighborhood information during the message passing
+phase and computes a feature vector of the graph during the readout phase. Many attempts to extend GNNs have been made,
+which include variations of the original message passing concept to learn non-local effects; for instance, in40 an attention
+mechanism was introduced. One challenge faced by GNNs is achieving higher expressivity that can distinguish between two
+given graphs to that of the hierarchy of the Weisfeiler-Lehman (WL) graph isomorphism, while maintaining scalability. It has
+been shown that typical message passing models have limited expressiveness and are not better than the ﬁrst WL test (1-WL)61.
+Powerful deep models that represent higher order interactions between graph nodes have been suggested61,62, but with a large
+increase in computational cost.
+Molecular graphs can be further augmented with the 3D coordinates of atoms. Such augmentation is considered as privileged
+information due to the cost associated with deriving the 3D molecular geometry. To better model the spatial interactions among
+atoms the message passing framework was extended in18 to include pairwise interatomic distances as edge features when
+geometric information was available. More recently, variations of the message passing networks (MPNN) were proposed to
+better model the spatial interactions within molecules and increase the models expressive power, e.g., by using continuous ﬁlter
+convolutional layers (SchNet)41 or by using directional message passing (DimeNet)37 but at the cost of increased computational
+complexity. However, those models are not generalizable to settings where 3D structural information is not readily available
+and/or is expensive to compute (e.g. for larger molecules). Since the goal of this work is to learn a generalizable molecular
+representation from a large amount of unlabeled data without relying on expensive 3D information, we mainly focus on
+comparing the proposed MOLFORMER with existing supervised and un/self-supervised baselines that utilize different input
+representation (SMILES, graphs, ﬁngerprints) and can be generalizable to a wide variety of tasks, from quantum mechanical to
+physiological.
+Pre-trained Molecular Language and Graph Models
+The recent success of language representation models in downstream
+NLP tasks has inspired extending this paradigm to other domains. By combining the power of pre-training on large unlabeled
+corpus and contextual language models (LMs) using advanced neural nets, such as transformers, a domain-speciﬁc “language”
+embedding is obtained as the exclusive input for several downstream tasks.
+Examples include understanding the language of life through advanced LMs trained on protein sequences. Here features
+extracted by LMs directly from single protein sequences reach state-of-the-art performance in downstream prediction tasks,
+even when those were used without evolutionary information42,43,63. Similar large-scale unsupervised pre-training on SMILES
+sequences have been explored for molecular property prediction25,64–67; however, those models did not attempt to predict a
+diverse range of molecular properties while exploiting the available chemical sequences at scale. Unsupervised/semi-supervised
+representation learning has been tested on molecular graphs as well26,33,68. A more recent line of work has leveraged the power
+of contrastive self-supervised pre-training using 2D graph topology and 3D conformal geometry 36 (referred as GeomGCL),
+which showed performance improvement on molecular regression and classiﬁcation tasks compared to prior pre-training
+baselines.
+Previous work69 has further considered use of motif prediction during self-supervised pretraining on molecular graphs.
+Another study70 has also investigated the effect of including substructure information, as well as cheminformatics measures, in
+a molecular contrastive learning framework. References71,72 have shown the beneﬁt of pre-training by maximizing information
+between different molecular views, e.g. 1D SMILES and 2D graph, or 2D graph and 3D geometry. Fang, et al.38 has also
+/
+
+explored the advantages of geometry-based pre-training as well as including higher-order information in learning through
+modeling the atom–bond–angle relations in the graph (referred as GEM).
+A Model and Methods
+A.1 MOLFORMER Model and Pre-Training Details
+In this section we include additional details and insights of MOLFORMER pre-training.
+A.1.1 Optimizer
+For optimization we used the Fused Lamb optimizer from73 as implemented via APEX due to Lamb’s superior performance in
+several aspects of training. For example, learning rate warm ups were found to be unnecessary and training was found to be
+robust when large batch sizes were used. All other optimizers were unable to maintain their stability without large amounts of
+modiﬁcation any time a training conﬁguration needed to be changed.
+A.1.2 Linear Attention
+Preliminary experiments showed an acceptable balance between computation speed and minimal performance deﬁcit when
+compared to the FAVOR45 feature map. Generalized Features are a simpliﬁcation of the feature map in FAVOR45. The feature
+map size we settled on is 32.
+A.1.3 Rotary versus Absolute position embeddings
+We show in Figure 1 that MOLFORMER with linear attention and rotary embeddings has a better validation loss than its absolute
+position counterpart. This observation lead us to adopt MOLFORMER with linear attention and rotary embedding throughout
+the paper.
+A.2 Parallelization and Computing Environment
+All experiments were performed on a GPU cluster where each node contains either 8 NVIDIA Tesla V100 (32GB) or 8 Ampere
+A100 (40GB) GPUs connected via NVLink. The V100 nodes are equipped with dual 28-core (Intel Xeon Gold 6258R) CPUs,
+the A100 nodes are equipped with dual 64-core (AMD EPYC 7742) CPUs, and all nodes are connected by 2 non-blocking
+EDR InﬁniBand (100Gbps) network adapters as well as 2 100Gbps Ethernet adapters. All nodes are installed with RHEL 8.3,
+CUDA 10.2, and cuDNN 7.5.
+Due to the size of the datasets utilized in pre-training, our training environment relies on the Distributed Data Parallel
+functions provided by Pytorch and Pytorch Lightning utilizing the NCCL backend. By utilizing RDMA to enable GPU-direct
+technology we were able to efﬁciently scale to multi-node multi-GPU training. Additionally, we utilized HuggingFace Datasets
+to localize the data onto the machines where pre-training took place to improve performance during pre-training. Our pre-
+training task consists of training on the full dataset to 4 epochs. Training a single epoch of just PubChem on a single NVIDIA
+V100 GPU would take approximately 60 hours. Utilizing Distributed Data Parallel, pre-training on the full PubChem dataset
+alone took approx. 22 hours on 16 NVIDIA V100 GPUs this averages to about 5.5 hours per epoch. The speed up achieved by
+parallelizing training to 16 GPUs gave us a factor of 10.9. Pre-training for 4 epochs on the combined PubChem+ZINC datasets
+took approx 208 hours on a 16 NVIDIA V100 GPUs which averages to about 52 hours of compute for a single epoch. All
+ﬁne-tunning tasks were able to be performed on single GPUs (either V100 or A100) and completed in approx. 12 hours.
+A.3 Memory Efﬁcient Training with Adaptive Bucketing By Sequence Length
+We observed that the distribution of molecule lengths in our dataset centered around molecules that were less than 45 tokens
+long after tokenization. This fact coupled with large batch sizes increased the likelihood that padding tokens would overwhelm
+each batch and result in large amounts of computational waste. To address this problem we decided to break each minibatch
+into multiple buckets. This process is done on a batch by batch basis, i.e. on the ﬂy, which means full dataset preprocessing
+does not take place. It should be noted that gathering of statistics for the full dataset did take place before training and buckets
+were deﬁned by sequence interval length gathered from that process. The ﬁrst bucket would contain SMILES strings of length
+1 to 42, the next bucket would be of size 43 to 66, the third bucket would be of size 67 to 122 and ﬁnally the last bucket would
+be of size 123 to 202. Due to the length distribution of our dataset buckets 1 and 2 would always be present in all training steps
+while bucket 3 would be present for the majority of minibatches. Molecules that fell into bucket 4 appeared in most minibatches
+but would usually only represent a very small percentage of molecules found within the minibatch. With this information
+we decided to not utilize bucket 4 in the training procedure until it reached a threshold of 50 molecules thus preventing us
+from training on a bucket that consistently contained a very small amount of molecules which we believe aided training.
+Bucketing combined with gradient accumulation across buckets gave us stable training, maintained training randomization and
+reduced computational time needed compared to the traditional method of keeping GPU memory full at all times to maximize
+computation without consideration of the wasted computation that arises because of the large amount of padding tokens. To be
+/
+
+0
+3 k
+6 k
+9 k
+12 k
+15 k
+Step
+0.5
+1.0
+1.5
+2.0
+Training Loss
+(a)
+Absolute Embedings
+Rotary Embedings
+3 k
+6 k
+9 k
+12 k
+Step
+0.2
+0.4
+0.6
+0.8
+1.0
+1.2
+1.4
+Validation Loss
+(b)
+Absolute Embedings
+Rotary Embedings
+(a) PubChem Pre-training
+0
+30000
+60000
+90000
+120000
+Step
+0.0
+0.5
+1.0
+1.5
+2.0
+Training Loss
+(c)
+Absolute Embedings
+Rotary Embedings
+0
+30000
+60000
+90000
+120000
+Step
+0.20
+0.25
+0.30
+0.35
+0.40
+0.45
+Validation Loss
+(d)
+Absolute Embedings
+Rotary Embedings
+(b) PubChem+ZINC Pre-training
+Figure 1. Training and validation losses of our Linear attention MOLFORMER with rotary (relative) and absolute position
+embeddings on PubChem and PubChem+ZINC (>1 billion data points) datasets. We see that both rotary and absolute
+MOLFORMER have graceful training curves. Our Rotary Linear attention MOLFORMER leads to lower training and validation
+losses than MOLFORMER with absolute position embeddings. This observation lead us to focus on MOLFORMER with rotary
+position embeddings.
+more concrete, without bucketing on 1 V100 GPU and on PubChem only a single epoch would take approx. 1200 hours while
+with bucketing the same epoch only took around 60 hours giving adaptive bucketing a speedup of 20×. A similar concept,
+namely micro-batching74 exists but we became aware of it after implementing our adaptive bucketing technique. We have
+not yet baselined the differences between our domain speciﬁc bucketing implementation towards molecular data against the
+generic micro-batching74 . Using Linear attention and bucketing allowed us to reduce the number of GPUs needed for quadratic
+attention and no bucketing from roughly 1000 to 16.
+A.4 Pre-training Scaleout
+We give in Figure 2 the estimated training times of MOLFORMER as a function of the used GPUs in the parallelization.
+/
+
+1
+2
+4
+8
+16
+# of GPUS
+0
+50
+100
+150
+200
+250
+Hours
+(a) PubChem
+Single Epoch Time
+Estimated Total Training Time
+1
+2
+4
+8
+16
+# of GPUS
+0
+500
+1000
+1500
+2000
+Hours
+(b) PubChem+Zinc
+Single Epoch Time
+Estimated Total Training Time
+Figure 2. Estimated training times for our Linear attention MOLFORMER with rotary embeddings on a) PubChem and b)
+PubChem+ZINC datasets taken after 250 iterations. We see that training time decreases slightly sub-linearly as GPUs are
+added. Training time also scales approximately linearly as more data is added.
+B Fine-tuning MOLFORMER for Property Prediction
+During the ﬁne-tuning process, where the MOLFORMER weights are not frozen, we experimented with different hyperparam-
+eters. In our experiments, we found that batch sizes of both 64 and 128 work best for the downstreams tasks. Also, among
+various learning rates, 3e-5 seems to be the best ﬁt for all the measures on QM9 dataset. We found that the beta values used by
+the optimzier were import and were set to beta1 equaling .9 and beta2 equaling .99. We found the model to be very sensitive to
+the betas2 value during ﬁne-tuning. The discriminator used was of a ﬁxed size of 2 layers with a hidden size of 768 for all
+ﬁne-tuning experiments.
+For the frozen strategy where the embeddings from the MOLFORMER are ﬁxed, we use a fully connected model to predict
+the properties. A hyperparameter sweep was performed for the frozen strategy using grid search and we randomly picked 25
+different variations for each task. The best model with the lowest validation loss was picked for further analysis. The different
+values of the frozen strategy hyperparameters are summarized in the table below.
+Table 1. Different Values of the hyperparameters for the Frozen Models
+Hyperparameter
+Values
+Learning Rate
+0.001, 0.0001, 0.0005, 0.00005
+Batch Size
+64, 128, 256
+Hidden Dimension
+64, 128, 256, 512, 1024
+Number of Layers
+2, 3, 4
+C Dataset, Vocabulary, and Property Units
+All our downstream evaluations are performed on tasks from the MoleculeNet dataset28. All the tasks mentioned in Table 2
+use random splits as suggested in 28, while those in Table 1 use scaffold splits as suggested in26. A brief description of the
+downstream datasets are in Tables 2 and 3. We refer the reader to 28 for more details on the speciﬁc tasks.
+We have observed that various related work in the past have used different units for quantitative analysis on QM9 dataset
+without explicitly stating the units, making it difﬁcult to compare the relative performance of different methods. We have
+listed the units of the measures used in this paper in Table 6. We also give in Tables 4 and 5 the statistics of sequence length
+and vocabulary for the datasets considered in this work. While the vocabulary of each dataset varies the architecture of our
+models is identical for all experiments contained in this paper. The vocabulary for our models is deﬁned by the union of the
+vocabularies of both PubChem and Zinc dataset.
+/
+
+# of compounds
+Description
+BBBP
+2039
+Blood brain barrier penetration dataset
+Tox21
+7831
+Toxicity measurements on 12 different targets
+Clintox
+1478
+Clinical trial toxicity of drugs
+HIV
+41127
+Ability of small molecules to inhibit HIV replication
+BACE
+1513
+Binding results for a set of inhibitors for β – secretase 1
+SIDER
+1427
+Drug side effect on different organ classes
+Table 2. Description of classiﬁcation datasets used for downstream evaluations
+# of compounds
+Description
+QM9
+133885
+12 quantum mechanical calculations of small organic molecules with upto nine heavy atoms
+QM8
+21786
+12 excited state properties of small molecules
+ESOL
+1128
+Water solubility dataset
+FreeSolv
+642
+Hydration free energy of small molecules in water
+Lipophilicity
+4200
+Octanol/water distribution coefﬁcient of molecules
+Table 3. Minimum, maximum and mean and standard deviation of sequence length for the datasets considered in this work.
+The vocabulary size after tokenization is also given in the last column.
+Pre-trained Data
+Min
+Max
+Mean
+Std
+Vocab Size
+QM9
+1
+22
+14.76
+2.02
+30
+Zinc
+4
+152
+43.08
+8.70
+113
+10 PubChem + 10 Zinc
+2
+2031
+42.52
+10.06
+1044
+PubChem
+1
+2211
+43.24
+22.21
+2349
+100 PubChem + 10 Zinc
+2
+2211
+42.86
+16.93
+2355
+PubChem + Zinc
+1
+2211
+44.76
+14.55
+2362
+Table 4. Description of regression datasets used for downstream evaluations
+Pre-trained Data
+Most Frequent Tokens
+QM9
+C, 1, 0, 2, (
+PubChem
+C, =, (, ), 0
+Zinc
+C, c, (, ), 1
+PubChem + Zinc
+C, c, (, ), =
+Table 5. Top ﬁve most frequent tokens for each data source.
+D Additional results on comparing MOLFORMER-XL with geometry-aware GNNs on re-
+gression benchmarks
+In this section we show additional results in Table 7 on comparison of MOLFORMER with geometry-aware supervised
+(DimeNet) and self-supervised (GeomGCL, GEM) on the physical chemistry regression benchmarks from MoleculeNet.
+E Additional Results and Ablations on QM9 Benchmark
+In this section we show additional results and ablations on the pre-training and ﬁne-tuning of MOLFORMER on the QM9
+benchmark.
+Fine-tuned MOLFORMER-XL versus Baselines
+We further report MOLFORMER-XL performance on all twelve property
+prediction tasks individually within QM9, and compare that against several previously discussed baseline models as well as four
+additional baselines. The additional baselines included are as follows: (i) a more expressive GNN, speciﬁcally 123-GNN61, (ii)
+two neural nets that leverage 3D geometry – a multitask neural net encoding the Coulomb Matrix (CM)75 and its GNN variant
+as in the deep tensor neural net (DTNN)76, and (iii) Chemberta25. which show that MOLFORMER-XL achieves comparable or
+/
+
+Measure
+Unit
+α
+Bohr3
+Cv
+cal/(mol*K)
+G
+Hartree
+gap
+Hartree
+H
+Hartree
+εhomo
+Hartree
+εlumo
+Hartree
+µ
+Debye
+⟨R2⟩
+Bohr2
+U0
+Hartree
+U
+Hartree
+ZPVE
+Hartree
+∗_atom
+eV
+Table 6. Units of QM9 target measures
+Task
+DimeNet37
+GeomGCL36
+GEM38
+MOLFORMER-XL
+ESOL (RMSE)
+0.633
+0.575
+0.798
+0.2787
+FreeSolv (RMSE)
+0.978
+0.866
+1.877
+0.2308
+Lipophilicity (RMSE)
+0.614
+0.541
+0.660
+0.5289
+Table 7. Performance of ﬁne-tuned MOLFORMER-XL and other supervised and self-supervised geometry-aware GNN
+baselines on ESOL, FreeSolv, and Lipophilicity regression benchmarks. Baseline performances are taken from references36,38.
+better performance to that of the majority of the competitors. Speciﬁcally, MOLFORMER-XL outperforms all baselines in term
+of average MAE and average standard MAE. ChemBERTa shows the highest average MAE among all. The more expressive
+123-GNN performs better on most measures compared to MOLFORMER-XL; however, such powerful networks are known to
+be difﬁcult to scale (see77 for example). As a comparison, the linear attention employed in MOLFORMER-XL ensures a linear
+time complexity.
+Graph-Based
+Geometry-Based
+SMILES-Based
+Measure
+A-FP
+123-gnn
+GC
+CM
+DTNN
+MPNN
+MOLFORMER-XL
+ChemBERTa
+α
+0.492
+0.27
+1.37
+0.85
+0.95
+0.89
+0.3327
+0.8510
+Cv
+0.252
+0.0944
+0.65
+0.39
+0.27
+0.42
+0.1447
+0.4234
+G
+0.893
+0.0469
+3.41
+2.27
+2.43
+2.02
+0.3362
+4.1295
+gap
+0.00528
+0.0048
+0.01126
+0.0086
+0.0112
+0.0066
+0.0038
+0.0052
+H
+0.893
+0.0419
+3.41
+2.27
+2.43
+2.02
+0.2522
+4.0853
+εhomo
+0.00358
+0.00337
+0.00716
+0.00506
+0.0038
+0.00541
+0.0029
+0.0044
+εlumo
+0.00415
+0.00351
+0.00921
+0.00645
+0.0051
+0.00623
+0.0027
+0.0041
+µ
+0.451
+0.476
+0.583
+0.519
+0.244
+0.358
+0.3616
+0.4659
+⟨R2⟩
+26.839
+22.90
+35.97
+46.00
+17.00
+28.5
+17.0620
+86.150
+U0
+0.898
+0.0427
+3.41
+2.27
+2.43
+2.05
+0.3211
+3.9811
+U
+0.893
+0.111
+3.41
+2.27
+2.43
+2.00
+0.2522
+4.3768
+ZPVE
+0.00207
+0.00019
+0.00299
+0.00207
+0.0017
+0.00216
+0.0003
+0.0023
+Avg MAE
+2.6355
+1.9995
+4.3536
+4.7384
+2.3504
+3.1898
+1.5894
+8.7067
+Avg std MAE
+0.0854
+0.0658
+0.1683
+0.1281
+0.1008
+0.1108
+0.0567
+0.1413
+Table 8. MOLFORMER performance on QM9 test set. Our best MOLFORMER variant is pre-trained on PubChem+ZINC
+dataset and ﬁne-tuned for each measure. Baseline performance values are taken from28,40,62. Blue and Orange indicates best
+and second-best performing model, respectively. MOLFORMER trained with rotary embeddings on PubChem+ZINC achieves
+the best Avg MAE and Avg. std. MAE across all tasks.
+/
+
+QM9 Task
+SchNet41
+DimeNet37
+MOLFORMER-XL
+U0_atom
+0.0140
+0.0080
+0.0827
+U_atom
+0.0190
+0.0079
+0.0974
+H_atom
+0.0140
+0.0081
+0.0947
+G_atom
+0.0140
+0.0089
+0.0888
+Table 9. Comparison of MOLFORMER-XL with two exemplary 3D GNN models, SchNet and Dimenet, on QM9 atomization
+energy/enthalpy (in eV) regression benchmarks.
+Impact of MOLFORMER pre-training dataset on Downstream task
+We present in Table 10 and Fig. 3 ablations on the
+impact of the pre-training dataset on the performance of ﬁne-tuning MOLFORMER in the downstream property prediction tasks
+on QM9. We see that as the pre-training dataset sizes becomes large, MOLFORMER achieves better performance (i.e lower
+MAE). Note that MOLFORMER-XL refers to MOLFORMER pre-trained on PubChem+ ZINC.
+Position embeddings
+The positional embeddings ablation results are collected in Table 3. Different pre-training datasets
+sizes are also investigated and are broken up into MOLFORMER (1) pre-trained on only the QM9 training set (111k molecules)
+– referred to as MOLFORMER-qm9 (2) only PubChem (111M molecules) – referred to as MOLFORMER-PubChem (3)
+PubChem+ZINC (1.1 Billion+ Molecules), i.e. MOLFORMER-XL. Results presented in Table 3 show that MOLFORMER
+with Rotary embeddings and ﬁne-tuning is behind the Absolute positional embedding model for the smaller datasets, but then
+wins as the dataset size passes 1 Billion molecules.We note that two main differences between our linear time relative rotary
+attention formulation and the original one from27 are: 1) our attention remains normalized, whereas the one proposed in27 does
+not; 2) The rotation in27 is applied to the transformed query and key in the random feature space, whereas we apply it at the key
+and query level. This results, in our case, to an approximation of a kernel acting on the position-modulated key and queries that
+encode the relative position. On the other hand, the original formulation results in an approximation of a product kernel one on
+the space of positions and one on the space of keys and queries. We believe that both the normalization and having a kernel
+acting on a joint embedding of keys/queries and positions advantage our formulation on the original one from27. More rigorous
+investigation will be carried out in future work.
+With that said we can see that as the pre-training grows from PubChem only to the more extensive and diverse Pub-
+Chem+Zinc corpus the representational power of the model increases, as showcased by the stronger performance on the QM9
+benchmark.
+Impact Fine-tuning versus Frozen Embedding/ Rotary versus Absolute on Downstream tasks
+We show in Table 11 the
+impact of ﬁne-tuning versus using frozen MOLFORMER embeddings from pre-training phase on the performance on the QM9
+benchmark in both rotary and absolute embeddings. We see that ﬁne-tuning and rotary achieve the best performance.
+Robustness Across Data Folds
+We report performance comparison at the individual property prediction task within QM9
+in SI Table 10. In order to ensure the robustness of these results across data splits we also provide, the performance of
+MOLFORMER-XL on QM9 tasks using 5-cross validation folds (SI Table 11).
+Speciﬁcally, we report from Table 11 the mean and standard deviations of MAE for 5 different folds of the data split into
+80% training and 10% validation and 10% test. Most of the related work does not perform cross validation and just report the
+results on a single split. We note that the standard deviations are quite low for most of the predictions and the mean errors are in
+line with the main paper for all folds of all tasks which suggests the MOLFORMER representations are robust.
+/
+
+Pre-training Data →
+QM9 Only
+PubChem Only
+PubChem+ZINC
+Measure ↓
+Frozen
+× Rotary
+Fine-tuned
+× Rotary
+Fine-tuned
+✓Rotary
+Frozen
+× Rotary
+Fine-tuned
+× Rotary
+Fine-tuned
+✓Rotary
+Frozen
+× Rotary
+Fine-tuned
+× Rotary
+Fine-tuned
+✓Rotary
+α
+1.6258
+0.5078
+0.6001
+1.5470
+0.5280
+0.8452
+0.5312
+0.3713
+0.3327
+Cv
+1.0176
+0.1589
+0.1906
+0.9984
+0.1506
+0.2701
+0.2303
+0.1584
+0.1447
+G
+3.2528
+0.9985
+0.7479
+2.0089
+0.8626
+1.5920
+0.3066
+0.6861
+0.3362
+gap
+0.0187
+0.0057
+0.0061
+0.0182
+0.0050
+0.0109
+0.0036
+0.0039
+0.0038
+H
+1.9221
+1.1579
+1.0250
+2.3627
+1.3342
+0.7088
+0.3675
+.07369
+0.2522
+εhomo
+0.0115
+0.0042
+0.0046
+0.0147
+0.0038
+0.0082
+0.0062
+0.0028
+0.0029
+εlumo
+0.0157
+0.0041
+0.0056
+0.0148
+0.0036
+0.0080
+0.0058
+0.0025
+0.0027
+µ
+0.8394
+0.4380
+0.4630
+0.8509
+0.4284
+0.6166
+0.6463
+0.3921
+0.3616
+⟨R2⟩
+86.9461
+24.0785
+25.9482
+87.2816
+30.2904
+34.0425
+27.5962
+18.8286
+17.0620
+U0
+3.0626
+1.1462
+1.3168
+2.0613
+0.8969
+1.5503
+0.4500
+0.4244
+0.3211
+U
+1.8555
+1.0454
+1.6158
+1.9638
+1.1122
+1.1351
+0.4480
+0.7370
+0.2522
+ZPVE
+0.0020
+0.0011
+0.0012
+0.0020
+0.0008
+0.0012
+0.0004
+0.0002
+0.0003
+Avg MAE
+8.3808
+2.4621
+2.6604
+8.260
+2.968
+3.3990
+2.5497
+1.8620
+1.5894
+Avg std MAE
+0.2390
+0.0843
+0.0937
+0.2447
+0.0801
+0.1355
+0.0978
+0.0611
+0.0567
+# Wins for ﬁxed data
+0
+10
+2
+0
+11
+1
+2
+3
+7
+Table 10. Comparison of different MOLFORMER variants on the QM9 test set. Models on the left half of the table are
+pre-trained using QM9 only and the model in the middle is trained on PubChem only, whereas the models on right half are
+pre-trained on the PubChem+ZINC dataset. The variants with (✓) and without (×) rotary embeddings are compared. Our best
+candidate variant (for Table 8) is picked based on the average MAE score.
+PubChem+Zinc
+Measure ↓
+Frozen
+× Rotary
+Frozen
+✓Rotary
+Fine-tuned
+× Rotary
+Fine-tuned
+✓Rotary
+α
+0.6468 ± 0.0169
+1.2956 ± 0.0244
+0.4246 ± 0.0486
+0.3455 ± 0.0066
+Cv
+0.2825 ± 0.0078
+0.7959 ± 0.0141
+0.2080 ± 0.0340
+0.1589 ± 0.0102
+G
+1.2865 ± 0.1192
+2.1535 ± 0.0503
+0.7696 ± 0.0719
+0.3609 ± 0.0276
+gap
+0.0089 ± 0.0000
+0.0165 ± 0.0002
+0.0038 ± 0.0001
+0.0040 ± 0.0001
+H
+1.0730 ± 0.3188
+1.8490 ± 0.1469
+0.8525 ± 0.0855
+0.3318 ± 0.0512
+εhomo
+0.0066 ± 0.0000
+0.0103 ± 0.0001
+0.0030 ± 0.0001
+0.0029 ± 0.0001
+εlumo
+0.0063 ± 0.0000
+0.0128 ± 0.0001
+0.0039 ± 0.0002
+0.0029 ± 0.0001
+µ
+0.6872 ± 0.0049
+0.8089 ± 0.0205
+0.3986 ± 0.0060
+0.3709 ± 0.0065
+⟨R2⟩
+29.3779 ± 0.2944
+72.8752 ± 1.1180
+19.9005 ± 0.3305
+17.8121 ± 0.8596
+U0
+1.2877 ± 0.2373
+2.1030 ± 0.0967
+0.8492 ± 0.1102
+0.3795 ± 0.0820
+U
+1.3238 ± 0.1954
+1.8647 ± 0.0601
+0.8631 ± 0.0999
+0.3677 ± 0.0382
+ZPVE
+0.0005 ± 0.0000
+0.0018 ± 0.0001
+0.0003 ± 0.0001
+0.0003 ± 0.0001
+Table 11. Mean and standard deviation of Mean Absolute Error (MAE) on the various QM9 tasks using a pre-trained model
+that is trained on both PubChem and Zinc
+F Insights into MOLFORMER- tSNE Visualization
+We performed the following set of experiments in order to evaluate if the MOLFORMER embeddings capture molecular
+properties as well as structural aspects. First, we investigate a t-SNE78 projection of MOLFORMER-XL embeddings sampled
+from two classes of the BBBP dataset and two classes of the ClinTox dataset as shown in Figure 4: left and middle. The two
+classes in BBBP are separated by molecules that penetrate (penetrating) the blood brain barrier and molecules that do not
+penetrate (non-penetrating) the blood brain barrier. Clintox is separated into a class of toxic molecules and non-toxic molecules.
+Finally we discretize the QM9 dataset according to the LUMO energy, where one class consists of molecules with LUMO
+energy value < 0 Hartree and the other class is composed of molecules with LUMO energy >= 0 Hartree (Figure 4: right).
+It can be seen in Figure 4, starting with BBBP on the very left, that even without task-speciﬁc ﬁne-tuning, MOLFORMER-XL
+is able to discriminate between the two classes, suggesting that molecular property information has been captured in this
+universal representation. For ClinTox, middle plot in Figure 4, clustering of toxic and non-toxic is apparent but the clusters
+/
+
+n
+25%
+50%
+75%
+100%
+Fraction of Training Data
+0
+2
+4
+6
+8
+10
+12
+MAE
+Impact of Training Data
+homo
+u298
+alpha
+h298
+lumo
+g298
+u0
+mu
+Figure 3. Mean absolute errors with varying training set size. Fine-tuning of MOLFORMER with rotary embeddings for
+prediction of various properties on QM9 Molecules for different training set sizes.
+Figure 4. t-SNE projection of frozen MOLFORMER embeddings (no ﬁne-tuning) of the BBBP (left) and ClinTox(middle) and
+discretized LUMO (right) datasets.
+extend beyond the toxic and non-toxic classes. With Clintox one can see that as the center of the clusters becomes more
+concentrated, the toxic and non-toxic molecules there is less overlap of classes in that area of the cluster. Also, generally,
+if a toxic molecule is located near a cluster of non-toxic molecules, it is on the border of the cluster. Figure 4:right shows
+the a separation tendency between the high/low LUMO classes but with an obvious amount of overlap in the non-ﬁnetuned
+embedding space.
+G MOLFORMER Attention Visualization and Structure Discovery
+In this section we present a visual comparison to show the attention representations of two molecules from the QM9 test dataset
+(gdb_62509 and gdb_1105) generated by the linear and full attention model variants. Both these models of MOLFORMER-
+XL have rotary positional embedding in place. We picked gdb_62509 and gdb_1105 based on the best cosine similarity
+from the medium bucket category, and are the same as the ones used in Table 3. For full quantitative comparison on this metric,
+refer to Table 3. The attention head weights of each layer are averaged and all layers are presented in ﬁgures 5 and 6. Please
+note that the colorbar on the subplots are of different scale for different variants. Several interesting observations can be made
+from these representations. For both full-attention and its linear counterpart most of the attentions are directed toward the
+closing parentheses in higher layers (layer 9 and up). Therefore, it is reasonable to avoid other layers for identifying meaningful
+features with respect to structure. We also notice that intermediate layers 8 and 9, from the linear-attention with rotary variant,
+capture the 3D structure of the molecules better. This also reinforces observation made in quantitative analysis reﬂected in
+Table 3.
+While the model variations have similar in downstream task performance in our evaluations the differences in their attention
+weights and in their ability of discovering structural information from SMILES representation are insightful and intriguing.
+Speciﬁcally with regard to how the linear-attention embedding captures structural information of molecules. Also, it is worth
+/
+
+(a) Attention Map for full-attention & rotary/relative embedding variant of MOLFORMER
+(b) Attention Map for linear-attention & rotary/relative embedding variant of MOLFORMER
+Figure 5. Attention map shown for the Smiles sequence, gdb_62509, ‘CC1(C)C(C)(O)C1(C)O’ for all the layers of
+MOLFORMER. For each layer, the attentions are average-pooled across all the heads.
+observing that the MOLFORMER-XL variants here are not ﬁne-tuned for the QM9 dataset and yet the attentions manage to
+represent the structure.
+/
+
+(a) Attention map for full-attention & rotary/relative embedding variant of MOLFORMER
+(b) Attention Map for linear-attention & rotary/relative embedding variant of MOLFORMER
+Figure 6. Attention map shown for the smile sequence, gdb_1105, ‘CC(C)C(C)(C)O’ for all the layers of
+MOLFORMER. For each layer, the attentions are average-pooled across all the heads.
+/
+
+H Assets and License
+The following table summarizes the libraries utilized for our experiments and their accompanying license terms.
+Asset
+License
+Link
+Fast-Transformers
+MIT License
+https://github.com/idiap/fast-transformers/blob/master/LICENSE
+Pytorch
+BSD Style License
+https://github.com/pytorch/pytorch/blob/master/LICENSE
+RDKit
+BSD 3-Clause "New" or "Revised" License
+https://github.com/rdkit/rdkit/blob/master/license.txt
+Pytorch Lightning
+Apache 2.0 License
+https://github.com/PyTorchLightning/pytorch-lightning/blob/master/LICENSE
+HuggingFace Datasets
+Apache 2.0 License
+https://github.com/huggingface/datasets/blob/master/LICENSE
+Nvidia APEX
+BSD 3-Clause "New" or "Revised" License
+https://github.com/NVIDIA/apex/blob/master/LICENSE
+/

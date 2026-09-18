@@ -1,0 +1,1795 @@
+A Universal Graph Deep Learning Interatomic
+Potential for the Periodic Table
+Chi Chen∗and Shyue Ping Ong∗
+Department of NanoEngineering, University of California San Diego, CA, USA
+E-mail: chenc273@outlook.com; ongsp@eng.ucsd.edu
+1
+arXiv:2202.02450v2  [cond-mat.mtrl-sci]  14 Aug 2022
+
+Abstract
+Interatomic potentials (IAPs), which describe the potential energy sur-
+face of atoms, are a fundamental input for atomistic simulations. However,
+existing IAPs are either ﬁtted to narrow chemistries or too inaccurate for
+general applications. Here, we report a universal IAP for materials based
+on graph neural networks with three-body interactions (M3GNet).
+The
+M3GNet IAP was trained on the massive database of structural relaxations
+performed by the Materials Project over the past 10 years and has broad
+applications in structural relaxation, dynamic simulations and property pre-
+diction of materials across diverse chemical spaces. About 1.8 million ma-
+terials were identiﬁed from a screening of 31 million hypothetical crystal
+structures to be potentially stable against existing Materials Project crys-
+tals based on M3GNet energies. Of the top 2000 materials with the lowest
+energies above hull, 1578 were veriﬁed to be stable using DFT calculations.
+These results demonstrate a machine learning-accelerated pathway to the
+discovery of synthesizable materials with exceptional properties.
+Atomistic simulations are the bedrock of in silico materials design. The ﬁrst step in most
+computational studies of materials is obtaining an equilibrium structure, which involves
+navigating the potential energy surface (PES) across all independent lattice and atomic
+degrees of freedom in search of a minimum. Atomistic simulations are also used to probe
+the dynamical evolution of materials systems and to obtain thermodynamic averages and
+kinetic properties (e.g., diﬀusion constants). While electronic structure methods such as
+density functional theory (DFT) provide the most accurate description of the PES, they are
+computationally expensive and scale poorly with system size.
+For large-scale materials studies, eﬃcient, linear-scaling interatomic potentials (IAPs)
+that describe the PES in terms of many-body interactions between atoms are often necessary.
+However, most IAPs today are custom-ﬁtted for a very narrow range of chemistries, often for
+a single element or up to no more than 4-5 elements. The most popular “general purpose”
+2
+
+IAPs are the AMBER family of force ﬁelds1,2 and the Universal Force Field (UFF).3 However,
+both were formulated primarily for molecular/organic systems and have limited support and
+accuracy in modeling crystal structures. More recently, machine learning (ML) of the PES
+has emerged as a particularly promising approach to IAP development.4–8 These so-called
+ML-IAPs typically express the PES as a function of local environment descriptors such
+as the interatomic distances and angles, or atomic densities, and have been demonstrated
+to signiﬁcantly outperform classical IAPs across a broad range of chemistries.9 Message-
+passing and graph deep learning models10–12 have also been shown to yield highly accurate
+predictions of energies and/or forces of molecules as well as a limited number of crystals, such
+as Li7P3S11
+13 and LixSiy
+14 for lithium-ion batteries. Nevertheless, no work has demonstrated
+a universally applicable IAP across the periodic table and for all crystal types.
+In the past decade, the advent of eﬃcient and reliable electronic structure codes15 with
+high-throughput automation frameworks16–19 have led to the development of large federated
+databases of computed materials data, such as the Materials Project,20 AFLOW,21 Open
+Quantum Mechanical Database (OQMD),22 NOMAD,23 etc. Most of the focus has been on
+the utilization of the ﬁnal outputs from the electronic structure computations carried out
+by these database eﬀorts, namely, the equilibrium structures, energies, band structures and
+other derivative material properties, for the purposes of materials screening and design. Less
+attention has been paid to the huge quantities of PES data, i.e., intermediate structures
+and their corresponding energies, forces, stresses, that have been amassed in the process of
+performing structural relaxations.
+In this work, we develop the formalism for a graph-based deep learning IAP by combining
+many-body features of traditional IAPs with those of ﬂexible graph material representations.
+Utilizing the largely untapped dataset of more than 187,000 energies, 16,000,000 forces and
+1,600,000 stresses from structural relaxations performed by the Materials Project since its
+inception in 2011, we trained a universal material graph with three-body interactions neural
+network (M3GNet) IAP for 89 elements of the periodic table with low energy, force, and
+3
+
+stress errors. We demonstrate the applications of M3GNet in the calculations of phonon
+and elasticity, structural relaxations, etc. We further relaxed ∼30 millions of hypothetical
+structures for new materials discovery.
+Materials Graphs with Many-Body Interactions
+Mathematical graphs are a natural representation for crystals and molecules, with nodes and
+edges representing the atoms and the bonds between them, respectively. In traditional graph
+neural network (GNN) models for materials, information ﬂows between the node, edge, and,
+optionally, state vector attributes via successive application of graph convolutional or update
+operations.24–27 Typically, the input bond attribute is based on an interatomic pair distance
+measure, such as a Gaussian basis expansion. While such graph deep learning models have
+proven to be exceptionally eﬀective for general materials property predictions,24–27 they are
+not suitable as IAPs due to the lack of physical constraints such as continuity of energies
+and forces with changes with the length and number of bonds.
+Here, we develop a new materials graph architecture that explicitly incorporates many-
+body interactions (Figure 1). The materials graph is represented as G = (V, E, X, [M, u]]),
+where vi ∈V is atom information for i, eij ∈E is the bond information for bond connected
+by atom i and j, and u is the optional global state information, as temperature, pressure
+etc. A key diﬀerence with prior materials graph implementations is the addition of xi ∈X,
+the coordinates for atom i, and M, the optional 3 × 3 lattice matrix in crystals, which are
+necessary for obtaining tensorial quantities such as forces and stresses via auto-diﬀerentiation.
+The neighborhood of atom i is denoted as Ni. Taking inspiration from traditional IAPs
+such as the Tersoﬀbond order potential,28 we consider all other bonds emanating from atom
+i when calculating the bond interaction of eij. To incorporate n-body interactions, each eij
+is updated using all distinct combinations of n −2 neighbors in the neighborhood of atom i
+4
+
+excluding atom j, i.e., Ni/j, denoted generally as follows:
+˜eij =
+X
+k1,k2,...,kn−2∈Ni/j
+k1!=k2!=...kn−2
+φn(eij, rij, vj, rik1, rik2, ..., rikn−2, vk1, vk2, ..., vkn−2)
+(1)
+where φn is the update function and rik is the vector pointing from atom i to atom k.
+In practice, this n-body information exchange involves the calculation of distances, angles,
+dihedral angles, improper angles, etc., which escalates combinatorially with the order n as
+(Mi −1)!/(Mi −n + 1)! where Mi is the number of neighbors in Ni. For brevity, we will
+denote this materials graph with n-body interactions neural network as MnGNet. In this
+work, we will focus on the incorporation of three-body interactions only, i.e., M3GNet.
+Let θjik denote the angle between bonds eij and eik. Here, we expand the three-body
+angular interactions using an eﬃcient complete and orthogonal spherical Bessel function and
+spherical harmonics basis set, as proposed by Klicpera et al. 11 The bond update equation
+can then be rewritten as:
+˜eij
+=
+X
+k
+jl(zln
+rik
+rc
+)Y 0
+l (θjik) ⊙σ(Wvvk + bv)fc(rij)fc(rik)
+(2)
+e′
+ij
+=
+eij + g( ˜
+W2˜eij + ˜b2) ⊙σ( ˜
+W1˜eij + ˜b1)
+(3)
+where W and b are learnable weights from the network, jl is the spherical Bessel function
+with the roots at zln, rc is the cutoﬀradius, Y 0
+l
+is the spherical harmonics function with
+m = 0, ⊙is the element-wise product, σ is the sigmoid activation function, fc(r) = 1 −
+6(r/rc)5+15(r/rc)4−10(r/rc)3 is the cutoﬀfunction ensuring the functions vanishes smoothly
+at the neighbor boundary,29 and g(x) = xσ(x) is the nonlinear activation function.30 ˜eij is a
+vector of length nmaxlmax expanded by indices l = 0, 1, ..., lmax −1 and n = 0, 1, ..., nmax −1.
+Following the n-body interaction update, several graph convolution steps are carried out
+sequentially to update the bond, atom and, optionally, state information, as follows:
+5
+
+e′
+ij
+=
+eij + φe(vi ⊕vj ⊕eij ⊕u)W 0
+e e0
+ij
+(4)
+v′
+i
+=
+vi +
+X
+j
+φ′
+e(vi ⊕vj ⊕e′
+ij ⊕u)W 0′
+e e0
+ij
+(5)
+u′
+=
+g(W u
+2 g(W u
+1 ( 1
+Nv
+Nv
+X
+i
+vi ⊕u) + bu
+1) + bu
+2)
+(6)
+where φe(x) and φ′
+e(x) are gated multi-layer perceptrons as in Equation 9, ⊕is the con-
+catenation operator, Nv is the number of atoms, and e0
+ij are the distance-expanded basis
+functions with values, ﬁrst and second derivatives smoothly go to zero at the cutoﬀbound-
+ary (see Methods). Such a design ensures that the target values and their derivatives up to
+second order change smoothly with changes in the number of bonds. u inputs and updates
+are optional to the models since not all structures or models have state attributes.
+Each block of multi-step updates (n-body, bond, atom, state) can be repeated to construct
+models of arbitrary complexity, similar to previous materials graph network architectures.25
+M3GNet Interatomic Potential
+To develop an IAP using the M3GNet architecture, crystal structures with corresponding
+energies (E), forces (f) and stresses (σ) as targets were used as training data. The model
+generate trainable targets via auto-diﬀerentiation with f = −∂E/∂x and σ = V −1∂E/∂ϵ,
+where x are the atomic coordinates, V is the volume, and ϵ is the strain.
+Benchmark on IAP datasets
+As an initial benchmark, we selected a diverse DFT dataset of elemental energies and forces
+previously generated by Zuo et al. 9 for fcc Ni, fcc Cu, bcc Li, bcc Mo, diamond Si and
+diamond Ge.
+From Table 1, the M3GNet IAPs signiﬁcantly outperform classical many-
+body potentials such as the embedded atom method (EAM) and modiﬁed EAM (MEAM)
+6
+
+1
+Bond update
+2
+Atom update
+Ni
+Many-Body to Bond
+Graph Convolution
+3
+State update
+Graph Convolution
+Many-Body Computation
+Graph Featurizer
+Many-Body to Bond 
+N⇥
+i
+eij
+i
+j
+eij
+E0
+(E, V, X, [M, u])
+(E, V, [u])
+Gated MLP
+Sum
+l
+eil
+eik
+✓jik
+rxhfUubwSBYhV1RtAzaWEYwD0iWMDu5m4yZ2V1m7gphSekv2GpvJ7Z+iK1f4iTZQhMPXDicy/ncoJECoOu+UVlbX1jeKm6Wt7Z3dvfL+QdPEqebQ4LGMdTtgBqSIoIECJbQTDUwFElrB
+6Gbqtx5BGxFH9zhOwFdsEIlQcIZW6nZxCMh62YMYTXrlilt1Z6DLxMtJheSo98rf3X7
+MUwURcsmM6Xhugn7GNAouYVLqpgYSxkdsAB1LI6bA+Nns5wk9sUqfhrG2EyGdqb8vMqaMGavAbiqG
+Q7PoTcV/vUAtJGN45WciSlKEiM+Dw1RSjOm0ENoXGjKsSWMa2F/p3zINONoayvZUrzFCpZJ86zqnVcv7s4rteu8niI5IsfklHjktTILamTBuEkIc/khbw6T86b8+58zFcLTn5zSP7A+fwB
+BSWYpw=</latexit>
+j
+k
+⌧kijl
+m4yZxzIzK4Qlnb9gq72d2Pojtn6Jk2QLTxw4XDOvZzLiRLOjPX9L6+wsrq2vlHcLG1t7+zulfcPmkalmtAGUVzpdoQN5UzShmW03aiKRYRp61odDP1W49UG6bkvR0nNBR4IFnMCLZO6nQtTnvZiD3wSa9c8av+DGiZBDmpQI56r/zd7SuSCiot4diYTuAnNsywtoxwOil1U0M
+TEZ4QDuOSiyoCbPZyxN04pQ+ipV2Iy2aqb8vMiyMGYvIbQpsh2bRm4r/epFYSLbxVZgxmaSWSjIPjlOrELTPlCfaUosHzuCiWbud0SGWGNiXWslV0qwWMEyaZ5Vg/Pqxd15pXad1OEIziGUwjgEmpwC3VoAEFz/ACr96T9+a9ex/z1YKX3xzCH3ifP0Q9mD0=</latexit
+>
+Main Block
+(V, [u])
+V
+Ei
+E
+Diﬀ
+Diﬀ
+(X, [M])
+X
+M
+f
+σ
+vi
+u
+  i
+Graph Featurizer
+i
+Zi ! vi
+rij
+j
+r
+Element embedding
+Bond distance expansion
+Many-Body Computation
+0, 1
+0, 2
+0, 3
+…
+Bond indices
+0, 1, 2
+0, 2, 3
+0, 3, 4
+…
+✓102
+✓203
+✓304
+…
+Triple indices & angles
+…
+Higher 
+orders
+Figure 1: Schematic of the many-body graph potential and the major compu-
+tational blocks. The model architecture starts from a position-included graph, and then
+goes through a featurization process, followed by main blocks, and the readout module with
+energy, force and stress outputs. The featurization process consists of the graph featurizer
+and the many-body computation module. In the graph featurizer, the atomic number of
+elements were embedded into a learnable continuous feature space, and the pair bond dis-
+tances were expanded onto a basis set with values and derivatives up to second order going
+to zero at boundary. The many-body computation module calculates the three-body and
+many-body interaction atom indices and the associated angles. The main block consists of
+two main steps, namely the many-body to bond module and standard graph convolution.
+The many-body to bond step calculates the new bond information eij by considering the
+full bonding environment Ni of atom i via many-body angles such as θjik, τkijl, etc., and
+the bond length rik, rij, ril, etc. The standard graph convolution updates bond, atom, and
+the optional state information iteratively. During the readout stage, atom information in
+the graph was passed to a gated MLP for obtaining atomic energy, which sums to the total
+energy. The derivatives of the total energy give force and stress outputs.
+7
+
+and performs comparably to local environment-based ML-IAPs such as the Behler-Parinello
+neural network potential (NNP)4 and moment tensor potential (MTP).7 It should be noted
+that while ML-IAPs can achieve slightly lower energy and force errors than M3GNet IAPs, it
+comes at a substantial loss in ﬂexibility in handling multi-element chemistries. Incorporating
+multiple elements in ML-IAPs results in a combinatorial explosion in number of regression
+coeﬃcients and corresponding data requirements. For instance, the MTP requires O(n2
+ele)
+regression coeﬃcients alone to describe the element interactions, where nele is the number
+of elements. In contrast, the M3GNet architecture represents the elemental information for
+each atom (node) as a learnable embedding vector. Such a framework is readily extendable
+to multi-component chemistries. For instance, the M3GNet-all IAP trained on all six ele-
+ments perform similarly to the M3GNet IAPs trained on individual elements. The M3GNet
+framework, like other GNNs, is able to capture long-range interactions without the need to
+increase the cutoﬀradius for bond construction (Figure S1). At the same time, unlike the
+previous GNN models, the M3GNet architecture still retains a continuous variation of en-
+ergy, force and stress with changes of the number of bonds (Figure S2), a crucial requirement
+for IAPs.
+Universal Interatomic Potential for the Periodic Table
+To develop an IAP for the entire periodic table, we leveraged on one of the largest open
+databases of DFT crystal structure relaxations in the world - the Materials Project.20 The
+Materials Project performs a sequence of two relaxation calculations19 with the Perdew-
+Burke Ernzerhof (PBE)31 generalized gradient approximation (GGA) functional or the GGA+U
+method32 for every unique input crystal, typically obtained from an experimental database
+such as the Inorganic Crystal Structure Database (ICSD).33 Our initial dataset comprises
+a sampling of the energies, forces and stresses from the ﬁrst and middle ionic steps of the
+ﬁrst relaxation and the last step of the second relaxation for calculations in the Materials
+Project database that contains “GGA Structure Optimization” or “GGA+U Structure Op-
+8
+
+Table 1: M3GNet models errors compared to the existing models EAM, MEAM,
+NNP, and MTP on the single-element dataset from Zuo et al.9 In each cell, the
+errors are reported in root mean squared error (RMSE) by averaging results
+from three independent model training. The M3GNet-all model trains all six
+elements in one model.
+Element
+M3GNet
+M3GNet-all
+EAM
+MEAM
+NNP
+MTP
+Energy (10−3 eV atom−1)
+Ni
+0.9
+1.9
+8.5
+23.0
+2.3
+0.8
+Cu
+1.8
+2.3
+7.5
+10.5
+1.7
+0.5
+Li
+2.5
+4.7
+368.6
+-
+1.0
+0.7
+Mo
+6.3
+6.8
+68.0
+36.4
+5.7
+3.9
+Si
+9.6
+6.8
+-
+111.7
+9.9
+3.0
+Ge
+9.4
+5.9
+-
+-
+11.0
+3.7
+Force (10−3 eV ˚A−1)
+Ni
+37.4
+37.0
+110
+330
+67.3
+26.9
+Cu
+17.0
+16.9
+120
+240
+63.0
+13.5
+Li
+22.1
+24.5
+140
+-
+63.4
+13.2
+Mo
+193.7
+271.4
+520
+220
+198.7
+148.1
+Si
+102.8
+126.2
+-
+400
+174.2
+88.1
+Ge
+76.4
+78.4
+-
+-
+124.3
+70.3
+timization” task types as of Feb 8, 2021. The snapshots that have a ﬁnal energy per atom
+greater than 50 eV atom−1 or atom distance less than 0.5 ˚A were excluded, since those tend
+to be the result of errors in the initial input structure. In total, this “MPF.2021.2.8” dataset
+contains 187,687 ionic steps of 62,783 compounds, with 187,687 energies, 16,875,138 force
+components, and 1,689,183 stress components. The dataset covers an energy, force and stress
+range of [-28.731, 49.575] eV atom−1, [-2570.567, 2552.991] eV ˚A−1 and [-5474.488, 1397.567]
+GPa, respectively (Figure 2a,b). The majority of structures have formation energies between
+-5 and 3 eV atom−1, as shown in Figure S3. While the distribution of forces is relatively
+symmetric, the stress data contains a slightly higher proportion of negative (compressive)
+stresses than positive stresses due to the well-known tendency of the PBE functional to un-
+derbind. The radial distribution function g(r) (Figure 2c) shows that the dataset also spans
+a broad range of interatomic distances, including small distances of less than 0.6 ˚A that are
+essential for the M3GNet model to learn the repulsive forces at close distances. The dataset
+9
+
+encompasses 89 elements of the periodic table. More information about the MPF.2021.2.8
+data distribution is provided in Table S1. This dataset is then split into the training, val-
+idation and test data in the ratio of 90%, 5% and 5%, respectively, according to materials
+not data points. Three independent data splits were performed.
+In principle, an IAP can be trained on only energies, or a combination of energies and
+forces. In practice, the M3GNet IAP trained only on energies (M3GNet-E) was unable to
+achieve reasonable accuracies for predicting either forces or stresses, with mean absolute
+errors (MAEs) great than even the mean absolute deviation of the data (Table S2). This is
+the result of the ampliﬁcation of errors when calculating the derivatives when only energy
+data is used. The M3GNet models trained with energies + forces (M3GNet-EF) and energies
++ forces + stresses (M3GNet-EFS) achieved relatively similar energy and force MAEs, but
+the MAE in stresses of the M3GNet-EFS was about half that of the M3GNet-EF model.
+Accurate stress predictions are necessary for applications that involve lattice changes, such
+as structural relaxations or NpT molecular dynamics (MD) simulations. Our results suggest
+that it is critical to include all three properties (energy, force, and stress) in the model
+training to obtain a practical IAP. The ﬁnal M3GNet-EFS IAP (henceforth, referred to
+simple as the M3GNet model for brevity) achieved an average of 0.035 eV atom−1, 0.072 eV
+˚A−1, and 0.41 GPa for energy, force, and stress test MAE, respectively.
+We further investigated the test error distributions of one ﬁnal M3GNet model. Generally,
+the model predictions and the DFT ground truth match well as revealed by the high linearity
+and the R2 values for the linear ﬁtting between DFT and model predictions (Figure 3a-c)
+The cumulative distribution of the model errors indicate that 50% of the data has energy,
+force, and stress errors lower than 0.01 eV atom−1, 0.033 eV ˚A−1 and 0.042 GPa, respectively
+(Figure 3d-f). Even more stringent tests were carried out using phonon and elasticity calcu-
+lations, which were not part of the original training data. The M3GNet model can reproduce
+accurate phonon dispersion curves and density of states (DOS) of β-cristobalite, stishovite,
+and α-quartz SiO2 (Figure S4) to quantitative agreements with expensive DFT computa-
+10
+
+a
+b
+c
+d
+Figure 2: The distribution of the MPF.2021.2.8 dataset. Structural energy per atom
+versus force components (a) and stress components (b) distributions. c, The radial distri-
+bution function g(r) and pair atom distance distribution density. The short distance (<1.1
+˚A) density is made of mostly hydrogen bonded with O, C and N, illustrated in the inset. d,
+Element counts for all atoms in the dataset, covering 89 elements across the periodic table.
+11
+
+a
+b
+c
+d
+e
+f
+g
+h
+Figure 3: The model predictions on the test dataset compared to DFT calcula-
+tions. a-c, The parity plots for energy, force and stress, respectively. The model predicted
+results are ˆE, ˆf, and ˆσ. The dashed lines are y = x as guides for the eye. d-e, The cumu-
+lative distribution of errors for energy, force and stress, respectively. The horizontal dashed
+lines indicate the model errors, from bottom to top, at 50%, 80% and 95%. g, The compar-
+ison between model calculated 1,521 phonon density of state (DOS) center data (ˆω) and the
+PBEsol DFT calculations (¯ω) from Petretto et al.34 and h, the 11,848 Debye temperatures
+(excluding negative moduli) calculated from M3GNet model ( ˆTDebye) and PBE DFT elastic
+tensors from de Jong et al.35
+12
+
+tions.34 The M3GNet phonon DOS centers ¯ω from phonon calculations using predicted forces
+and the frozen phonon approach are also in good agreement with DFT computed values with
+a MAE of 44.2 cm−1 (Figure 3g).34 The systematic underestimation by the M3GNet model
+relative to DFT is likely due to the diﬀerent choices of pseudopotentials; the DFT phonon
+calculations were performed using the PBEsol36 functional while the M3GNet training data
+comprised of PBE/PBE+U calculations.37,38 This systematic underestimation can be cor-
+rected with a constant shift of 31.6 cm−1 and the MAE reduces to 28.8 cm−1. Such errors
+are even lower than a state-of-the-art phonon DOS peak position prediction model which
+reported MAE of 36.9 cm−1.39 We note that the DOS peak prediction model does not ex-
+hibit a systematic shift as it was directly ﬁtted on the data by minimizing a mean-squared
+error. Similar to DFT, the relationship ¯ω ∝1/(m)2, where m is the average atomic mass, is
+obtained (Figure S5). The M3GNet-calculated Debye temperatures are less accurate (Figure
+3h), which can be attributed to relative poor M3GNet predictions of the shear moduli (R2
+= 0.134) (Figure S6), though the the bulk moduli predictions (R2 = 0.757) are reasonable.
+The M3GNet model was then applied in a simulated materials discovery workﬂow where
+the ﬁnal DFT structures are not known a priori. M3GNet relaxations were carried out on
+the initial structures from the test dataset of 3,140 materials. M3GNet relaxation yields
+crystals that have volumes much closer to the DFT reference volumes (Figure 4a). While
+50% and 5% of the initial input structures have volumes that diﬀer from the ﬁnal DFT
+relaxed crystals by more than 2.4% and 22.2%, respectively, these errors are reduced to 0.6%
+and 6.6% via M3GNet relaxation. Correspondingly, the errors in the predicted energies ˆE are
+also much smaller (Figure 4b). Using the initial structures for direct model predictions, the
+energy diﬀerences distribute broadly, with considerable amount of structures having errors
+larger than 0.1 eV atom−1. All errors here were calculated relative to the DFT energies of
+the ﬁnal DFT-relaxed structures for each material. The overall MAE is 0.169 eV atom−1
+with ∼20% of the structures having errors greater than 0.071 eV atom−1 (Figure 4b). These
+errors are far too large for reliable estimations of materials stability, given that 90% of all
+13
+
+inorganic crystals in the ICSD has an energy above the convex hull of less than 0.067 eV
+atom−1.40 In contrast, energy calculations on the M3GNet-relaxed structures yield a MAE
+of 0.035 eV atom−1 and 80% of the materials have errors less than 0.028 eV atom−1. The
+error distributions using M3GNet relaxed structures are close to the case where we know
+the DFT ﬁnal structures, as shown in Figure 4b, suggesting that M3GNet potential can
+be accurate in helping getting the correct structures. In general, relaxations with M3GNet
+converges rapidly, as shown in Figure S7. An example of M3GNet relaxation is shown in
+Figure S8 for K57Se34 (mp-685089), a material with one of the largest energy change during
+relaxation. Convergence is achieved after about 100 steps when the forces falls under 0.1 eV
+˚A−1. The X-ray diﬀraction (XRD) pattern of the M3GNet-relaxed structure also resembles
+the counterpart from DFT relaxation (Figure S8g). This relaxation can be performed on a
+laptop in about 22 seconds on a single CPU core of Intel(R) Xeon(R) CPU E5-2620 v4 @
+2.10GHz, while the corresponding DFT relaxation took 15 hours on 32 cores in the original
+Materials Project calculations.
+a
+b
+Figure 4: Relaxation of crystal structures with M3GNet.
+a, Distribution of the
+absolute percentage error in volumes of M3GNet-relaxed structures relative to DFT-relaxed
+structures. b, The diﬀerences between M3GNet-predicted energies ˆE and ground state (gs)
+energies Egs using the initial, M3GNet-relaxed and DFT-relaxed structures. Egs is deﬁned
+as the DFT energy of the DFT-relaxed crystal. The horizontal lines mark the 50th, 80th,
+and 95th percentiles of the distributions and the corresponding x axis values are annotated.
+14
+
+New Materials Discovery
+The ability of M3GNet to accurately and rapidly relax arbitrary crystal structures and pre-
+dict their energies makes it ideal for large-scale materials discovery. To generate hypothetical
+materials, combinatorial isovalent ionic substitutions based on the common oxidation states
+of non-noble-gas element were performed on 5,283 binary, ternary and quaternary structural
+prototypes in the 2019 version of the ICSD33 database. Only prototypes with less than 51
+atoms were selected for computational speed considerations. Further ﬁltering was performed
+to exclude structures with non-integer or zero-charged atoms. A total of 31,664,858 hypo-
+thetical materials candidates were generated, more than 200 times the total number of unique
+crystals in the Materials Project today. All structures were relaxed using the M3GNet model
+and their signed energy distance to the Materials Project convex hull were calculated using
+the M3GNet IAP-predicted energy (Ehull−m). We acknowledge that some of the generated
+structures may compete with each other for stability. However, to avoid introducing addi-
+tional uncertainties into the Ehull−m predictions, we have elected to compute Ehull−m relative
+to ground-truth DFT energies in the Materials Project as opposed to the higher uncertainty
+M3GNet-computed energies. A zero or negative Ehull means that the material is predicted to
+be potentially stable compared to known materials in MP. The more negative the Ehull, the
+greater the probability that a material is likely to be stable after accounting for uncertain-
+ties in the M3GNet-predicted energies. In total, 1,849,096 materials have Ehull−m less than
+0.001 eV atom−1. We then excluded materials that have non-metal ions in multiple valence
+states, e.g., materials containing Br+ and Br– at the same time, etc. It is well-known that
+PBE overbinds single-element molecules such as O2, S8, Cl2, etc. and negative anion energy
+corrections are applied to ionic compounds in Materials Project to oﬀset such errors.41 How-
+ever the corrections are based mostly on composition, which may artiﬁcially over-stabilize
+materials with multi-valence non-metal ions. We have developed a searchable database for
+the generated hypothetical structures and their corresponding M3GNet-predicted properties
+at http://matterverse.ai.
+15
+
+a
+b
+c
+d
+Figure 5: Discovery of stable materials using M3GNet. a, The signed Ehull distribution
+for the top-1000 lowest Ehull−m materials from any chemistry (All) and oxides only (Oxides).
+b, Fraction of materials below Ehull−dft among top-1000 materials in the All and Oxides
+categories. c, d, Plot of the ﬁnal M3GNet predicted energy against ﬁnal DFT energy for
+the (c) All and (d) Oxides categories.
+16
+
+A formation energy model based on the Matbench39 Materials Project data was devel-
+oped using the same architecture as the M3GNet IAP model (see Table S3). Materials with a
+diﬀerence in the signed energy distance to the Materials Project convex hull from this model
+(Ehull−f) and Ehull−m greater than 0.2 eV atom−1 were then discarded in the subsequent DFT
+analysis. This additional step removes materials with higher energy prediction uncertainties,
+which account for 13.1% (243,820) of the predicted materials. It should be noted that this
+step can also be omitted to simplify the discovery workﬂow, though potentially with impact
+on the hit rate of stable materials discovery. The top-1000 lowest Ehull−m materials from any
+chemistry as well as the top-1000 metal oxides with elements from the ﬁrst ﬁve rows (exclud-
+ing Tc due to radioactivity and Rb due to high dominance) were then selected for validation
+via DFT relaxation and energy calculations. Only the most stable polymorphs were selected
+for each composition. It was found that the distribution in the DFT calculated Ehull−dft
+matches well with the distributions of Ehull−m (Figure 5a). For most computational materi-
+als discovery eﬀorts, a positive threshold, typically around 0.05-0.1 eV atom−1, is applied to
+identify synthesizable materials. This positive threshold accounts for both errors in DFT cal-
+culated energies as well as the fact that some thermodynamically meta-stable materials can
+be realized experimentally. Of the top-1000 materials from any chemistry, 999 were found
+to have a Ehull−dft < 0.001 eV atom−1 (Figure 5b) and none of them were in the Materials
+Project database. For the top-1000 oxides, 579, 826, and 935 were found to be synthesizable
+based on Ehull−dft thresholds of 0.001, 0.05 and 0.1 eV atom−1, respectively (Figure 5b). Out
+of the 579 DFT-stable oxides, only ﬁve, namely Mg4Nb2O9, Sr3V2O8, K2SnO2, Cd(RhO2)2,
+CoMnO4, were previously known and matched with the Materials Project structures. The
+eﬀectiveness of the M3GNet IAP relaxations can be seen in Figure S9, which show that the
+energy changes during subsequent DFT relaxations (of the MEG3Net-relaxed structures) are
+at least one order of magnitude smaller than the energy changes during M3GNet relaxation.
+The ﬁnal M3GNet-relaxed energies are in excellent agreement with the ﬁnal DFT-relaxed
+energies, with MAEs of 0.112 and 0.045 eV atom−1 for the top 1000 materials in any chem-
+17
+
+istry and the oxide chemistry, respectively (Figures 5c-d). Using the M3GNet IAP, we have
+also assessed the dynamic stability of the 1578 materials with Ehull−dft < 0.001 eV atom−1
+using phonon calculations. A total of 328 materials do not exhibit imaginary frequencies in
+their M3GNet phonon dispersion curves. Four phonon dispersion curves are shown in Figure
+6. The others are provided in Data Availability.
+As an additional evaluation of the performance of M3GNet for materials discovery, we
+computed the discovery rate, i.e., the fraction of DFT-stable materials (Ehull−dft ≤0) for
+1000 structures uniformly sampled from the ∼1.8 million materials with Ehull−m < 0.001 eV
+atom−1. The discovery rate remains close to 1.0 up to a Ehull−m threshold of around 0.5 eV
+atom−1 and remains at a reasonably high value of 0.31 at the strictest threshold of 0.001 eV
+atom−1, as shown in Figure S10. For this material set, we also compared the DFT relaxation
+time cost with and without M3GNet pre-relaxation. The results show that without M3GNet
+pre-relaxation, the DFT relaxation time cost is about three times of that with the M3GNet
+relaxation, as shown in Figure S11.
+Discussion
+A universal IAP such as M3GNet has applications beyond crystal structure relaxation and
+stability predictions. For instance, a common application of IAPs is in molecular dynamics
+(MD) simulations to obtain transport properties such as diﬀusivity and ionic conductivity.
+The Arrhenius plot from MD simulations at multiple temperatures of the recently discovered
+Li superionic conductor Li3YCl6 is shown in Figure S12. The results agree well with the ionic
+conductivity and activation barriers from previous ab initio MD simulations.42 Training an
+IAP for a complex multi-component systems such as Li3YCl6 is typically a highly-involved
+process,43 while the M3GNet IAP can be universally applied to any material without further
+retraining. As shown in Figure S13, M3GNet MD calculations can potentially be applied to a
+wide range of Li-containing compounds to identify potential lithium superionic conductors.
+18
+
+Y FL I
+F1   YX1
+EMA1
+X H1
+a
+b
+c
+d
+Figure 6: M3GNet-calculated phonon dispersion curves of four new materials
+predicted to be thermodynamically and dynamically stable. a, Sr6Sc2Al4O15; b,
+K2Li3AlO4; c, KMN4V2O12; d, MnCd(GAO2)4
+19
+
+Furthermore, the M3GNet IAP can also serve as a surrogate model in lieu of DFT with
+other structural exploration techniques such as evolutionary algorithms like USPEX44 and
+CALYPSO45 or generative models such as CDVAE46 to generate more diverse and uncon-
+strained candidates.
+It should be noted that the current M3GNet IAP reported in this work is merely the
+best that can be done at present with available data. Further improvements in accuracy
+can be achieved through several eﬀorts. First, the training data for the M3GNet IAP comes
+from DFT relaxation calculations in the Materials Project, which were performed with less
+stringent convergence criteria such as a lower energy cutoﬀand sparser k-point grids. For
+IAP development, a best practice is to obtain accurate energies, forces and stresses via single-
+point, well-converged DFT calculations for training data. Building such a database is an
+extensive eﬀort that is planned for future developments in the Materials Project. Second,
+active learning strategies, for instance, by using the DFT relaxation data from the M3GNet-
+predicted stable crystals in a feedback loop, can be used to systematically improve the
+M3GNet IAP, especially in under-explored chemical spaces with the greatest potential for
+novel materials discoveries.
+Nevertheless, about 1.8 million of the 31 million candidates
+were predicted to be potentially stable or meta-stable by M3GNet against materials in the
+Materials Project, which already expands the potential exploration pool by an order of
+magnitude over the ∼140,000 crystals in the Materials Project database today. We shall note
+that the potentially stable materials will need to be further veriﬁed with DFT calculations
+and experimental synthesis.
+The model uncertainty will also play a role in further decreasing the number of true
+discoveries. The candidate space contains 294,643 chemical systems, while the Materials
+Project has only about 47,000 chemical systems. Hence, we likely see many extrapolations
+in the predictions. For example, some of the most uncertain predictions are from chemical
+systems such as F-Fe-Se-W, F-Fe-S-W, F-Fe-Te-W, F-Ni-S-W, and Co-F-S-W, which are not
+represented in the Materials Project training data.
+20
+
+Finally, the M3GNet framework is not limited to crystalline IAPs or even IAPs in general.
+The M3GNet formalism without lattice inputs and stress outputs is naturally suited for
+molecular force ﬁelds. When benchmarked on MD17 and MD17-CCSD(T) molecular force
+ﬁeld data (Table S4 and S5),47–49 the M3GNet models were found to be more accurate
+than the embedded atom neural network (EANN) force ﬁeld50 and perform similarly to the
+state-of-the-art message-passing networks and equivariant neural network models. Moreover,
+by changing the readout section from summed atomic energy as in Figure 1 to intensive
+property readout, the M3GNet framework can be used to develop surrogate models for
+property prediction. We trained M3GNet models on the Matbench materials data covering
+nine general crystal materials properties (Table S3).39 In all cases, the M3GNet models
+achieved excellent accuracies.
+Correspondence Correspondence and requests for materials should be addressed to
+C.C. (email: chenc273@outlook.com) or S.P.O. (email: ongsp@eng.ucsd.edu).
+Acknowledgement
+This work was primarily supported by the Materials Project, funded by the U.S. Depart-
+ment of Energy, Oﬃce of Science, Oﬃce of Basic Energy Sciences, Materials Sciences and
+Engineering Division under contract no. DE-AC02-05-CH11231: Materials Project program
+KC23MP. The lithium superionic conductor analysis portion of the work was funded by
+the LG Energy Solution through the Frontier Research Laboratory (FRL) Program. This
+work used the Extreme Science and Engineering Discovery Environment (XSEDE), which is
+supported by National Science Foundation grant number ACI-1548562.
+Author contributions
+C.C. and S.P.O. conceived the idea and designed the work. C.C. implemented the models
+and performed the analysis. C.C. and S.P.O. wrote the manuscript and contributed to the
+21
+
+discussion and revision.
+Ethics Declaration
+Competing Interests
+The authors declare that they have no competing ﬁnancial interests.
+Methods
+Model construction
+Neural network deﬁnition
+If we denote one layer of the perceptron model as
+Lk
+g : x 7→g(Wkx + bk)
+(7)
+then the K-layer multi-layer perceptron (MLP) can be expressed as
+ξK(x) = (LK
+g ◦LK−1
+g
+◦...L1
+g)(x)
+(8)
+The K-layer gated MLP becomes
+φK(x) = ((LK
+g ◦LK−1
+g
+◦...L1
+g)(x)) ⊙((LK
+σ ◦LK−1
+g
+◦...L1
+g)(x))
+(9)
+where LK
+σ (x) replaces the activation function g(x) of LK
+g (x) to sigmoid function σ(x) and ⊙
+denotes element-wise product. The gated MLP consists of the normal MLP before ⊙and
+the gate network after ⊙.
+22
+
+Model architecture
+Materials graphs were constructed using a radial cutoﬀof 5 ˚A. For computational eﬃciency
+considerations, the three-body interactions were limited to within a cutoﬀof 4 ˚A. The graph
+featurizer converts the atomic number into embeddings of dimension 64. The bond distances
+were expanded using the continuous and smooth basis function proposed by Kocer et al.,51
+which ensures that the ﬁrst and second derivatives vanish at the cutoﬀradius.
+hm(r) =
+1
+√dm
+
+fm(r) +
+r em
+dm−1
+hm−1(r)
+
+(10)
+where
+dm
+=
+1 −
+em
+dm−1
+(11)
+em
+=
+m2(m + 2)2
+4(m + 1)4 + 1
+(12)
+fm(r)
+=
+(−1)m
+√
+2π
+r3/2
+c
+(m + 1)(m + 2)
+p
+(m + 1)2 + (m + 2)2
+
+sinc
+
+r(m + 1)π
+rc
+
++ sinc
+
+r(m + 2)π
+rc
+
+(13)
+sinc(x)
+=
+sin x
+x
+(14)
+e0
+ij is a vector formed by m basis functions of h(r).
+e0
+ij(rij) = [h1(rij), h2(rij), ..., hm(rij)]
+(15)
+In this work, we used three basis functions for the pair distance expansion.
+The main blocks consist of three three-body information exchange and graph convolutions
+(N = 3 in Figure 1). By default, the W ’s and b’s in the perceptron model gives output
+dimensions of 64. Each gated MLP (φe(x) and φ′
+e(x) in Equations 4 and 5) have two layers
+with 64 neurons in each layer.
+For the prediction of extensive properties such as total energies, a three-layer gated MLP
+(Equation 9) was used on the atom attributes after the graph convolution and sum the
+23
+
+outputs as the ﬁnal prediction, i.e.,
+pext =
+X
+i
+φ3(vi)
+(16)
+The gated MLP φ3(x) has a layer neuron conﬁguration of [64, 64, 1] and no activation in
+the last layer of the normal MLP part.
+For the prediction of intensive properties, the readout step was performed as follows after
+the main blocks.
+pint = ξ3(
+X
+i
+wiξ2(vi) ⊕u)
+(17)
+with weights wi summing to 1 and deﬁned as
+wi =
+ξ′
+3(vi)
+P
+i ξ′
+3(vi)
+(18)
+ξ3 and ξ′
+3 have neuron conﬁgurations of [64, 64, 1] to ensure the output is scalar.
+For
+regression targets, there is no activation in the ﬁnal layer of MLP, while for classiﬁcation
+targets, the last layer activation is chosen as the sigmoid function.
+In the training of MPF.2021.2.8 data, the M3GNet model contains three main blocks
+with 227,549 learnable weights.
+Model training
+The Adam optimizer52 was used with initial learning rate of 0.001, with a cosine decay to
+1% of the original value in 100 epochs. During the optimization, the validation metric values
+were used to monitor the model convergence, and training was stopped if the validation
+metric did not improve for 200 epochs. For the elemental IAP training, the loss function
+was the mean squared error (MSE). For other properties, the Huber loss function53 with δ
+set to 0.01 was used. For the universal IAP training, the total loss function includes the loss
+24
+
+for energy, forces, and, in inorganic compounds, also the stresses. Batch size of 32 was used
+in model training.
+L = ℓ(e, eD) + wfℓ(f, fD) + wσℓ(σ, σD)
+(19)
+where ℓis the Huber loss function, e is energy per atom, f is the force vector, σ is the stress,
+and w’s are the scalar weights. The subscript D indicates data from DFT.
+Before M3GNet IAP ﬁtting, we ﬁt the elemental reference energies using linear regression
+of the total energies. We ﬁrst featurize a composition into a vector c = [c1, c2, c3, ..., c89] where
+ci is the number of atoms in the composition that has the atomic number i. The composition
+feature vector c is mapped to the total energy of the material E via E = P
+i ciEi, where
+Ei is the reference energy for element with atomic number i that can be obtained by linear
+regression of the training data. Then, the elemental reference energies were subtracted from
+the total energies to improve M3GNet model training stability. We set wf = 1 and wσ = 0.1
+during training the MPF.2021.2.8 data.
+Software implementation
+The M3GNet framework was implemented using the Tensorﬂow54 package. All crystal and
+molecular structure processing were performed using the Python Materials Genomics (py-
+matgen)16 package. The structural optimization was performed using the FIRE55 algorithm
+implemented in the atomic simulation environment (ASE).56 The MD simulations were per-
+formed in the NVT ensemble using ASE.56 Phonon calculations were performed using the
+Phonopy package.57
+Data Availability
+The training data for the universal IAP is available at http://doi.org/10.6084/m9.figshare.
+19470599. The phonon dispersion curves of 328 dynamically stable materials are available at
+25
+
+http://doi.org/10.6084/m9.figshare.20217212. All generated hypothetical compounds
+and their corresponding M3GNet predictions are provided at http://matterverse.ai.
+Code Availability
+The source code for M3GNet is available at https://github.com/materialsvirtuallab/
+m3gnet.
+26
+
+References
+(1) Weiner, P. K.; Kollman, P. A. AMBER: Assisted Model Building with Energy Reﬁne-
+ment. A General Program for Modeling Molecules and Their Interactions. Journal of
+Computational Chemistry 1981, 2, 287–303.
+(2) Case, D. A.; Cheatham III, T. E.; Darden, T.; Gohlke, H.; Luo, R.; Merz Jr., K. M.;
+Onufriev, A.; Simmerling, C.; Wang, B.; Woods, R. J. The Amber Biomolecular Simu-
+lation Programs. Journal of Computational Chemistry 2005, 26, 1668–1688.
+(3) Rappe, A. K.; Casewit, C. J.; Colwell, K. S.; Goddard, W. A.; Skiﬀ, W. M. UFF,
+a Full Periodic Table Force Field for Molecular Mechanics and Molecular Dynamics
+Simulations. Journal of the American Chemical Society 1992, 114, 10024–10035.
+(4) Behler, J.;
+Parrinello, M. Generalized Neural-Network Representation of High-
+Dimensional Potential-Energy Surfaces. Physical Review Letters 2007, 98, 146401.
+(5) Bart´ok, A. P.; Payne, M. C.; Kondor, R.; Cs´anyi, G. Gaussian Approximation Poten-
+tials: The Accuracy of Quantum Mechanics, without the Electrons. Physical Review
+Letters 2010, 104, 136403.
+(6) Thompson, A. P.; Swiler, L. P.; Trott, C. R.; Foiles, S. M.; Tucker, G. J. Spectral Neigh-
+bor Analysis Method for Automated Generation of Quantum-Accurate Interatomic Po-
+tentials. Journal of Computational Physics 2015, 285, 316–330.
+(7) Shapeev, A. V. Moment Tensor Potentials: A Class of Systematically Improvable In-
+teratomic Potentials. Multiscale Modeling & Simulation 2016, 14, 1153–1173.
+(8) Zhang, L.; Han, J.; Wang, H.; Car, R.; E, W. Deep Potential Molecular Dynamics:
+A Scalable Model with the Accuracy of Quantum Mechanics. Physical Review Letters
+2018, 120, 143001.
+27
+
+(9) Zuo, Y.; Chen, C.; Li, X.; Deng, Z.; Chen, Y.; Behler, J.; Cs´anyi, G.; Shapeev, A. V.;
+Thompson, A. P.; Wood, M. A. et al. Performance and Cost Assessment of Machine
+Learning Interatomic Potentials. The Journal of Physical Chemistry A 2020, 124, 731–
+745.
+(10) Sch¨utt, K. T.; Kindermans, P.-J.; Sauceda, H. E.; Chmiela, S.; Tkatchenko, A.;
+M¨uller, K.-R. SchNet: A Continuous-Filter Convolutional Neural Network for Mod-
+eling Quantum Interactions. arXiv:1706.08566 [physics, stat] 2017,
+(11) Klicpera, J.; Groß, J.; G¨unnemann, S. Directional Message Passing for Molecular
+Graphs. arXiv:2003.03123 [physics, stat] 2020,
+(12) Haghighatlari, M.; Li, J.; Guan, X.; Zhang, O.; Das, A.; Stein, C. J.; Heidar-Zadeh, F.;
+Liu, M.; Head-Gordon, M.; Bertels, L. et al. NewtonNet: A Newtonian Message Passing
+Network for Deep Learning of Interatomic Potentials and Forces. arXiv:2108.02913
+[physics] 2021,
+(13) Park, C. W.;
+Kornbluth, M.;
+Vandermause, J.;
+Wolverton, C.;
+Kozinsky, B.;
+Mailoa, J. P. Accurate and Scalable Graph Neural Network Force Field and Molec-
+ular Dynamics with Direct Force Architecture. npj Computational Materials 2021, 7,
+1–9.
+(14) Cheon, G.; Yang, L.; McCloskey, K.; Reed, E. J.; Cubuk, E. D. Crystal Structure
+Search with Random Relaxations Using Graph Networks. arXiv:2012.02920 [cond-mat,
+physics:physics] 2020,
+(15) Lejaeghere, K.; Bihlmayer, G.; Bj¨orkman, T.; Blaha, P.; Bl¨ugel, S.; Blum, V.; Cal-
+iste, D.; Castelli, I. E.; Clark, S. J.; Dal Corso, A. et al. Reproducibility in Density
+Functional Theory Calculations of Solids. Science 2016, 351, aad3000.
+(16) Ong, S. P.; Richards, W. D.; Jain, A.; Hautier, G.; Kocher, M.; Cholia, S.; Gunter, D.;
+Chevrier, V. L.; Persson, K. A.; Ceder, G. Python Materials Genomics (Pymatgen): A
+28
+
+Robust, Open-Source Python Library for Materials Analysis. Computational Materials
+Science 2013, 68, 314–319.
+(17) Jain, A.; Ong, S. P.; Chen, W.; Medasani, B.; Qu, X.; Kocher, M.; Brafman, M.;
+Petretto, G.; Rignanese, G.-M.; Hautier, G. et al. FireWorks: A Dynamic Workﬂow
+System Designed for High-Throughput Applications. Concurrency and Computation:
+Practice and Experience 2015, 27, 5037–5059.
+(18) Pizzi, G.; Cepellotti, A.; Sabatini, R.; Marzari, N.; Kozinsky, B. AiiDA: Automated
+Interactive Infrastructure and Database for Computational Science. Computational Ma-
+terials Science 2016, 111, 218–230.
+(19) Mathew, K.; Montoya, J. H.; Faghaninia, A.; Dwarakanath, S.; Aykol, M.; Tang, H.;
+Chu, I.-h.; Smidt, T.; Bocklund, B.; Horton, M. et al. Atomate: A High-Level Inter-
+face to Generate, Execute, and Analyze Computational Materials Science Workﬂows.
+Computational Materials Science 2017, 139, 140–152.
+(20) Jain, A.; Ong, S. P.; Hautier, G.; Chen, W.; Richards, W. D.; Dacek, S.; Cholia, S.;
+Gunter, D.; Skinner, D.; Ceder, G. et al. Commentary: The Materials Project: A Ma-
+terials Genome Approach to Accelerating Materials Innovation. APL Materials 2013,
+1, 011002.
+(21) Curtarolo, S.; Setyawan, W.; Wang, S.; Xue, J.; Yang, K.; Taylor, R. H.; Nelson, L. J.;
+Hart, G. L. W.; Sanvito, S.; Buongiorno-Nardelli, M. et al. AFLOWLIB.ORG: A Dis-
+tributed Materials Properties Repository from High-Throughput Ab Initio Calcula-
+tions. Computational Materials Science 2012, 58, 227–235.
+(22) Kirklin, S.; Saal, J. E.; Meredig, B.; Thompson, A.; Doak, J. W.; Aykol, M.; R¨uhl, S.;
+Wolverton, C. The Open Quantum Materials Database (OQMD): Assessing the Accu-
+racy of DFT Formation Energies. npj Computational Materials 2015, 1, 1–15.
+29
+
+(23) Draxl, C.; Scheﬄer, M. The NOMAD Laboratory: From Data Sharing to Artiﬁcial
+Intelligence. Journal of Physics: Materials 2019, 2, 036001.
+(24) Xie, T.; Grossman, J. C. Crystal Graph Convolutional Neural Networks for an Accurate
+and Interpretable Prediction of Material Properties. Physical Review Letters 2018, 120,
+145301.
+(25) Chen, C.; Ye, W.; Zuo, Y.; Zheng, C.; Ong, S. P. Graph Networks as a Universal
+Machine Learning Framework for Molecules and Crystals. Chemistry of Materials 2019,
+31, 3564–3572.
+(26) Chen, C.; Zuo, Y.; Ye, W.; Li, X.; Ong, S. P. Learning Properties of Ordered and
+Disordered Materials from Multi-Fidelity Data. Nature Computational Science 2021,
+1, 46–53.
+(27) DeCost, B.; Choudhary, K. Atomistic Line Graph Neural Network for Improved Mate-
+rials Property Predictions. arXiv:2106.01829 [cond-mat] 2021,
+(28) Tersoﬀ, J. New Empirical Approach for the Structure and Energy of Covalent Systems.
+Physical Review B 1988, 37, 6991–7000.
+(29) Singraber, A.; Behler, J.; Dellago, C. Library-Based LAMMPS Implementation of High-
+Dimensional Neural Network Potentials. Journal of Chemical Theory and Computation
+2019, 15, 1827–1840.
+(30) Ramachandran, P.;
+Zoph, B.;
+Le, Q. V. Searching for Activation Functions.
+arXiv:1710.05941 [cs] 2017,
+(31) Perdew, J. P.; Burke, K.; Ernzerhof, M. Generalized Gradient Approximation Made
+Simple. Physical Review Letters 1996, 77, 3865–3868.
+(32) Anisimov, V. I.; Zaanen, J.; Andersen, O. K. Band Theory and Mott Insulators: Hub-
+bard U Instead of Stoner I. Physical Review B 1991, 44, 943–954.
+30
+
+(33) Hellenbrandt, M. The Inorganic Crystal Structure Database (ICSD)—Present and Fu-
+ture. Crystallography Reviews 2004, 10, 17–22.
+(34) Petretto, G.; Dwaraknath, S.; P. C. Miranda, H.; Winston, D.; Giantomassi, M.;
+van Setten, M. J.; Gonze, X.; Persson, K. A.; Hautier, G.; Rignanese, G.-M. High-
+Throughput Density-Functional Perturbation Theory Phonons for Inorganic Materials.
+Scientiﬁc Data 2018, 5, 180065.
+(35) de Jong, M.; Chen, W.; Angsten, T.; Jain, A.; Notestine, R.; Gamst, A.; Sluiter, M.;
+Krishna Ande, C.; van der Zwaag, S.; Plata, J. J. et al. Charting the Complete Elastic
+Properties of Inorganic Crystalline Compounds. Scientiﬁc Data 2015, 2, 150009.
+(36) Perdew, J. P.; Ruzsinszky, A.; Csonka, G. I.; Vydrov, O. A.; Scuseria, G. E.; Con-
+stantin, L. A.; Zhou, X.; Burke, K. Restoring the Density-Gradient Expansion for
+Exchange in Solids and Surfaces. Physical Review Letters 2008, 100, 136406.
+(37) Kresse, G.; Hafner, J. Ab Initio Molecular Dynamics for Liquid Metals. Physical Review
+B 1993, 47, 558–561.
+(38) Kresse, G.; Furthm¨uller, J. Eﬃciency of Ab-Initio Total Energy Calculations for Metals
+and Semiconductors Using a Plane-Wave Basis Set. Computational Materials Science
+1996, 6, 15–50.
+(39) Dunn, A.; Wang, Q.; Ganose, A.; Dopp, D.; Jain, A. Benchmarking Materials Property
+Prediction Methods: The Matbench Test Set and Automatminer Reference Algorithm.
+npj Computational Materials 2020, 6, 1–10.
+(40) Sun, W.; Dacek, S. T.; Ong, S. P.; Hautier, G.; Jain, A.; Richards, W. D.; Gamst, A. C.;
+Persson, K. A.; Ceder, G. The Thermodynamic Scale of Inorganic Crystalline Metasta-
+bility. Science Advances 2016,
+31
+
+(41) Wang, L.; Maxisch, T.; Ceder, G. Oxidation Energies of Transition Metal Oxides
+within the $\mathrm{GGA}+\mathrm{U}$ Framework. Physical Review B 2006, 73,
+195107.
+(42) Wang, S.; Bai, Q.; Nolan, A. M.; Liu, Y.; Gong, S.; Sun, Q.; Mo, Y. Lithium Chlorides
+and Bromides as Promising Solid-State Chemistries for Fast Ion Conductors with Good
+Electrochemical Stability. Angewandte Chemie International Edition 2019, 58, 8039–
+8043.
+(43) Qi, J.; Banerjee, S.; Zuo, Y.; Chen, C.; Zhu, Z.; Holekevi Chandrappa, M. L.; Li, X.;
+Ong, S. P. Bridging the Gap between Simulated and Experimental Ionic Conductivities
+in Lithium Superionic Conductors. Materials Today Physics 2021, 21, 100463.
+(44) Glass, C. W.; Oganov, A. R.; Hansen, N. USPEX—Evolutionary Crystal Structure
+Prediction. Computer Physics Communications 2006, 175, 713–720.
+(45) Wang, Y.; Lv, J.; Zhu, L.; Ma, Y. CALYPSO: A Method for Crystal Structure Predic-
+tion. Computer Physics Communications 2012, 183, 2063–2070.
+(46) Xie, T.; Fu, X.; Ganea, O.-E.; Barzilay, R.; Jaakkola, T. Crystal Diﬀusion Variational
+Autoencoder for Periodic Material Generation. 2021,
+(47) Chmiela, S.; Tkatchenko, A.; Sauceda, H. E.; Poltavsky, I.; Sch¨utt, K. T.; M¨uller, K.-
+R. Machine Learning of Accurate Energy-Conserving Molecular Force Fields. Science
+Advances 2017, 3, e1603015.
+(48) Sch¨utt, K. T.; Arbabzadah, F.; Chmiela, S.; M¨uller, K. R.; Tkatchenko, A. Quantum-
+Chemical Insights from Deep Tensor Neural Networks. Nature Communications 2017,
+8, 13890.
+(49) Chmiela, S.; Sauceda, H. E.; M¨uller, K.-R.; Tkatchenko, A. Towards Exact Molecular
+32
+
+Dynamics Simulations with Machine-Learned Force Fields. Nature Communications
+2018, 9, 3887.
+(50) Zhang, Y.; Hu, C.; Jiang, B. Embedded Atom Neural Network Potentials: Eﬃcient and
+Accurate Machine Learning with a Physically Inspired Representation. The Journal of
+Physical Chemistry Letters 2019, 10, 4962–4967.
+(51) Kocer, E.; Mason, J. K.; Erturk, H. A Novel Approach to Describe Chemical Envi-
+ronments in High-Dimensional Neural Network Potentials. The Journal of Chemical
+Physics 2019, 150, 154102.
+(52) Kingma, D. P.; Ba, J. Adam: A Method for Stochastic Optimization. arXiv:1412.6980
+[cs] 2017,
+(53) Huber, P. J. Robust Estimation of a Location Parameter. The Annals of Mathematical
+Statistics 1964, 35, 73–101.
+(54) Abadi, M.; Barham, P.; Chen, J.; Chen, Z.; Davis, A.; Dean, J.; Devin, M.; Ghe-
+mawat, S.; Irving, G.; Isard, M. et al. TensorFlow: A System for Large-Scale Machine
+Learning. 12th {USENIX} Symposium on Operating Systems Design and Implementa-
+tion ({OSDI} 16). 2016; pp 265–283.
+(55) Bitzek, E.; Koskinen, P.; G¨ahler, F.; Moseler, M.; Gumbsch, P. Structural Relaxation
+Made Simple. Physical Review Letters 2006, 97, 170201.
+(56) Larsen, A. H.; Mortensen, J. J.; Blomqvist, J.; Castelli, I. E.; Christensen, R.;
+Du\lak, M.; Friis, J.; Groves, M. N.; Hammer, B.; Hargus, C. et al. The Atomic Sim-
+ulation Environment—a Python Library for Working with Atoms. Journal of Physics:
+Condensed Matter 2017, 29, 273002.
+(57) Togo, A.; Tanaka, I. First Principles Phonon Calculations in Materials Science. Scripta
+Materialia 2015, 108, 1–5.
+33
+
+Supplementary Information
+A Universal Graph Deep Learning Interatomic
+Potential for the Periodic Table
+Chi Chen∗and Shyue Ping Ong∗
+Materials Virtual Lab, Department of NanoEngineering, University of California San
+Diego, 9500 Gilman Dr, Mail Code 0448, La Jolla, CA 92093-0448, United States
+E-mail: chenc273@outlook.com; ongsp@eng.ucsd.edu
+
+Characteristics of M3GNet models
+Long-range interactions
+Diﬀerent from the MLIAPs, M3GNet can simulate long-range interaction by stacking graph
+convolution layers without increasing the cutoﬀradius. To compare the long-range behavior,
+we used a model system MgO. The ion interactions in the test MgO system are described
+by the Buckingham potential with long-range electrostatics.
+Vij = Aij exp(−rij/ρij) −Cij
+r6
+ij
++ Kqiqj
+ϵrij
+(1)
+where Aij, ρij and Cij are the Buckingham potential parameters, qi is the charge for atom
+i, K is the energy-conversion constant and ϵ is the dielectric constant.
+We used the MgO Buckingham potential to simulate the material and generate the long-
+range force ﬁeld data. The parameters were take from the work by Shukla et al.1
+We took the MgO (mp-1265) structure from the Materials Project2 as the initial struc-
+ture. Then we applied -0.1, 0.1, and 0.2 isotropic strains to the structures, producing a total
+of four structures. For each structure, we randomly displace the atoms up to 0.5 ˚A in each
+direction for 100 times, producing a total of 400 structures for the MgO data set. The data
+is split into 80%-20% train-test data. Energies and forces are calculated using the potential
+described in the previous section using LAMMPS3 by setting the short-range interaction
+cutoﬀas 10 ˚A and carrying out long-range calculations using the Ewald summation.4
+M3GNet and MTP models with cutoﬀs of 5 ˚A were trained on the train data and eval-
+uated on the test data. We calculated the equation of state (EOS) for MgO using diﬀerent
+computational methods, as shown in Figure S1a. The M3GNet in this work outperforms the
+MTP in extrapolation outside of the training data regimes in general.
+The probe the interaction reach, we adopted the locality tests following the ideas proposed
+by Bart´ok et al. 5 and reiterated by Deringer and Cs´anyi 6. For the MgO cubic conventional
+cell, we produced a 6 × 6 × 6 super cell, with dimensions 25.54 ˚A × 25.54 ˚A × 25.54 ˚A. Then
+
+for the Mg atom at the center, we ﬁx the its neighbor atoms within a radius of rlocal and
+introduce random displacements (max 0.2 ˚A) to the atoms out of rlocal. We recorded the
+forces on the center atom and compute its standard deviation σ(f). If σ(f) = 0 at certain
+rlocal. The interaction described by the computational method is localized within rlocal.
+a
+b
+Training data
+Figure S1: M3GNet compared to MTP in long-range MgO dataset in (a) equation-of-state
+study and (b) locality tests.
+Figure S1b shows the σ(f) as a function of rlocal for Buckingham with Coulombic forces,
+MTP, and M3GNet in this work. As expected, the Buckingham potential with long-range
+force is highly non-local, with large σ(f) even at rlocal = 10 ˚A. The M3GNet in this work
+shows similar long range behavior and has non-zero σ(f) at rlocal = 10 ˚A. On the contrary,
+the interaction of MTP is localized, with σ(f) vanishing at 2rc = 10 ˚A. It should be noted
+that while the MTP interactions in terms of energy is limited to rc, the force impact goes to
+2rc because the forces are calculated as follows:
+fi = −E
+ri
+= −
+X
+j
+Ej
+ri
+(2)
+Although all j in Equation 2 is within rc of atom i, for an atom j at the boundary close
+to rc, the atom k that is 2rc away from i can also contribute to Ej. Hence the force fi will
+be aﬀected by atom k that is 2rc away. Nevertheless, the force locality for MTP beyond rc
+
+is relatively minimal and vanishes completely at 2rc.
+In conclusion, the M3GNet model proposed in this work is able to capture long-range
+interactions well beyond the set cutoﬀradius.
+Potential smoothness
+A critical requirement of an interatomic potential is its prediction smoothness across changes
+in structures. Figure S2 shows that by applying strains to a Ni cell, the energy, forces, and
+stresses all change smoothly despite non-smooth changes of the number of bonds deﬁned
+within a cutoﬀof 5 ˚A.
+a
+b
+c
+d
+Figure S2: Continuity of M3GNet models with strain applied on a Ni super cell
+with atom displacements on the ﬁrst atom. a, the number of bonds change, b, the
+energy per atom change, c, the force on the ﬁrst atom change and d, the hydrostatic stress
+change. All bonds are broken at strain close to 150%, at which point the energy, force and
+stress changes continuously.
+
+MPF.2021.2.8 distribution and M3GNet ﬁtting using
+diﬀerent targets
+6
+4
+2
+0
+2
+4
+Ef (eV atom 1)
+0
+2000
+4000
+6000
+8000
+Count
+Figure S3: Formation energy distribution of the MPF.2021.2.8 dataset
+The MPF.2021.2.8 data distribution is shown in Table S1.
+Table S1: The mean, standard deviation, min, max and quantiles of the MPF.2021.2.8
+dataset.
+Target
+Mean
+Std
+Min
+Max
+[0.25, 0.5, 0.75] Quantile
+E (eV atom−1)
+-5.975
+1.860
+-28.731
+49.575
+[-7.081, -6.191, -4.938]
+f (eV ˚A−1)
+0.0
+3.395
+-2570.567
+2552.991
+[-0.033, 0.0, 0.033]
+σ (GPa)
+-0.833
+25.13
+-5474.488
+1397.567
+[-0.049, 0, 0.006]
+
+Table S2: Mean absolute errors (MAEs) of M3GNet models trained on energy, energy and
+force, and energy, force, and stress of the MPF.2021.2.8 data. Three models were trained,
+using energy-only (M3GNet-E), energy and force (M3GNet-EF), and energy, force and
+stress (M3GNet-EFS). Each error metric is calculated from the mean of three independent
+model trainings.
+Model
+Energy (meV
+atom−1)
+Force (meV
+˚A−1)
+Stress
+(GPa)
+MAD
+1345.6
+270.3
+2.068
+M3GNet-E
+41.7±2.1
+379.4±48.7
+15.05±2.63
+M3GNet-EF
+34.0±2.9
+70.2±1.7
+0.80±0.12
+M3GNet-EFS
+34.7±3.1
+71.7±1.1
+0.41±0.01
+M3GNet dynamic properties calculations
+The phonon dispersion curves and density of state (DOS) calculations for SiO2 polymorphs
+are shown in Figure S4, where the M3GNet calculated results in Figure S4a are in good
+agreements with the DFT calculations in Figure S4b, yet the M3GNet calculations took only
+seconds to run, which are at least four orders of magnitude faster than the DFT calculations.
+The model calculations used a frozen phonon approach while the original calculations used
+DFPT. The frozen phonon approach requires larger supercells to produce long wavelength
+behavior. The supercell size diﬀerence also explains the diﬀerences in the number of bands.
+The DOS center versus average atomic mass results in Figure S5 are also in agreement with
+DFT results.
+The bulk moduli and shear moduli calculated from M3GNet in comparison with DFT
+are shown in Figure S6. The bulk moduli matched well with DFT calculations, but the shear
+moduli were more challenging to match.
+M3GNet relaxation for materials discovery
+The MAEs as a function of M3GNet relaxation steps are shown in Figure S7, where the
+MAE dropped to 0.047 eV atom−1 after about 10 relaxation steps.
+
+a
+b
+Figure S4: M3GNet-calculated phonon band structure examples for SiO2 poly-
+morphs. (a) The band structures for the β-cristobalite, stishovite, and α-quartz structures,
+and their corresponding density of states (DOS) calculated from M3GNet using 2×2×2 su-
+percells. (b) The same calculations by DFT using the PBEsol functional from Petretto et
+al.7 The M3GNet results show quantitative agreements with DFT. Panel (b) is reprinted un-
+der the terms of Creative Commons Attribution 4.0 International License. Copyright 2018,
+7
+
+0
+25
+50
+75 100 125 150
+m
+0
+200
+400
+600
+800
+1000
+ (cm 1)
+0.2
+0.4
+0.6
+0.8
+1.0
+mmin / m
+Figure S5: The predicted phonon DOS center as a function of the average atomic
+mass m =
+  1
+n
+P
+k
+√Mk
+2, colored by the ratio between the minimal atomic mass
+mmin and m. The ﬁtted line follows the trend ω ∝1/(m)2. The results are in quantitative
+agreement with the work by Petretto et al.7
+
+a
+b
+Figure S6: The bulk and shear moduli calculated by the M3GNet compared to
+DFT. The agreement in bulk moduli (a) is better than shear moduli (b).
+An example of M3GNet relaxation is shown in Figure S8. The energy, force, and stress
+all converged within less than 200 steps. At the same time, the lattice constants, angles and
+the mean atom distances all converged closed to the equilibrium structures from DFT. The
+XRD pattern of model-relaxed structures also match with that from DFT-relaxation.
+Figure S9 shows the M3GNet energy changes during M3GNet relaxation (∆EM3GNet−relax),
+and DFT energy changes during DFT relaxation (∆EDFT−relax). In both all chemistry cate-
+gory (Figure S9a-b) and oxide category (Figure S9c-d), the DFT energy changes are at least
+one order of magnitude smaller than the M3GNet energy changes, suggesting that M3GNet
+eﬀectively relaxes the structures close to their equilibrium.
+Figure S10 shows the DFT stable ratio for 1000 structures taken uniformly from the total
+discovery pool of ∼1.8 million structures based on their Ehull−m values. The stable ratio
+(DFT stable structures / structures below Ehull−m threshold) decreases monotonically with
+the Ehull−m threshold, and reaches 0.31 at threshold 0.001 eV atom−1.
+For materials in Figure S10, we compared the DFT relaxation CPU cost with and without
+M3GNet pre-relaxation, as shown in Figure S11. On average the DFT relaxation CPU cost
+without M3GNet pre-relaxation is 2.971 times the one with M3GNet pre-relaxation. In other
+
+10
+1
+10
+2
+Step
+0.05
+0.10
+0.15
+0.20
+MAE (eV atom 1)
+Figure S7: Relaxation convergence. The MAE between model calculated energies during
+relaxation and the ﬁnal DFT energies as a function of M3GNet relaxation steps.
+
+a
+b
+c
+d
+e
+f
+g
+Figure S8: A structural relaxation example using the model compared to DFT.
+a-c, The energy, force, and stress evolution during the model optimization, compared to
+the DFT relaxation for mp-685089 K57Se34. d-e. The lattice constant and angle changes
+during relaxation compared to the ﬁnal DFT structure (dashed lines). f. The average atom
+distances to their ﬁnal positions. g. The X-ray diﬀraction pattern of the initial structure,
+and the ones for the DFT relaxed ﬁnal structure and model relaxed ﬁnal structure.
+
+a
+b
+c
+d
+Figure S9: Distribution of energy changes during M3GNet and DFT relaxations.
+a, M3GNet energy changes during M3GNet relaxation for materials in All category. b, DFT
+energy changes in subsequent DFT relaxations for materials in All category. c-d, same plots
+as a-b but on the Oxide category.
+
+2.0
+1.5
+1.0
+0.5
+0.0
+Ehull
+m (eV atom 1)
+0.0
+0.2
+0.4
+0.6
+0.8
+1.0
+Stable ratio
+0.310
+Figure S10: DFT stable ratio as a function of Ehull−m threshold for a uniform
+sample of 1000 structures.
+
+words, the M3GNet relaxation can accelerate DFT relaxation if one aims to obtain all DFT
+results.
+0
+2
+4
+6
+8
+10
+tw. o. M3GNet / tw. M3GNet
+0
+50
+100
+150
+200
+250
+300
+Count
+Average = 2.971
+Figure S11: DFT acceleration with M3GNet pre-relaxation.
+M3GNet for molecular dynamics simulations
+The M3GNet model trained on MPF.2021.2.8 can also be used for molecular dynamics sim-
+ulations. We chose Li3YCl6 as an initial study case from our recent work.8 The M3GNet cal-
+culated mean squared displacements (MSDs) for Li, Y, and Cl show reasonable temperature
+dependencies, as shown in Figure S12. Interestingly, the M3GNet calculated conductivities
+matched well with AIMD simulations from Wang et al.9 The extrapolated room-temperature
+Li conductivity and the activation energy ﬁtted from the Arrhenius equation also showed
+excellent agreements.
+
+250 K to 1200 K at 50 K interval
+Li
+Y
+Cl
+a
+b
+c
+d
+1000 K
+1000 K
+Figure S12: M3GNet MD results on Li3YCl6. a-c the mean-squared displacements
+(MSDs) for Li, Y and Cl, respectively, at temperatures ranging from 250 K to 1200 K at 50
+K intervals. The material was found to melt at temperatures between 950 K and 1000 K, as
+shown by the sudden increase of MSD for framework ions Y and Cl. d The Arrhenius plot
+of the Li conductivity using M3GNet vs AIMD simulations from Wang et al.9 The M3GNet
+activation energy of 0.22 eV and extrapolated room temperature conductivity of 14.3 mS
+cm−1 compare well with the AIMD values of 0.19 eV and 14 mS cm−1.
+
+To demonstrate M3GNet’s utility in screening for unexplored lithium superionic conduc-
+tors, we performed NVT MD simulations on Li-containing compounds in Materials Project
+that satisfying the following criteria: 1) energy above hull less than 50 meV atom−1 and band
+gap greater than 2 eV, 2) no transition metals other than Sc, Y, Zr and Nb, and 3) alkaline
+element fraction greater than 10% in the formula. We also manually added a few entries
+with known conductivities, such as Li3Y(PS4)2, Li5P(S2Cl)2, LiZnPS4, LiAl(PS3)2, studied
+by Zhu et al,,10 the tetragonal (t)- and cubic (c)-Li7La3Zr2O12, Na2B2H12, etc. The ﬁltering
+and additions gave us 837 potential lithium superionic conductors for MD simulations using
+the short molecular dynamics approach proposed by Zhu et al.,10 where 25 ps of molecular
+dynamics are performed on the materials at 800 K and 1200 K temperatures and the MSDs
+of the diﬀusive species are recorded.
+Figure S13a maps all the Li-containing compounds in our materials pool. The materials
+on the upper right are desired materials with both high MSDs and low diﬀusion energy barri-
+ers (∝log ((MSD −1200K)/(MSD −800K))). The M3GNet model correctly “re-discovered”
+known Li superionic conductors such as LiBH4, Li7P3S11, Li10M(PS6)2 (M=Ge, Si, Sn),
+Li3PS4, Li3Y(PS4)2, Li5P(S2Cl)2, Li4GeS4, to have high MSDs at both temperatures. The
+halides such as Li3InCl6, Li3InBr6, Li3YCl6, Li3ErCl6 are also good conductors but have
+slightly smaller MSDs than the ﬁrst batch of superionic conductors. The M3GNet model
+also predicts that the c-Li7La3Zr2O12 has similar MSD with t-Li7La3Zr2O12 at 1200 K but
+much larger MSD at 800 K, suggesting the the cubic phase is a better ionic conductor at
+low temperature. Oxides such as Li4GeO4, Li4SiO4, Li2Ge7O15, Li3ClO and Li3BrO show
+very small MSDs and hence minimal Li conductivity. However, in experiments, Li3ClO was
+known to be a highly Li conductive material. We postulate that defects are the main driv-
+ing force for high Li conductivity in this material, while in simulation there are no defects.
+Indeed, high quality deposited thin ﬁlms with few defects show very small Li conductivity in
+Li3ClO.11 AIMD simulations by Zhang et al.12 also found that pristine Li3ClO and Li3BrO
+are poor conductors, with no Li diﬀusion up to 1500 K. AIMD that showed Li diﬀusion was
+
+done with explicit Li vacancies.13
+a
+b
+c
+Figure S13: Mean squared displacements (MSDs) of short-time M3GNet molec-
+ular dynamics simulations. a, The distributions of 800 K and 1200 K MSDs for all Li-
+containing compounds passing the ﬁltering criteria, supplemented by manual entries. The
+dashed line has a slope of 7, and materials below this line have desired Li diﬀusion energy
+barrier lower than 0.4 eV. b, the MSDs at 800 K projected onto the anion types. c, the
+MSDs at 800 K projected onto the anion groups.
+Many materials distribute on the top left (low low-temperature MSDs and high Li dif-
+fusion energy barriers) and the bottom left (low MSDs at both temperatures). Very few
+materials distribute on the upper right and below the dashed line with diﬀusion energy
+barriers less than 0.4 eV. The results also suggest the diﬃculties in ﬁnding new superionic
+conductors.
+We further group the materials according to their anion group (Figure S13b) and the
+polyanions (Figure S13c). For carbon group elements (C, Si, and Ge), the Li diﬀusivities
+decrease monotonically with the atomic number. For pnictogens, the trend forms a convex
+shape where arsenide compounds have the lowest overall Li conductivity and antimonides
+have the highest conductivity. For the chalcogen anions, sulfur stands out in facilitating
+Li diﬀusion, followed by selenium. Oxides and tellurides are usually poor Li conductors.
+The halogens have relatively simple monotonic trends where the iodides are usually the
+
+best Li conductors. Comparing the elements in the second row of the periodic table, boron
+and nitrogen form better lithium conductors than oxygen and ﬂuorine.
+The projections
+onto the polyanion groups shown in Figure S13c also suggest that oxides are relatively poor
+conductors, with the exception of CO3, SO4, PO4 that have several conductive compounds.
+Not surprisingly, PS6 and PS4 polyanions facilitate fast Li conduction.
+Lastly, the BH4
+polyanion group, which are all LiBH4 polymorphs, show remarkable Li diﬀusivity. The trends
+of anions and polyanions match with experimental ﬁndings and distill chemical knowledge
+for guiding new Li superionic conductor design.
+Applications of M3GNet to benchmark materials datasets
+MatBench materials data
+We took the nine structural MatBench datasets by Dunn et al. 14 as the material property
+benchmark. The datasets cover a wide range of materials properties with varying data sizes,
+including crystal energy, phonon spectrum, optical properties, mechanical properties, etc.
+We trained the M3GNet models on those properties using the same model architectures as
+the potential model. The M3GNet results compared to other state-of-the-art models are
+shown in Table S3. The MODNet15,16 model shows lower or comparable errors in the small
+to medium data size regimes. However, for larger data such as the whole formation energy
+dataset of MP, the original authors acknowledge that the graph models such as MEGNet
+outperform MODNet by a factor of 2.16 The M3GNet model, on the other hand, is able
+to achieve consistently high accuracy across all the datasets, and is more accurate than the
+previous MEGNet models in all nine tasks. In particular, for the large (∼15,000) to very
+large datasets (>100,000), the M3GNet models achieve much higher accuracy than the rest;
+the accuracy improvements compared to the previous best graph model are 20.5% for the
+perovskite formation energy data, 22.1% for the MP band gap, and even 41.3% for the MP
+formation energy data.
+
+Table S3: Performance of M3GNet models on crystal property predictions compared to
+other state-of-the-art models using the same test sets as the AutoMatminer work.14 Mean
+absolute error (MAE) for regression tasks and area-under-curve (AUC) of receiver operating
+characteristic curve for classiﬁcation tasks are used as the model metrics. The lowest errors
+are highlighted with bold fonts.
+Target, Data Size
+M3GNet
+MOD-
+Net16
+AtomSets-
+V1 17
+MEG-
+Net14,18
+AutoMat-
+miner14
+Regression Tasks
+Eexfoliation (meV atom−1),
+636b
+50.1±11.9
+34.5
+40±5
+55.9
+38.6
+PhonDOS Peak (cm−1),
+1265c
+34.1±4.5
+38.75
+54±9
+36.9
+50.8
+n, 4764e
+0.312±0.063
+0.297
+0.46±0.03
+0.478
+0.299
+log(KV RH) (GPa), 10987f
+0.058±0.003
+0.0548
+0.07±0.00
+0.0712
+0.0679
+log(GV RH) (GPa), 10987g
+0.086±0.002
+0.0731
+0.09±0.00
+0.0914
+0.0849
+Perovskite Ef (meV
+atom−1), 18928h
+6.6±0.2
+-
+12±0
+8.3
+38.8
+MP Eg (eV), 106113i
+0.183±0.005
+-
+0.25±0.01
+0.235
+0.282
+MP Ef (meV atom−1),
+132752j
+19.5±0.2
+-
+44±1
+33.2
+173
+Classiﬁcation Tasks
+MP Metallicity, 106113m
+0.958±0.001
+-
+0.96±0.00
+0.977
+0.909
+M3GNet as molecular force ﬁelds
+The MD17 datasets19–21 were used as the ﬁrst test case as M3GNet models as force ﬁelds.
+The MD17 datasets contain several small molecules and their molecular dynamics trajectories
+with energies and forces computed by density functional theory. The comparisons between
+M3GNet and other models are shown in Table S4, where for each molecule, only 1000
+snapshots were used for training and validation and the rest were used as test for metric
+reporting.
+Each error metric in M3GNet is the mean error from three diﬀerent random
+sampling and model training.
+The M3GNet models achieved consistently lower errors than the less complex EANN22
+models. For sGDML21 and the deep learning-based models, such as message-passing based
+DimeNet,23 and the Equivalent neural networks NequIP24 and PaiNN,25 the errors are all
+low and are comparable to the M3GNet models. No model is able to outperform the rest in
+
+Table S4: Performance of M3GNet models compared to the existing models on the MD17
+datasets. In each cell, the errors are reported in mean absolute error (MAE) and are written
+in energy (meV), force (meV ˚A−1) pairs. The M3GNet results were obtained by average of
+three independent model ﬁtting using diﬀerent random seeds for data splitting. The lowest
+errors are highlighted by bold fonts.
+Molecule
+M3GNet
+EANN22
+sGDML21
+DimeNet23
+NequIP24
+PaiNN25
+Aspirin
+7.8, 18.8
+14.1, 43.0
+8.4, 29.4
+8.8, 21.6
+-, 15.1
+7.2, 14.7
+Benzene19
+3.5, 8.1
+-
+3.1, 8.8
+3.4, 8.1
+-,8.1
+-
+Benzene21
+4.0, 1.9
+-
+4.2,2.4
+-
+-, 2.3
+-
+Ethanol
+2.4, 5.3
+4.4, 20.3
+3.1, 14.5
+2.8, 10.0
+-, 9.0
+2.8, 9.7
+Malonaldehyde
+3.4, 9.5
+5.9, 26.9
+4.3, 18.0
+4.5, 16.6
+-, 14.6
+4.3, 14.9
+Naphthalene
+5.1, 5.4
+6.1, 22.3
+5.0, 4.9
+5.3, 9.3
+-, 10.3
+5.0, 3.3
+Salicylic acid
+5.1, 10.1
+6.1, 22.3
+5.0, 12.2
+5.8, 16.2
+-, 4.2
+5.0, 8.5
+Toluene
+4.0, 4.7
+4.8, 16.6
+4.2, 6.2
+4.4, 9.4
+-, 4.4
+4.1, 4.1
+Uracil
+4.5, 7.0
+4.8, 15.3
+4.7, 10.5
+5.0, 13.1
+-, 7.5
+4.6, 6.0
+all molecules.
+MD17 CCSD/CCSD(T) benchmark
+The quantum-accurate CCSD/CCSD(T)19,21 calculations of the molecules in the MD17
+datasets are used for further molecular force ﬁeld benchmark.
+The M3GNet model re-
+sults are compared to the available sGDML,21 PhysNet26 and NequIP,24 as shown in Table
+S5.
+In this dataset, the M3GNet model achieves excellent accuracies across all the the
+molecules, and has state-of-the-art accuracy in Ethanol, Malonaldehyde and Paracetamol.
+M3GNet also shows state-of-the-art accuracies in energies of Aspirin and Toluene, and forces
+of Azobenzene and Benzene.
+
+Table S5: Performance of M3GNet models compared to the existing models on the MD17
+CCSD/CCSD(T) datasets.19,21 In each cell, the errors are reported in mean absolute error
+(MAE) and are written in energy (meV), force (meV ˚A−1) pairs. The M3GNet results were
+obtained by average of three independent model ﬁtting using diﬀerent random seeds for data
+splitting. The lowest errors are highlighted by bold fonts.
+Molecule
+M3GNet
+sGDML21
+PhysNet26
+NequIP24
+Aspirin
+6.0, 19.7
+6.8, 33.0
+-
+-, 14.7
+Azobenzene
+7.5, 12.2
+4.0, 17.7
+8.5, 20.1
+-
+Benzene
+0.15, 1.06
+0.13, 1.8
+-
+-, 0.8
+Ethanol
+0.92, 5.51
+2.2, 15.0
+-
+-, 9.4
+Malonaldehyde
+1.3, 8.2
+1.6, 10.7
+-
+-, 16.0
+Paracetamol
+6.6, 14.5
+6.6, 21.3
+7.9, 22.5
+-
+Toluene
+1.0, 5.5
+1.3, 8.9
+-
+-, 4.4
+
+References
+(1) Shukla, P.; Watanabe, T.; Nino, J. C.; Tulenko, J. S.; Phillpot, S. R. Thermal Trans-
+port Properties of MgO and Nd2Zr2O7 Pyrochlore by Molecular Dynamics Simulation.
+Journal of Nuclear Materials 2008, 380, 1–7.
+(2) Jain, A.; Ong, S. P.; Hautier, G.; Chen, W.; Richards, W. D.; Dacek, S.; Cholia, S.;
+Gunter, D.; Skinner, D.; Ceder, G.; Persson, K. A. Commentary: The Materials Project:
+A Materials Genome Approach to Accelerating Materials Innovation. APL Materials
+2013, 1, 011002.
+(3) Plimpton, S. Fast Parallel Algorithms for Short-Range Molecular Dynamics. Journal
+of Computational Physics 1995, 117, 1–19.
+(4) Ewald, P. P. Die Berechnung Optischer Und Elektrostatischer Gitterpotentiale. 1921,
+(5) Bart´ok, A. P.; Payne, M. C.; Kondor, R.; Cs´anyi, G. Gaussian Approximation Poten-
+tials: The Accuracy of Quantum Mechanics, without the Electrons. Physical Review
+Letters 2010, 104, 136403.
+(6) Deringer, V. L.; Cs´anyi, G. Machine Learning Based Interatomic Potential for Amor-
+phous Carbon. Physical Review B 2017, 95, 094203.
+(7) Petretto, G.; Dwaraknath, S.; P. C. Miranda, H.; Winston, D.; Giantomassi, M.;
+van Setten, M. J.; Gonze, X.; Persson, K. A.; Hautier, G.; Rignanese, G.-M. High-
+Throughput Density-Functional Perturbation Theory Phonons for Inorganic Materials.
+Scientiﬁc Data 2018, 5, 180065.
+(8) Qi, J.; Banerjee, S.; Zuo, Y.; Chen, C.; Zhu, Z.; Holekevi Chandrappa, M. L.; Li, X.;
+Ong, S. P. Bridging the Gap between Simulated and Experimental Ionic Conductivities
+in Lithium Superionic Conductors. Materials Today Physics 2021, 21, 100463.
+
+(9) Wang, S.; Bai, Q.; Nolan, A. M.; Liu, Y.; Gong, S.; Sun, Q.; Mo, Y. Lithium Chlorides
+and Bromides as Promising Solid-State Chemistries for Fast Ion Conductors with Good
+Electrochemical Stability. Angewandte Chemie International Edition 2019, 58, 8039–
+8043.
+(10) Zhu, Z.; Chu, I.-H.; Ong, S. P. Li3Y(PS4)2 and Li5PS4Cl2: New Lithium Superionic
+Conductors Predicted from Silver Thiophosphates Using Eﬃciently Tiered Ab Initio
+Molecular Dynamics Simulations. Chemistry of Materials 2017, 29, 2474–2484.
+(11) L¨u, X.; Wu, G.; Howard, J. W.; Chen, A.; Zhao, Y.; Daemen, L. L.; Jia, Q. Li-Rich Anti-
+Perovskite Li3OCl Films with Enhanced Ionic Conductivity. Chemical Communications
+2014, 50, 11520–11522.
+(12) Zhang, Y.; Zhao, Y.; Chen, C. Ab Initio Study of the Stabilities of and Mechanism of
+Superionic Transport in Lithium-Rich Antiperovskites. Physical Review B 2013, 87,
+134303.
+(13) Deng, Z.; Radhakrishnan, B.; Ong, S. P. Rational Composition Optimization of the
+Lithium-Rich Li3OCl1–xBrx Anti-Perovskite Superionic Conductors. Chemistry of Ma-
+terials 2015, 27, 3749–3755.
+(14) Dunn, A.; Wang, Q.; Ganose, A.; Dopp, D.; Jain, A. Benchmarking Materials Property
+Prediction Methods: The Matbench Test Set and Automatminer Reference Algorithm.
+npj Computational Materials 2020, 6, 1–10.
+(15) De Breuck, P.-P.; Hautier, G.; Rignanese, G.-M. Materials Property Prediction for
+Limited Datasets Enabled by Feature Selection and Joint Learning with MODNet. npj
+Computational Materials 2021, 7, 1–8.
+(16) Breuck, P.-P. D.; Evans, M. L.; Rignanese, G.-M. Robust Model Benchmarking and
+Bias-Imbalance in Data-Driven Materials Science: A Case Study on MODNet. Journal
+of Physics: Condensed Matter 2021 33 404002
+
+(17) Chen, C.; Ong, S. P. AtomSets – A Hierarchical Transfer Learning Framework for Small
+and Large Materials Datasets. arXiv:2102.02401 [cond-mat] 2021,
+(18) Chen, C.; Ye, W.; Zuo, Y.; Zheng, C.; Ong, S. P. Graph Networks as a Universal
+Machine Learning Framework for Molecules and Crystals. Chemistry of Materials 2019,
+31, 3564–3572.
+(19) Chmiela, S.; Tkatchenko, A.; Sauceda, H. E.; Poltavsky, I.; Sch¨utt, K. T.; M¨uller, K.-
+R. Machine Learning of Accurate Energy-Conserving Molecular Force Fields. Science
+Advances 2017, 3, e1603015.
+(20) Sch¨utt, K. T.; Arbabzadah, F.; Chmiela, S.; M¨uller, K. R.; Tkatchenko, A. Quantum-
+Chemical Insights from Deep Tensor Neural Networks. Nature Communications 2017,
+8, 13890.
+(21) Chmiela, S.; Sauceda, H. E.; M¨uller, K.-R.; Tkatchenko, A. Towards Exact Molecular
+Dynamics Simulations with Machine-Learned Force Fields. Nature Communications
+2018, 9, 3887.
+(22) Zhang, Y.; Hu, C.; Jiang, B. Embedded Atom Neural Network Potentials: Eﬃcient and
+Accurate Machine Learning with a Physically Inspired Representation. The Journal of
+Physical Chemistry Letters 2019, 10, 4962–4967.
+(23) Klicpera, J.; Groß, J.; G¨unnemann, S. Directional Message Passing for Molecular
+Graphs. arXiv:2003.03123 [physics, stat] 2020,
+(24) Batzner, S.; Musaelian, A.; Sun, L.; Geiger, M.; Mailoa, J. P.; Kornbluth, M.;
+Molinari, N.; Smidt, T. E.; Kozinsky, B. SE(3)-Equivariant Graph Neural Networks
+for Data-Eﬃcient and Accurate Interatomic Potentials. arXiv:2101.03164 [cond-mat,
+physics:physics] 2021,
+
+(25) Sch¨utt, K. T.; Unke, O. T.; Gastegger, M. Equivariant Message Passing for the Predic-
+tion of Tensorial Properties and Molecular Spectra. arXiv:2102.03150 [physics] 2021,
+(26) Unke, O. T.; Meuwly, M. PhysNet: A Neural Network for Predicting Energies, Forces,
+Dipole Moments, and Partial Charges. Journal of Chemical Theory and Computation
+2019, 15, 3678–3693.

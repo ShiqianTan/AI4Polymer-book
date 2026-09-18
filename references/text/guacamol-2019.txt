@@ -1,0 +1,1584 @@
+arXiv:1811.09621v2  [q-bio.QM]  26 Feb 2019
+GuacaMol: Benchmarking Models for De Novo
+Molecular Design
+Nathan Brown, Marco Fiscato∗,
+Marwin H.S. Segler∗, Alain C. Vaucher∗
+BenevolentAI, London, UK
+E-mail: {marco.ﬁscato,marwin.segler,alain.vaucher}@benevolent.ai
+Abstract
+De novo design seeks to generate molecules with required property proﬁles by vir-
+tual design-make-test cycles. With the emergence of deep learning and neural gener-
+ative models in many application areas, models for molecular design based on neural
+networks appeared recently and show promising results.
+However, the new models
+have not been proﬁled on consistent tasks, and comparative studies to well-established
+algorithms have only seldom been performed. To standardize the assessment of both
+classical and neural models for de novo molecular design, we propose an evaluation
+framework, GuacaMol, based on a suite of standardized benchmarks. The benchmark
+tasks encompass measuring the ﬁdelity of the models to reproduce the property distri-
+bution of the training sets, the ability to generate novel molecules, the exploration and
+exploitation of chemical space, and a variety of single and multi-objective optimization
+tasks. The benchmarking open-source Python code, and a leaderboard can be found
+on https://benevolent.ai/guacamol.
+1
+
+1
+Introduction
+De novo molecular design is a computational technique to generate novel compounds with
+desirable property proﬁles from scratch.1,2 It complements virtual screening, where large vir-
+tual compound libraries are pre-generated, stored, and then subsequently ranked on demand.
+Virtual screening is particularly useful when the virtual compounds are readily available
+(commercially, or in in-house screening collections), or easy to synthesize.3,4 Datasets sized
+on the order of 1013 can be routinely screened under current computational constraints.5
+However, this is only a tiny fraction of drug-like chemical space, which has an estimated
+size anywhere between 1024 and 1060 possible structures.5,6 This number might be even
+larger considering new modalities such as PROTACs.7 Eﬃcient approaches to query larger
+combinatorial spaces without full enumeration via similarity to given structures have been
+reported.8–10 However, it is not straightforward to perform more complex, multi-objective
+queries without enumerating substantial parts of the space.
+In contrast, in de novo design, only a relatively small number of molecules is explicitly
+generated, and chemical space is explored via search or optimization procedures. Thus, by
+focusing on the most relevant areas of chemical space for the current multi-objective query,
+de novo design algorithms can in principle explore the full chemical space, given any ranking
+or scoring function.
+In addition to established discrete models relying on molecular graphs,11–13 models for
+de novo design based on deep neural networks have been proposed in recent years, and have
+shown promising results.14,15 Unfortunately, validation methods for these generative models
+have not been consistent. Comparative studies to established de novo design models have
+not yet been performed. Furthermore, recent property optimization studies often focused on
+easily optimizable properties, such as drug-likeness or partition coeﬃcients.15–17 This makes
+it diﬃcult to understand the strengths and weaknesses of the diﬀerent models, to assess which
+models should be used in practice, and how they can be improved and extended further.
+In other ﬁelds of machine learning, for example computer vision and natural language
+2
+
+processing, standardized benchmarks have triggered rapid progress.18,19 Similarly, we believe
+that the ﬁeld of de novo molecular design can beneﬁt from the introduction of standardized
+benchmarks. They allow for a straightforward survey and comparison of existing models, and
+provide insight into the strengths and weaknesses of models, which is valuable information
+to improve current approaches.
+In this work, we introduce GuacaMol, a framework for benchmarking models for de novo
+molecular design. We deﬁne a suite of benchmarks and implement it as a Python package
+designed to allow researchers to assess their models easily. We also provide implementations
+and results for a series of baseline models on https://benevolent.ai/guacamol.
+2
+Models for De Novo Molecular Design
+De novo design approaches require three components: 1) molecule generation, 2) a way to
+score the molecules, and 3) a way to optimize or search for better molecules with respect to
+the scoring function.13 For scoring, any function that maps molecules to a real valued score
+can be used, for example quantitative structure-activity relationships (QSAR) and quanti-
+tative structure-property relationships (QSPR) models, structure-based models for aﬃnity
+prediction, heuristics for the calculation of physicochemical properties, and combinations
+thereof for multi-objective tasks.
+At the center of molecule generation and optimization strategies lies the choice of the
+molecular representation, which determines the potential range of exploration of chemical
+space. Molecules can be constructed atom-by-atom or by combination of fragments.13 They
+can be grown in the context of a binding pocket,20–24 which allows for structure-based scor-
+ing, or be constructed and scored using entirely ligand-based methods. Choosing a very
+general representation of molecules for construction, such as atom-by-atom and bond-by-
+bond building, allows for potentially exploring all of chemical space. However, without any
+constraints or scoring deﬁning what sensible molecules look like, such representations can
+3
+
+lead to molecules which are very diﬃcult to synthesize or potentially unstable, particularly in
+combination with powerful global optimizers such as genetic algorithms (GAs).13,25 To alle-
+viate this problem, diﬀerent approaches were introduced to generate molecules using readily
+available building blocks and robust reaction schemes (e.g. amide couplings), or fragments
+derived from known molecules.13,26,27 This, however, may drastically limit the potentially ex-
+plorable space. This compromise between realistic molecules and large explorable molecular
+space is a major dilemma of de novo design.
+A seemingly obvious solution is to add a contribution penalizing unrealistic molecules
+to the scoring function. Unfortunately, it is not trivial to encode what medicinal chemists
+would consider as molecules that are acceptable to take forward to synthesis.28,29 Instead of
+deﬁning what good molecules look like as rules, or in the form of a scoring function, machine
+learning approaches represent an attractive alternative, because they are potentially able to
+learn how reasonable molecules look from data.30,31
+Machine learning has been used in chemoinformatics for at least 50 years to score
+molecules (QSAR/QSPR applications), that is to predict properties given a structure.32
+The inverse QSAR problem of predicting structures given target properties has received
+less attention.33 However, recent advances in algorithms and hardware have made machine
+learning models and particularly neural networks, which directly output molecular structures
+tractable.30
+Two early papers on generative models for molecules, ﬁrst published as preprints, em-
+ployed the simpliﬁed molecular-input line-entry system (SMILES) representation, which al-
+lows for the representation of molecular graphs as a string, with parentheses and numbers
+indicating branching points and ring closures.34 G´omez-Bombarelli et al. proposed to use
+variational auto-encoders (VAEs), which encode the SMILES representation of a molecule
+into a latent, continuous representation in real space, and back.15 Optimization can then be
+performed by gradient descent or Bayesian optimization in real space. Segler et al. intro-
+duced the notion of transfer and reinforcement learning for molecule generation using recur-
+4
+
+rent neural networks (RNNs) on SMILES. In particular, an RNN called Long Short-Term
+Memory (LSTM)35 was employed. The neural networks were pretrained on a general corpus
+of molecules, and then either ﬁne-tuned on a small number of known actives, or coupled to
+an external scoring function to drive the generation of molecules with desired properties,
+e.g. activity against biological targets.14 Both papers pointed out the then lack of models
+for direct graph generation, which is considerably harder than generating sequences. Gen-
+erative models based on neural networks have since been further explored, with work on
+VAEs,17,36–45 RNNs,46–58 generative adversarial networks (GANs),54,55,59,60 adversarial au-
+toencoders (AAEs),61–64 and graph convolutional networks,16,57,60,65 using SMILES strings
+or graphs to represent molecules.
+Also, the ﬁrst prospective studies using neural generative models for de novo design
+have been published. Merk, Schneider and coworkers validated the SMILES-LSTM transfer
+learning method14 by generating compounds 1-3 for nuclear receptors, which after synthesis
+and testing showed micro- to nanomolar activity (see Figure 1).66,67
+O
+H
+N
+CO2H
+S
+1
+3
+O
+H
+N
+O
+O
+O
+2
+CO2H
+F3C
+F
+O
+F
+Figure 1: Compounds 1-3, generated by a SMILES-LSTM model,14 were made and tested,
+and showed micro- to nanomolar activity against the RXR and PPAR receptors.66,67
+An important result about the space that pretrained neural models can explore was
+recently published by Arus-Pous et al.68 They studied whether SMILES RNNs trained on
+a small subset (0.1%) of GDB13, an enumerated molecule set, which covers all potentially
+stable molecules up to 13 heavy atoms, could recover almost the full dataset after sampling
+a suﬃcient number of compounds. They showed that the SMILES RNN was able to cover
+(and thus explore) a large portion of the complete chemical space deﬁned by GDB13, and
+even generate molecules which were incorrectly omitted in the original GDB13.68
+5
+
+3
+Assessing De Novo Design Techniques
+To proﬁle models for de novo molecular design, we diﬀerentiate between their two main use
+cases:
+• Given a training set of molecules, a model generates new molecules following the same
+chemical distribution;
+• A model generates the best possible molecules to satisfy a predeﬁned goal.
+The collection of benchmarks we propose below assesses both facets deﬁned here. In the
+following we will refer to these two categories as distribution-learning benchmarks and goal-
+directed benchmarks, respectively.
+The two benchmark categories are evaluated independently to aﬀord models as much
+ﬂexibility as possible without penalty, since there is no one-to-one correspondence between
+distribution-learning and goal-directed tasks. For instance, some models are able to generate
+optimized molecules without learning the chemical distribution ﬁrst. Also, a model trained to
+reproduce a chemical distribution may then employ diﬀerent strategies to deliver optimized
+molecules.
+3.1
+Distribution-learning benchmarks
+Models for de novo drug design often learn to reproduce the distribution of a training set, or
+use this training set to derive molecular fragments before generating targeted molecules. This
+allows some model architectures to learn the syntax of molecules in the selected molecular
+representation, and often accelerates the goal-directed tasks.
+The distribution-learning benchmarks assess how well models learn to generate molecules
+similar to a training set, which in this work is a standardized subset of the ChEMBL database
+(see Appendix 8.1).69 We consider ﬁve benchmarks for distribution learning:
+6
+
+3.1.1
+Validity
+The validity benchmark assesses whether the generated molecules are actually valid, i.e.
+whether they correspond to a (at least theoretically) realistic molecule. For example, molecules
+with an incorrect SMILES syntax, or with invalid valence, are penalized.
+3.1.2
+Uniqueness
+Given the high dimensionality of chemical space and the huge number of molecules potentially
+relevant in medicine, generative models should be able to generate a vast number of diﬀerent
+molecules. The uniqueness benchmark assesses whether models are able to generate unique
+molecules — i.e., if a model generates the same molecule multiple times, it will be penalized.
+3.1.3
+Novelty
+Since the ChEMBL training set represents only a tiny subset of drug-like chemical space,
+a model for de novo molecular design with a good coverage of chemical space will rarely
+generate molecules present in the training set. The novelty benchmark penalizes models when
+they generate molecules already present in the training set. Therefore, models overﬁtting
+the training set will obtain low scores on this task.
+3.1.4
+Fr´echet ChemNet Distance
+Preuer et al. introduced the Fr´echet ChemNet Distance (FCD) as a measure of how close
+distributions of generated are to the distribution of molecules in the training set.70 In the
+context of drug discovery, the usefulness of this metric stems from its ability to incorporate
+important chemical and biological features. The FCD is determined from the hidden repre-
+sentation of molecules in a neural network called ChemNet trained for predicting biological
+activities, similarly to the Fr´echet Inception Distance sometimes applied to generative models
+for images. More precisely, the means and covariances of the activations of the penultimate
+layer of ChemNet are calculated for the reference set and for the set of generated molecules.
+7
+
+The FCD is then calculated as the Fr´echet distance for both pairs of values. Similar molecule
+distributions are characterized by low FCD values.
+3.1.5
+KL divergence
+The KL (Kullback-Leibler) divergence71
+DKL(P, Q) =
+X
+i
+P(i) log P(i)
+Q(i)
+(1)
+measures how well a probability distribution Q approximates another distribution P. For
+the KL divergence benchmark, the probability distributions of a variety of physicochemical
+descriptors for the training set and a set of generated molecules are compared, and the
+corresponding KL divergences are calculated. Models able to capture the distributions of
+molecules in the training set will lead to small KL divergence values.
+It has been noted that a lack of diversity of the generated molecules is an issue for a
+few models for de novo design, in particular GANs.70,72 Other model classes do not suﬀer
+from that problem.14 The KL divergence benchmark captures diversity to some extent, by
+requiring the generated molecules to be as diverse as the training set with respect to the
+considered property distributions.
+3.2
+Goal-directed benchmarks
+The goal-directed optimization of molecules relies on a formalism in which molecules can
+be scored individually. The molecule score reﬂects how well a molecule fulﬁlls the required
+property proﬁle (sometimes also called multi-property objective/MPO). The goal is to ﬁnd
+molecules which maximize the scoring function.
+Concretely, the models are asked to generate a given number of molecules with high scores
+for a given function. The models have access to the scoring function and can iteratively
+improve their best molecule guesses, without knowing explicitly what the scoring function
+8
+
+calculates.
+Here, by using robust and simple, but relevant scoring functions for molecular design,
+we disentangle the problem of molecule optimization from the problem of choosing good
+scoring functions, which has been highlighted many times in the context of de novo design
+and virtual screening, and will not be the focus of this article.
+In general, the function to optimize will be deﬁned as the combination of one or several
+functions, representing diﬀerent molecular features such as:
+• Structural features. Examples: molecular weight, number of aromatic rings, number
+of rotatable bonds;
+• Physicochemical properties. Examples: TPSA, logP;
+• Similarity or dissimilarity to other molecules;
+• Presence and absence of substructures, functional groups or atom types.
+The majority of benchmarks presented in this work deﬁne complex combinations of such
+features. In addition, some benchmarks fall into special categories:
+3.2.1
+Similarity
+Similarity is one of the core concepts of chemoinformatics.73,74 It serves multiple purposes
+and is an interesting objective for optimization. First, it is a surrogate for machine learning
+models, since it mimics an interpretable nearest neighbor model. However, it has the strong
+advantage over more complex machine learning (ML) algorithms that deﬁciencies in the
+ML models, stemming from training on small datasets or activity cliﬀs, cannot be as easily
+exploited by the generative models. Second, it is directly related to virtual screening: de novo
+design with a similarity objective can be interpreted as a form of inverse virtual screening,
+where molecules similar to a given target compound are generated on the ﬂy instead of
+looking them up in a large database. In the similarity benchmarks, models aim to generate
+9
+
+molecules similar to a target that was removed from the training set. Models perform well
+for the similarity benchmarks if they are able to generate many molecules that are closely
+related to a given target molecule. Alternatively, the concept of similarity can be applied to
+exclude molecules that are too similar to other molecules.
+3.2.2
+Rediscovery
+Rediscovery benchmarks are closely related to the similarity benchmarks described above.
+The major diﬀerence is that the rediscovery task explicitly aims to rediscover the target
+molecule, not to generate many molecules similar to it. Rediscovery benchmarks have been
+studied in previous work.11,14
+3.2.3
+Isomers
+For the isomer benchmarks, the task is to generate molecules that correspond to a target
+molecular formula (for example C7H8N2O2). The isomers for a given molecular formula can
+in principle be enumerated, but except for small molecules this number will in general be very
+large. The isomer benchmarks represent fully-determined tasks that assess the ﬂexibility of
+the model to generate molecules following a simple pattern (which is a priori unknown).
+These benchmarks have no direct application in drug discovery.
+3.2.4
+Median molecules
+In the median molecules benchmarks, the similarity to several molecules has to be maximized
+simultaneously; it is designed to be a conﬂicting task.25 Besides measuring the obtained top
+score, it is instructive to study if the models also explore the chemical space between the
+target structures.
+10
+
+3.3
+Measuring Compound Quality
+In previous works, several authors have highlighted that unrestricted de novo design al-
+gorithms can generate compounds which are potentially unstable, reactive, laborious to
+synthesize, or simply unpleasant to the eye of medicinal chemists.12,13,75 Systems proposing
+too many unsuitable compounds lose trust, and will not be accepted by medicinal chemists.
+Unfortunately, explicitly encoding all the background knowledge medicinal chemists acquire
+with experience as an exhaustive list of unstable or undesirable substructures is challenging,
+if not impossible, due to the inherent subjectivity and context dependency — e.g. a toxicity
+risk might be assessed diﬀerently in oncology and diabetology. QSAR models only cover this
+background knowledge in a limited way.
+Nevertheless, a de novo design benchmark would be incomplete without an assessment of
+compound quality. Here, following previous work, we employ rule sets which were compiled
+to decide whether compounds can be included into high-throughput screening (HTS) collec-
+tions. It has to be noted though that these rules are controversial. Assuming that molecules
+ﬁltered out by these patterns are all unsuitable, and that all compounds passing the ﬁlters
+are reasonable molecules, would be misguided. These ﬁlters are therefore taken as a high
+precision, low recall surrogate measure - we know that a ﬁltered out molecule is probably
+bad, but we also know that our list of ﬁlters is incomplete.
+We employ Walters’ rd filters implementation,76 using the SureChembl, Glaxo, PAINS
+(all retrieved from ChEMBL69), and in-house rule collections, to calculate the compound
+quality metrics. The rule collection is available in the Supporting Information.77
+4
+Methods
+Our framework for benchmarking models for de novo design, GuacaMol, is available as an
+open-source Python package and can be downloaded from the Internet at www.github.com/BenevolentAI/g
+GuacaMol provides user-friendly interfaces that allow researchers to couple their models to
+11
+
+the benchmarking framework with minimal eﬀort.
+We selected ﬁve distribution-learning and twenty goal-directed benchmarks. The exhaus-
+tive speciﬁcations and implementation details of the distribution-learning and goal-directed
+benchmarks are given in Appendices 8.2 and 8.3, respectively.
+For all chemoinformatics-related operations, such as handling or canonicalization78 of
+SMILES strings, physicochemical property (logP, TPSA79) or similarity calculations, Gua-
+caMol relies on the RDKit package.80
+Several of the molecule generation approaches we studied require a training dataset.
+ChEMBL 24 was used for this purpose.69 The generation of the dataset is discussed and
+detailed in Appendix 8.1.
+In addition to the introduction of a benchmark suite for generative chemistry, this paper
+provides its evaluation over several baselines. The goal is to present a fair comparison of some
+recent methods that seem to achieve state of the art results in the ﬁeld. These have been
+selected to represent a variety of methods, ranging from deep learning generative models to
+established genetic algorithms and more recent Monte Carlo Tree Search (MCTS). Internal
+molecule representation was also taken into account, so that methods using SMILES strings
+were represented alongside others using a graph representation of atoms and bonds. For
+completeness and to provide a lower bound on the benchmark scores, two dummy baselines,
+performing random sampling and best of dataset-picking, are also provided. All the baseline
+models assessed in this work are described in Appendix 8.4. Our implementation of those
+models is available on GitHub.81
+5
+Results and Discussion
+5.1
+Distribution-learning benchmarks
+Table 1 lists the results for the distribution-learning benchmarks. The random sampler model
+is a useful baseline for comparison because it shows what scores can be expected for good
+12
+
+Table 1: Results of the baseline models for the distribution-learning benchmarks
+Benchmark
+Random sampler
+SMILES LSTM
+Graph MCTS
+AAE
+ORGAN
+VAE
+Validity
+1.000
+0.959
+1.000
+0.822
+0.379
+0.870
+Uniqueness
+0.997
+1.000
+1.000
+1.000
+0.841
+0.999
+Novelty
+0.000
+0.912
+0.994
+0.998
+0.687
+0.974
+KL divergence
+0.998
+0.991
+0.522
+0.886
+0.267
+0.982
+FCD
+0.929
+0.913
+0.015
+0.529
+0.000
+0.863
+models on the KL divergence and Fr´echet benchmarks. Unsurprisingly, its novelty score is
+zero since all the molecules it generates are present in the dataset. The SMILES LSTM
+model sometimes produces invalid molecules. However, they are diverse, as attested by the
+uniqueness and novelty benchmarks, and closely resemble molecules from ChEMBL. The
+Graph MCTS model is characterized by a high degree of valid, unique, and novel molecules.
+Nevertheless, it is not able to reproduce the property distributions of the underlying training
+set as precisely as the SMILES LSTM model. The AAE model obtains excellent uniqueness
+and novelty scores. The molecules this model produces are, however, not as close to the
+dataset as the ones generated by the SMILES LSTM model. ORGAN obtains poor scores
+for all the distribution-learning tasks. More than half the molecules it generates are invalid,
+and they do not resemble the training set, as shown by the KL divergence and FCD scores.
+This might indicate mode collapse, which is a phenomenon often observed when training
+GANs. The scores of the VAE model are not the best in any categories, but this model
+consistently produced relatively good scores for all the tasks. Our ﬁndings indicate that
+simpler generative models (VAE, LSTM) are more powerful than more complex models. This
+is in accordance with similar results in the literature on text and molecule generation.17,82
+SMILES strings and their depictions for molecules generated by all six baseline models
+are available in the Supporting Information or on https://benevolent.ai/guacamol.
+5.2
+Goal-directed benchmarks
+Table 2 and Figure 2 show the results for the goal-directed benchmarks. The model “Best
+of Dataset” is a useful baseline, since it actually corresponds to a strategy based on virtual
+13
+
+Table 2: Results of the baseline models for the goal-directed benchmarks
+Benchmark
+Best of dataset
+SMILES LSTM
+SMILES GA
+Graph GA
+Graph MCTS
+Celecoxib rediscovery
+0.505
+1.000
+0.732
+1.000
+0.355
+Troglitazone rediscovery
+0.419
+1.000
+0.515
+1.000
+0.311
+Thiothixene rediscovery
+0.456
+1.000
+0.598
+1.000
+0.311
+Aripiprazole similarity
+0.595
+1.000
+0.834
+1.000
+0.380
+Albuterol similarity
+0.719
+1.000
+0.907
+1.000
+0.749
+Mestranol similarity
+0.629
+1.000
+0.790
+1.000
+0.402
+C11H24
+0.684
+0.993
+0.829
+0.971
+0.410
+C9H10N2O2PF2Cl
+0.747
+0.879
+0.889
+0.982
+0.631
+Median molecules 1
+0.334
+0.438
+0.334
+0.406
+0.225
+Median molecules 2
+0.351
+0.422
+0.380
+0.432
+0.170
+Osimertinib MPO
+0.839
+0.907
+0.886
+0.953
+0.784
+Fexofenadine MPO
+0.817
+0.959
+0.931
+0.998
+0.695
+Ranolazine MPO
+0.792
+0.855
+0.881
+0.920
+0.616
+Perindopril MPO
+0.575
+0.808
+0.661
+0.792
+0.385
+Amlodipine MPO
+0.696
+0.894
+0.722
+0.894
+0.533
+Sitagliptin MPO
+0.509
+0.545
+0.689
+0.891
+0.458
+Zaleplon MPO
+0.547
+0.669
+0.413
+0.754
+0.488
+Valsartan SMARTS
+0.259
+0.978
+0.552
+0.990
+0.040
+Deco Hop
+0.933
+0.996
+0.970
+1.000
+0.590
+Scaﬀold Hop
+0.738
+0.998
+0.885
+1.000
+0.478
+Total
+12.144
+17.340
+14.396
+17.983
+9.009
+screening. It illustrates what minimal scores the models must obtain to have an advan-
+tage over pure virtual screening. The Graph GA model obtains the best results for most
+benchmarks. The other GA model, based on SMILES strings, is distinctly better than the
+“Best of Dataset” baseline. However, especially for the similarity tasks, it scores lower than
+Graph GA. The SMILES LSTM model nearly performs as well as the Graph GA model,
+and outperforms it on three benchmarks. The Graph MCTS model performs worse than the
+Figure 2: Results of the Goal-Directed Benchmarks.
+14
+
+baseline selecting the best candidates from ChEMBL.
+In addition to these benchmarks, we explored a set of simpler benchmarks, mainly around
+physicochemical properties (e.g. logP and QED), which have been used as objectives in
+previous work on neural generative models (see Appendix 8.5). However, we found that
+these benchmarks were not very well suited to diﬀerentiate between diﬀerent models when
+appropriate baselines are employed.
+BestChEBML
+GraphGA
+MCTS
+SMILESGA
+LSTM
+model
+0.0
+0.1
+0.2
+0.3
+0.4
+0.5
+0.6
+0.7
+0.8
+Ratio of acceptable compounds
+Compound Quality Measurement
+Figure 3: Quality of the molecules generated in the goal-directed benchmarks, assessed as
+the ratio of molecules passing the considered quality ﬁlters.
+To measure the quality of the generated molecules from the goal-directed benchmarks,
+we gathered and analyzed the top 100 molecules from each task, and checked whether they
+passed the quality ﬁlters described earlier (see Figure 3). We found that 77% of molecules
+from the Best of ChEMBL baseline pass the ﬁlters. Also, the same ratio is achieved by the
+LSTM model. The Graph GA, SMILES GA, and Graph MCTS produces 40%, 36%, and
+22% high quality molecules, respectively. This higher performance of the neural network
+based model could be explained by a transfer of the information the LSTM has learned
+about the general properties of the molecules’ distribution to the goal-directed optimization.
+15
+
+Overall, Graph MCTS was found to perform poorly, qualitatively and quantitatively,
+in the distribution-learning and goal-directed benchmarks.
+This could indicate that the
+search paradigm of starting with a single molecule at the root the search tree which is then
+subsequently reﬁned in a search tree, might not be as well suited for de novo design as
+approaches based on populations of good compounds. In concordance with previous work,
+the Graph GA performs extraordinarily well in optimization, due to its ﬂexibility to make
+very ﬁne grained local edits to the compounds, based on a population.
+However, again
+consistent with previous work, the GAs provide molecules of inconsistent quality, as it has
+no inherent or pre-encoded knowledge about a molecular distribution.
+The LSTM-based model performs slightly worse in the goal-directed benchmarks than the
+Graph GA, however the compound quality is considerably higher, being on the same level as
+the virtual screening baseline. This can be attributed to the transfer of learned information
+from the pretraining to the speciﬁc optimization problems. Neural models therefore seem to
+at least partially resolve the weaknesses of virtual screening and GAs, exhibiting both good
+optimization performance and molecule quality.
+SMILES strings and their depictions for molecules generated by the ﬁve baseline models
+for each MPO are available in the Supporting Information or on https://benevolent.ai/guacamol.
+6
+Conclusions and Outlook
+Recently, generative models for de novo molecular design based on neural networks have been
+introduced, and have shown promising results. However, there has been a lack of consistency
+in the evaluation of such models. The present work addressed this problem by introducing
+GuacaMol, a framework to quantitatively benchmark models for de novo design. It aims to
+provide a standardized way of assessing new models, and to improve comparability of the
+models.
+Our framework deﬁnes two evaluation dimensions.
+First, it assesses models for their
+16
+
+ability to learn from a dataset of molecules and to generate novel molecules with similar
+properties. Second, it evaluates the faculty of generative models to deliver molecules with
+speciﬁc properties, which we encode as molecule scores.
+We provided a suite of benchmarks compatible with the evaluation framework. It en-
+compasses a wide range of tasks, designed to assess the ﬂexibility of generative models. The
+proposed suite comprises 5 benchmarks for the ability of generative models to learn distribu-
+tions of molecules, 20 optimization benchmarks for the generation of molecules with speciﬁc
+properties, and a metric for compound quality.
+We evaluated a series of diverse baseline models. In terms of optimization performance,
+the best model is a genetic algorithm based on a graph representation of molecules. The
+second best optimizer is a recurrent neural network model that considers SMILES represen-
+tations of molecules. Both models achieve similar scores, which indicates that deep learning
+models can reach the optimization performance of gold-standard discrete algorithms for de
+novo molecular design.
+However, when pre-trained on large datasets, the neural model
+outperforms the genetic algorithm in regards to compound quality.
+The evaluation of the proposed benchmark suite for the baseline models pointed out
+that some benchmark tasks can be too easily solved by most of the models. This indicates
+the necessity of harder tasks for benchmarking models for de novo molecular design in the
+future.
+An important aspect that will need further focus is the quality of the generated molecules,
+which is diﬃcult to measure objectively. Furthermore, depending on the requirements, time
+constraints or sample eﬃciency of diﬀerent models can become important, and will require
+further attention. Also, more work is needed to move neural models from SMILES to graph
+representations, even though SMILES have been unreasonably eﬀective.17 We are conﬁdent
+that the ﬂexible open source framework presented herein will enable and inspire the com-
+munity to come up with even more challenging benchmarks for de novo design, so that
+researchers can rigorously assess their models, and computational chemists can conﬁdently
+17
+
+harness models with well-understood strengths and limitations.
+7
+Acknowledgments
+The authors thank Nadine Schneider, Mohamed Ahmed, Matthew Sellwood, Joshua Meyers,
+Mark Rackham, Patrick Riley, and Amir Saﬀari for helpful discussions, and Kristina Preuer
+and G¨unter Klambauer for help with the FCD code.
+8
+Appendix
+8.1
+Dataset Generation
+The datasets used for training generative models are derived from the ChEMBL 24 database.69
+The advantage of ChEMBL is that it contains only molecules that have been synthesized and
+tested against biological targets. Other datasets, such as ZINC,3 contain, at least to some
+degree, virtual molecules that are likely to be synthesizable, but have not been made yet.
+Furthermore, ZINC is biased towards smaller and more readily synthesizable molecules, in-
+dicated by a larger proportion of molecules containing amide bonds compared to ChEMBL.
+The QM9 set,83 which is a subset of GDB9,6 is a completely enumerated dataset, which
+has shown to be of value in many applications.
+However, since it contains mostly com-
+pounds which have not been made yet, including many molecules with complex annulated
+ring systems, it is not very well suited to learn representations of drug-like, synthesizable
+molecules.
+To generate the ﬁnal dataset for the benchmarks, ChEMBL is post-processed by
+1. removal of salts;
+2. charge neutralization;
+3. removal of molecules with SMILES strings longer than 100 characters;
+18
+
+4. removal of molecules containing any element other than H, B, C, N, O, F, Si, P, S, Cl,
+Se, Br, and I;
+5. removal of molecules with a larger84 ECFP4 similarity than 0.323 compared to a hold-
+out set consisting of 10 marketed drugs (celecoxib, aripiprazole, cobimetinib, osimer-
+tinib, troglitazone, ranolazine, thiothixene, albuterol, fexofenadine, mestranol). This
+allows us to deﬁne similarity benchmarks for targets that are not part of the training
+set.
+The post-processed ChEMBL dataset can be downloaded from the Internet.85 Addi-
+tionally, a docker container with version-controlled dependencies to allow for reproducible
+dataset creation is provided in the guacamol repository.77
+8.2
+Implementation details: Distribution-learning benchmarks
+Validity
+The validity score is calculated as the ratio of valid molecules out of 10’000
+generated molecules. Molecules are considered to be valid if their SMILES representation
+can be successfully parsed by RDKit.
+Uniqueness
+To calculate the uniqueness score, molecules are sampled from the generative
+model until 10’000 valid molecules have been obtained. Duplicate molecules are identiﬁed
+by identical canonical SMILES strings. The score is obtained as the number of diﬀerent
+canonical SMILES strings divided by 10’000.
+Novelty
+The novelty score is calculated by generating molecules until 10’000 diﬀerent
+canonical SMILES strings are obtained, and computing the ratio of molecules not present in
+the ChEMBL dataset.
+Fr´echet ChemNet Distance (FCD)
+To generate the FCD score, a random subset of
+10’000 molecules is selected from the ChEMBL dataset, and the generative model is sampled
+19
+
+until 10’000 valid molecules are obtained.
+The FCD between both sets of molecules is
+calculated with the FCD package available on GitHub,86 and the ﬁnal score S is given by
+S = exp(−0.2 · FCD)
+(2)
+KL divergence
+For this task, the following physicochemical descriptors are calculated
+with RDKit for both the sampled and the reference set: BertzCT, MolLogP, MolWt, TPSA,
+NumHAcceptors, NumHDonors, NumRotatableBonds, NumAliphaticRings, and NumAromaticRings.
+Furthermore, we calculate the distribution of maximum nearest neighbour similarities on
+ECFP4 ﬁngerprints for both sets. Then, the distribution of these descriptors is computed
+via kernel density estimation (using the scipy package) for continuous descriptors, or as
+a histogram for discrete descriptors. The KL divergence DKL,i is then computed for each
+descriptor i, and is aggregated to a ﬁnal score S via
+S = 1
+k
+k
+X
+i
+exp(−DKL,i),
+(3)
+where k is the number of descriptors (in our case k = 9).
+8.3
+Implementation details: Goal-directed benchmarks
+8.3.1
+Formalism
+In the goal-directed benchmarks discussed in this paper, raw molecular properties rarely
+correspond to the molecule scores used for optimization. Instead, they are post-processed
+by modiﬁer functions that give more ﬂexibility in how the ﬁnal molecule score is computed,
+and furthermore restrict scores to the interval [0, 1]. For the benchmarks discussed below,
+we apply ﬁve diﬀerent types of modiﬁer functions. They are detailed in Appendix 8.3.4.
+For many benchmarks the ﬁnal molecule score corresponds to an average of multiple
+contributions.
+For instance, the molecule score for the median molecules benchmarks is
+20
+
+an average of two similarity scores (see below). Depending on the benchmark, the average
+is calculated as the arithmetic mean or the geometric mean of the contributions. With a
+geometric mean, all requirements (as given by the individual scoring functions) must be met,
+at least partly. Otherwise, if one of the contributions has a score of zero, the ﬁnal molecule
+score will also be zero. With an arithmetic mean, the requirements are less strict, and a
+molecule can still achieve a good score if one of its partial scores is zero.
+The ﬁnal benchmark score is calculated as a weighted average of the molecule scores.
+For most of the benchmarks discussed below, the molecules with the best scores are given a
+larger weight. This choice reﬂects the compromise that models should be able to deliver a
+few molecules with top scores, but that they should also be able to generate many molecules
+with satisfactory scores. For all the goal-directed benchmarks, we calculate one or several
+average score for given numbers of top molecules, and then set the benchmark score to be
+the mean of these average scores. For instance, many benchmarks consider the combination
+of top-1, top-10 and top-100 scores, in which the benchmark score S is given by
+S = 1
+3
+ 
+s1 + 1
+10
+10
+X
+i=1
+si +
+1
+100
+100
+X
+i=1
+si
+!
+(4)
+where s is a 100-dimensional vector of molecule scores si, 1 ≤i ≤100, sorted in decreasing
+order (i.e., si ≥sj for i < j).
+The suite of goal-directed benchmarks considered in this work is given in Appendix 8.3.2.
+During evaluation, the duration of the benchmark, the number of calls to the scoring
+function, and the internal similarity of the top molecules are captured in the results of each
+goal-directed benchmark, in order to allow for more ﬁne-grained analyses.
+8.3.2
+List of benchmarks
+All the goal-directed benchmarks are listed in Table 3. More information about the scoring
+functions and modiﬁers can be found in Appendices 8.3.3 and 8.3.4, respectively.
+21
+
+Table 3:
+List of goal-directed benchmarks considered in this work.
+The molecule
+score given by each benchmark is a combination of one or several contributions, with
+their respective score modiﬁers.
+The column “Scoring” refers to the numbers of top
+molecules to consider in the score calculation.
+For clarity, the following SMARTS and
+SMILES strings were abbreviated in the table:
+s1 = CN(C=O)Cc1ccc(c2ccccc2)cc1,
+s2 = [#7]-c1n[c;h1]nc2[c;h1]c(-[#8])[c;h0][c;h1]c12, s3 = [#7]-c1ccc2ncsc2c1,
+s4 = CS([#6])(=O)=O, s5 = CCCOc1cc2ncnc(Nc3ccc4ncsc4c3)c2cc1S(=O)(=O)C(C)(C)C,
+and s6 = [#6]-[#6]-[#6]-[#8]-[#6]~[#6]~[#6]~[#6]~[#6]-[#7]-c1ccc2ncsc2c1.
+Benchmark name
+Scoring
+Mean
+Scoring function(s)
+Modiﬁer
+Celecoxxib rediscovery
+top-1
+sim(Celecoxxib, ECFC4)
+None
+Troglitazone rediscovery
+top-1
+sim(Troglitazone, ECFC4)
+None
+Thiothixene rediscovery
+top-1
+sim(Thiothixene, ECFC4)
+None
+Aripiprazole similarity
+top-1, top-10, top-100
+sim(Aripiprazole, ECFC4)
+Thresholded(0.75)
+Albuterol similarity
+top-1, top-10, top-100
+sim(Albuterol, FCFC4)
+Thresholded(0.75)
+Mestranol similarity
+top-1, top-10, top-100
+sim(Mestranol, AP)
+Thresholded(0.75)
+C11H24
+top-159
+isomer(C11H24)
+None
+C9H10N2O2PF2Cl
+top-250
+isomer(C9H10N2O2PF2Cl)
+None
+Median molecules 1
+top-1, top-10, top-100
+geom.
+sim(camphor, ECFC4)
+None
+sim(menthol, ECFC4)
+None
+Median molecules 2
+top-1, top-10, top-100
+geom.
+sim(tadalaﬁl, ECFC6)
+None
+sim(sildenaﬁl, ECFC6)
+None
+Osimertinib MPO
+top-1, top-10, top-100
+geom.
+sim(osimertinib, FCFC4)
+Thresholded(0.8)
+sim(osimertinib, ECFC6)
+MinGaussian(0.85, 2)
+TPSA
+MaxGaussian(100, 2)
+logP
+MinGaussian(1, 2)
+Fexofenadine MPO
+top-1, top-10, top-100
+geom.
+sim(fexofenadine, AP)
+Thresholded(0.8)
+TPSA
+MaxGaussian(90, 2)
+logP
+MinGaussian(4, 2)
+Ranolazine MPO
+top-1, top-10, top-100
+geom.
+sim(ranolazine, AP)
+Thresholded(0.7)
+logP
+MaxGaussian(7, 1)
+TPSA
+MaxGaussian(95, 20)
+number of ﬂuorine atoms
+Gaussian(1, 1)
+Perindopril MPO
+top-1, top-10, top-100
+geom.
+sim(perindopril, ECFC4)
+None
+number aromatic rings
+Gaussian(2, 0.5)
+Amlodipine MPO
+top-1, top-10, top-100
+geom.
+sim(amlodipine, ECFC4)
+None
+number rings
+Gaussian(3, 0.5)
+Sitagliptin MPO
+top-1, top-10, top-100
+geom.
+sim(sitagliptin, ECFC4)
+Gaussian(0, 0.1)
+logP
+Gaussian(2.0165, 0.2)
+TPSA
+Gaussian(77.04, 5)
+isomer(C16H15F6N5O)
+None
+Zaleplon MPO
+top-1, top-10, top-100
+geom.
+sim(zaleplon, ECFC4)
+None
+isomer(C19H17N3O2)
+None
+Valsartan SMARTS
+top-1, top-10, top-100
+geom.
+SMARTS(s1, true)
+None
+logP
+Gaussian(2.0165, 0.2)
+TPSA
+Gaussian(77.04, 5)
+Bertz
+Gaussian(896.38, 30)
+Deco Hop
+top-1, top-10, top-100
+arithm.
+SMARTS(s2, true)
+None
+SMARTS(s3, false)
+None
+SMARTS(s4, false)
+None
+sim(s5, PHCO)
+Thresholded(0.85)
+Scaﬀold Hop
+top-1, top-10, top-100
+arithm.
+SMARTS(s2, false)
+None
+SMARTS(s6, true)
+None
+sim(s5, PHCO)
+Thresholded(0.75)
+22
+
+The ﬁrst six benchmarks fall into the rediscovery and similarity categories described in
+Section 3.2. The molecules for these benchmarks are present in the holdout set considered
+during dataset generation. The benchmarks C11H24 and C9H10N2O2PF2Cl are isomer bench-
+marks. Note that the molecule C11H24 has 159 possible isomers when ignoring stereochem-
+istry. Therefore, for this benchmark the ﬁnal score is obtained from the top-159 molecule
+scores. The two following benchmarks are median molecule benchmarks that aim to gen-
+erate molecules mixing camphor and menthol, as well as tadalaﬁl and sildenaﬁl. The ﬁve
+following benchmarks (Osimertinib MPO, Fexofenadine MPO, Ranolazine MPO, Perindopril
+MPO, Amlodipine MPO), deﬁne objectives related to known drug molecules and trying to
+ﬁne-tune their structural or physicochemical properties. The Ranolazine MPO benchmark
+uses a start population, comprising one single molecule (ranolazine). For the Sitagliptin
+MPO benchmark, the models must generate molecules that are as dissimilar to sitagliptin as
+possible, while keeping some of its properties. In the Zaleplon MPO benchmark, generative
+models must ﬁnd molecules that are similar to zaleplon but have a diﬀerent molecular for-
+mula. The valsartan SMARTS benchmark targets molecules containing a SMARTS pattern
+related to valsartan while being characterized by physicochemical properties corresponding
+to the sitagliptin molecule. Finally, the Scaﬀold Hop and Decorator Hop benchmarks aim to
+maximize the similarity to a SMILES strings, while keeping or excluding speciﬁc SMARTS
+patterns, mimicking the tasks of changing the scaﬀold of a compound while keeping speciﬁc
+substituents, and keeping a scaﬀold ﬁxed while changing the substitution pattern.
+8.3.3
+Scoring functions
+Most of the scoring functions used in this work can readily be calculated from SMILES
+strings or their underlying molecular graphs. The scoring functions for TPSA, logP, Bertz
+and QED are calculated using the models contained in RDKit. The similarity, SMARTS,
+and isomer scoring functions are explained in more detail in the following.
+23
+
+Similarity scoring function
+The similarity scoring function (called “sim(x, y)” above)
+refers to a scoring function calculating the similarity to a target molecule x.
+The score
+corresponds to the Tanimoto similarity when considering the ﬁngerprint y and is computed
+with RDKit.
+SMARTS scoring function
+The SMARTS scoring function (called “SMARTS(s, b)”
+above) evaluates whether the SMARTS pattern s is present in the molecule to score or not.
+b is a boolean value indicating whether the SMARTS pattern should be present (true) or
+absent (false). When the pattern is desired, a score of 1 is returned if the SMARTS pattern
+is found, else 0. When the pattern should be absent, the score will be 0 if the pattern is
+found, else 1. The pattern recognition is computed with RDKit.
+Isomer scoring function
+For the isomer benchmarks, the molecule score (called “isomer(x)”
+above) is calculated as the geometric mean of the following contributions:
+• For each element type present in the target molecular formula: the number of atoms
+of this element type, modiﬁed by a Gaussian modiﬁer. The Gaussian modiﬁer has a
+mean corresponding to the target number of atoms of this element type, and a standard
+deviation of 1.0.
+• The total number of atoms in the molecule, modiﬁed by a Gaussian modiﬁer. The
+Gaussian modiﬁer has a mean corresponding to the total number of atoms of the
+target molecular formula, and a standard deviation of 2.0.
+For instance, for the target formula C11H24, the score s of a molecule m is given by:
+s(m) =
+
+exp
+
+−(nC(m) −11)2
+2
+
+· exp
+
+−(nH(m) −24)2
+2
+
+· exp
+
+−(ntot(m) −35)2
+8
+1/3
+(5)
+where nC(m) and nH(m) refer to the number of carbon and hydrogen atoms present in m,
+respectively, and ntot(m) is the total number of atoms in m.
+24
+
+8.3.4
+Score modiﬁers
+For the benchmarks discussed above, we apply diﬀerent types of modiﬁer functions:
+• Gaussian(µ, σ): The Gaussian modiﬁer allows to target a speciﬁc value of some prop-
+erty, while giving high scores when the underlying value is close to the target. It can
+be adjusted with the mean µ and standard deviation σ of the underlying Gaussian
+function.
+• MinGaussian(µ, σ): The min Gaussian modiﬁer corresponds to the right half of a
+Gaussian function. Values smaller than µ are given full score, and values larger than
+µ decrease continuously to zero.
+• MaxGaussian(µ, σ): The max Gaussian modiﬁer corresponds to the left half of a Gaus-
+sian function. Values larger than µ are given full score, and values smaller than µ
+decrease continuously to zero.
+• Thresholded(t): With the thresholded modiﬁer, full score is attributed to values above
+a given threshold t. Values smaller than t decrease linearly to zero.
+The eﬀect of these four modiﬁer functions is illustrated in Figure 4.
+8.4
+Baseline Models
+Below, we give short descriptions of the baseline models involved in this work. Our imple-
+mentations of the baseline models detailed here are available on GitHub.81
+8.4.1
+Random sampler
+This baseline simply samples the requested number of molecules from the dataset at random.
+It provides a lower bound for the goal directed benchmarks as no optimization is performed to
+obtain the returned molecules, as well as an upper bound for two of the distribution learning
+benchmarks, as the molecules returned are taken directly from the original distribution.
+25
+
+−1.0
+−0.5
+0.0
+0.5
+1.0
+0.0
+0.2
+0.4
+0.6
+0.8
+1.0
+What the modifier outputs
+mu
+sigma
+MaxGaussian
+ 1.0
+ 0.5
+0.0
+0.5
+1.0
+0.0
+0.2
+0.4
+0.6
+0.8
+1.0
+mu
+sigma
+MinGaussian
+ 1.0
+ 0.5
+0.0
+0.5
+1.0
+What the scoring function feeds in
+ 2.0
+ 1.5
+ 1.0
+ 0.5
+0.0
+0.5
+1.0
+What the modifier outputs
+threshold
+ThresholdedLinear
+ 1.0
+ 0.5
+0.0
+0.5
+1.0
+What the scoring function feeds in
+0.0
+0.2
+0.4
+0.6
+0.8
+1.0
+What the modifier outputs
+mu
+sigma
+Gaussian
+Figure 4: Modiﬁer functions used in this study.
+8.4.2
+Best in dataset
+The goal of de novo molecular design is to explore unknown parts of chemical space, gen-
+erating new compounds with better properties than the ones already known. This baseline
+simply scores the entire dataset with the provided scoring function and returns the highest
+scoring molecules. This eﬀectively provides a lower bound for the goal directed benchmarks
+as any good de novo method should be able to generate better molecules than the ones
+provided during training or as a starting population. Distribution-learning benchmarks are
+not applicable to this baseline.
+8.4.3
+SMILES GA
+Genetic algorithms (GA) for de novo molecular design are well established technique.13,25
+Yoshikawa et al. proposed a method that evolves string molecular representations using
+mutations exploiting the SMILES context-free grammar.87
+26
+
+For each goal-directed benchmark the 300 highest scoring molecules in the dataset are
+selected as the initial population. Each molecule is represented by 300 genes. During each
+epoch an oﬀspring of 600 new molecules are generated by randomly mutating the population
+molecules. After deduplication and scoring these new molecules are merged with the current
+population and a new generation is selected by keeping the top scoring molecules overall.
+This process is repeated 1000 times or until progress has stopped for 5 consecutive epochs.
+Distribution-learning benchmarks do not apply to this baseline.
+8.4.4
+Graph GA
+The second genetic algorithm baseline follows the implementation of Jensen88 in which
+molecule evolution happens at the graph level.
+For each goal-directed benchmark the 100 highest scoring molecules in the dataset are
+selected as the initial population. During each epoch a mating pool of 200 molecules is sam-
+pled with replacement from the population, using scores as weights. This pool may contain
+many repeated specimens if their score is high. A new population of 100 is then generated by
+iteratively choosing two molecules at random from the mating pool and applying a crossover
+operation.
+With probability of 0.5 a mutation is also applied to the oﬀspring molecule.
+This process is repeated 1000 times or until progress has stopped for 5 consecutive epochs.
+Distribution-learning benchmarks do not apply to this baseline.
+8.4.5
+Graph MCTS
+The MCTS molecule generation procedure follows the implementation by Jensen.88 The
+statistics used during sampling are computed on the GuacaMol dataset.
+For this baseline no initial population is selected for the goal-directed benchmarks. Fol-
+lowing the author’s parameters, each new molecule is generated by running 40 simulations,
+starting from a CC base molecule, at each step 25 children are considered and the roll-out
+stops when reaching 60 atoms. The best scoring molecule found during the roll-out is re-
+27
+
+turned. A population of 100 molecules is generated at each epoch. This process is repeated
+1000 times or until progress has stopped for 5 consecutive epochs.
+For the distribution-learning benchmark the generation starts from a CC base molecule
+and a new molecule is generated with the same parameters as for the goal oriented, the only
+diﬀerence being that no scoring function is provided, so the ﬁrst molecule to reach terminal
+state is returned instead.
+8.4.6
+SMILES LSTM
+The SMILES LSTM is a simple, yet powerful baseline model, consisting of a long-short term
+memory (LSTM)35 neural network which predicts the next character of partial SMILES
+strings.14 LSTM are more powerful than GRU networks, as they are able to learn a counting
+mechanism.89 Combined with a simple hill-climb algorithm for optimization, which is an
+oﬀ-policy policy gradient algorithm with binary rewards and can also be interpreted as
+iterative ﬁne-tuning, LSTM has recently been shown to perform as well as more sophisticated
+reinforcement learning algorithms such as proximal policy optimization (PPO) or advantage
+actor critic (A2C).49
+The model used was an LSTM with 3 layers of hidden size of 1024. For the goal-directed
+benchmarks 20 iterations of hill-climbing were performed, at each step the model generated
+8192 molecules and the top scoring 1024 were used to ﬁne-tune the model parameters. For
+the distribution-learning benchmarks no ﬁne tuning was done, the model simply generated
+the requested number of molecules.
+8.4.7
+Variational Autoencoder
+Variational encoder15 models learn a representation of molecules as latent vectors in a con-
+tinuous space. The model architecture comprises an encoder that converts SMILES strings
+to latent vectors, and a decoder that converts latent vectors back to SMILES strings. A
+continuous-space representation of molecules enables sampling and property optimization
+28
+
+in the latent space, after which the sample is decoded to produce the SMILES string of a
+molecule of interest.
+We evaluate an implementation of VAE available on the Internet.90 Only distribution-
+learning benchmarks are supported by this implementation. The VAE was trained with the
+hyperparameters previously optimized for the ZINC database.
+8.4.8
+Adversarial Autoencoder
+The approach taken by adversarial autoencoders64 is related the latent vector encoding of
+VAEs. For AAEs, the latent space is regularized in a way to enforce a distribution in the
+latent space given by a prior.
+We evaluate an implementation of AAE available on the Internet.90 Only distribution-
+learning benchmarks are supported by this implementation. The AAE was trained with the
+hyperparameters previously optimized for the ZINC database.
+8.4.9
+Objective-reinforced generative adversarial network
+The objective-reinforced generative adversarial network (ORGAN)54 model architecture com-
+bines a generator and a discriminator network for molecule generation.
+We evaluate an implementation of ORGAN available on the Internet.90 Only distribution-
+learning benchmarks are supported by this implementation. The ORGAN was trained with
+the hyperparameters previously optimized for the ZINC database.
+8.5
+Results for trivial goal-directed benchmarks
+Selecting adequate optimization objectives for benchmarking generative models is a chal-
+lenging task. The main diﬃculty is to ﬁnd tasks that are hard enough, i.e. objectives that
+are not already satisﬁed by molecules in the training dataset. Otherwise, it is not possible
+to demonstrate the usefulness of generative models — one must be able to assess whether
+(and to what extent) they are better than virtual screening approaches.
+29
+
+Table 4: List of trivial optimization objectives in the goal-directed formalism. Refer to Ap-
+pendix 8.3 for details about the formalism and implementation of goal-directed benchmarks.
+Benchmark name
+Scoring
+Mean
+Scoring function(s)
+Modiﬁer
+logP (target: -1.0)
+top-1, top-10, top-100
+logP
+Gaussian(-1, 2)
+logP (target: 8.0)
+top-1, top-10, top-100
+logP
+Gaussian(8, 2)
+TPSA (target: 150.0)
+top-1, top-10, top-100
+TPSA
+Gaussian(150, 2)
+CNS MPO
+top-1, top-10, top-100
+arithm.
+TPSA
+MinGaussian(90, 2)
+TPSA
+MaxGaussian(40, 2)
+number of hydrogen bond donors
+MinGaussian(0, 2)
+logP
+MinGaussian(5.0, 2)
+molecular weight
+MinGaussian(360, 2)
+QED
+top-1, top-10, top-100
+QED
+None
+C7H8N2O2
+top-100
+isomer(C7H8N2O2)
+None
+Pioglitazone MPO
+top-1, top-10, top-100
+geom.
+sim(pioglitazone, ECFP4)
+Gaussian(0, 0.1)
+molecular weight
+Gaussian(356.447, 10)
+number rotatable bonds
+Gaussian(2, 0.5)
+Table 4 lists seven easily-optimizable benchmarks, and Table 5 shows the corresponding
+scores achieved by the baseline models. The ﬁrst three benchmarks in this table target given
+values for physicochemical properties. All the models achieve near-perfect scores, including
+“Best of dataset”. The models also get perfect scores for the CNS MPO benchmark, which
+considers the CNS MPO score proposed by Pﬁzer.91 The QED benchmark aims to optimize
+the “quantitative estimate of drug-likeness” (QED),92 an empirical measure of drug-likeness,
+similar to Lipinski’s rule of 5.93 Even though optimization of drug-likeness alone is not a
+particularly useful objective in drug discovery, it has been used in several publications as
+a target for de novo molecular design (see, for instance, Refs. 15–17,55,57). The last two
+benchmarks, C7H8N2O2 and Pioglitazone MPO, involve more complex scoring functions but
+the generative models still achieve near-perfect scores for it.
+Table 5: Results of the baseline models for the trivial goal-directed benchmarks.
+Benchmark
+Best of dataset
+SMILES LSTM
+SMILES GA
+Graph GA
+Graph MCTS
+logP (target: -1.0)
+1.000
+1.000
+1.000
+1.000
+0.986
+logP (target: 8.0)
+1.000
+1.000
+1.000
+1.000
+0.980
+TPSA (target: 150.0)
+1.000
+1.000
+1.000
+1.000
+1.000
+CNS MPO
+1.000
+1.000
+1.000
+1.000
+1.000
+QED
+0.948
+0.948
+0.948
+0.948
+0.945
+C7H8N2O2
+0.972
+1.000
+0.992
+0.993
+0.851
+Pioglitazone MPO
+0.982
+0.993
+1.000
+0.998
+0.941
+From these results, it is evident that such trivial benchmarks are not suitable for the
+30
+
+assessment of generative models for de novo molecular design.
+The ChEMBL database
+alone achieves excellent scores already and therefore these benchmarks cannot demonstrate
+the advantage of generative models over pure virtual screening, and even less assess the
+diﬀerence in performance for the models.
+References
+(1) Nicolaou, C. A.; Brown, N. Multi-objective optimization methods in drug design. Drug
+Discovery Today: Technol. 2013, 10, e427–e435.
+(2) Schneider, G. De novo molecular design; John Wiley & Sons, 2013.
+(3) Irwin, J. J.; Shoichet, B. K. ZINC- A free database of commercially available compounds
+for virtual screening. J. Chem. Inf. Model. 2005, 45, 177–182.
+(4) van Hilten, N.; Chevillard, F.; Kolb, P. Virtual Compound Libraries in Computer-
+Assisted Drug Discovery. J. Chem. Inf. Model. in press.
+(5) Walters, W. P. Virtual Chemical Libraries. J. Med. Chem. in press.
+(6) Ruddigkeit, L.; Van Deursen, R.; Blum, L. C.; Reymond, J.-L. Enumeration of 166
+billion organic small molecules in the chemical universe database GDB-17. J. Chem.
+Inf. Model. 2012, 52, 2864–2875.
+(7) Valeur, E.; Gu´eret, S. M.; Adihou, H.; Gopalakrishnan, R.; Lemurell, M.; Wald-
+mann, H.; Grossmann, T. N.; Plowright, A. T. New modalities for challenging targets
+in drug discovery. Angew. Chem. Int. Ed. 2017, 56, 10294–10323.
+(8) Rarey, M.; Stahl, M. Similarity searching in large combinatorial chemistry spaces. J.
+Comput.-Aided Mol. Des. 2001, 15, 497–520.
+(9) P¨arn, J.; Degen, J.; Rarey, M. Exploring fragment spaces under multiple physicochem-
+ical constraints. J. Comput.-Aided Mol. Des. 2007, 21, 327–340.
+31
+
+(10) Lauck, F.; Rarey, M. In De novo Molecular Design; Schneider, G., Ed.; Wiley Online
+Library, 2013; pp 325–347.
+(11) Zaliani, A.; Boda, K.; Seidel, T.; Herwig, A.; Schwab, C. H.; Gasteiger, J.; Claußen, H.;
+Lemmen, C.; Degen, J.; P¨arn, J.; Rarey, M. Second-generation de novo design: a view
+from a medicinal chemist perspective. J. Comput.-Aided Mol. Des. 2009, 23, 593–602.
+(12) Ertl, P.; Lewis, R. IADE: a system for intelligent automatic design of bioisosteric
+analogs. J. Comput.-Aided Mol. Des. 2012, 26, 1207–1215.
+(13) Hartenfeller, M.; Schneider, G. Enabling future drug discovery by de novo design. Wiley
+Interdiscip. Rev.: Comput. Mol. Sci. 2011, 1, 742–759.
+(14) Segler, M. H. S.; Kogej, T.; Tyrchan, C.; Waller, M. P. Generating Focused Molecule
+Libraries for Drug Discovery with Recurrent Neural Networks. ACS Cent. Sci. 2018,
+4, 120–131.
+(15) G´omez-Bombarelli, R.; Wei, J. N.; Duvenaud, D.; Hern´andez-Lobato, J. M.; S´anchez-
+Lengeling, B.; Sheberla, D.; Aguilera-Iparraguirre, J.; Hirzel, T. D.; Adams, R. P.;
+Aspuru-Guzik, A. Automatic Chemical Design Using a Data-Driven Continuous Rep-
+resentation of Molecules. ACS Cent. Sci. 2018, 4, 268–276.
+(16) You, J.; Liu, B.; Ying, R.; Pande, V.; Leskovec, J. Graph Convolutional Policy Network
+for Goal-Directed Molecular Graph Generation. 2018, arXiv:1806.02473.
+(17) Liu, Q.; Allamanis, M.; Brockschmidt, M.; Gaunt, A. L. Constrained Graph Variational
+Autoencoders for Molecule Design. 2018, arXiv:1805.09076.
+(18) Deng, J.; Dong, W.; Socher, R.; Li, L.-J.; Li, K.; Fei-Fei, L. Imagenet: A large-scale
+hierarchical image database. IEEE Conference on Computer Vision and Pattern Recog-
+nition. 2009; pp 248–255.
+32
+
+(19) Mayr, A.; Klambauer, G.; Unterthiner, T.; Hochreiter, S. DeepTox: toxicity prediction
+using deep learning. Front. Environ. Sci. 2016, 3, 80.
+(20) B¨ohm, H.-J. The computer program LUDI: a new method for the de novo design of
+enzyme inhibitors. J. Comput.-Aided Mol. Des. 1992, 6, 61–78.
+(21) Gillet, V. J.; Newell, W.; Mata, P.; Myatt, G.; Sike, S.; Zsoldos, Z.; Johnson, A. P.
+SPROUT: recent developments in the de novo design of molecules. J. Chem. Inf. Com-
+put. Sci 1994, 34, 207–217.
+(22) Wang, R.; Gao, Y.; Lai, L. LigBuilder: a multi-purpose program for structure-based
+drug design. Molecular modeling annual 2000, 6, 498–516.
+(23) Nicolaou, C. A.; Apostolakis, J.; Pattichis, C. S. De novo drug design using multiob-
+jective evolutionary graphs. J. Chem. Inf. Model. 2009, 49, 295–307.
+(24) Chevillard, F.; Rimmer, H.; Betti, C.; Pardon, E.; Ballet, S.; van Hilten, N.; Steyaert, J.;
+Diederich, W. E.; Kolb, P. Binding-site compatible fragment growing applied to the
+design of β2-adrenergic receptor ligands. J. Med. Chem. 2018, 61, 1118–1129.
+(25) Brown, N.; McKay, B.; Gilardoni, F.; Gasteiger, J. A graph-based genetic algorithm
+and its application to the multiobjective evolution of median molecules. J. Chem. Inf.
+Comput. Sci. 2004, 44, 1079–1087.
+(26) Chevillard, F.; Kolb, P. SCUBIDOO: a large yet screenable and easily searchable
+database of computationally created chemical compounds optimized toward high like-
+lihood of synthetic tractability. J. Chem. Inf. Model. 2015, 55, 1824–1835.
+(27) Degen, J.; Wegscheid-Gerlach, C.; Zaliani, A.; Rarey, M. On the Art of Compiling and
+Using’Drug-Like’Chemical Fragment Spaces. ChemMedChem 2008, 3, 1503–1507.
+33
+
+(28) Lajiness, M. S.; Maggiora, G. M.; Shanmugasundaram, V. Assessment of the consis-
+tency of medicinal chemists in reviewing sets of compounds. J. Med. Chem. 2004, 47,
+4891–4896.
+(29) Segler, M. H.; Preuss, M.; Waller, M. P. Planning chemical syntheses with deep neural
+networks and symbolic AI. Nature 2018, 555, 604.
+(30) Schmidhuber, J. Deep learning in neural networks: An overview. Neural networks 2015,
+61, 85–117.
+(31) Chen, H.; Engkvist, O.; Wang, Y.; Olivecrona, M.; Blaschke, T. The rise of deep
+learning in drug discovery. Drug Discovery Today 2018, 23, 1241–1250.
+(32) Hansch, C.; Fujita, T. p-σ-π Analysis. A method for the correlation of biological activity
+and chemical structure. J. Am. Chem. Soc. 1964, 86, 1616–1626.
+(33) Baskin, I. I.; Gordeeva, E. V.; Devdariani, R. O.; Zeﬁrov, N. S.; Paliulin, V. A.; Stanke-
+vich, M. I. Methodology of the Inverse Problem Solution for the Structure Property
+Relation in Case of Topological Indexes. Dokl. Akad. Nauk SSSR 1989, 307, 613–617.
+(34) Weininger, D. SMILES, a chemical language and information system. 1. Introduction
+to methodology and encoding rules. J. Chem. Inf. Comput. Sci. 1988, 28, 31–36.
+(35) Hochreiter, S.; Schmidhuber, J. Long short-term memory. Neural computation 1997,
+9, 1735–1780.
+(36) Janz, D.; Westhuizen, J. v. d.; Paige, B.; Kusner, M.; Hern´andez-Lobato, J. M. Learning
+a Generative Model for Validity in Complex Discrete Structures. ICLR 2018 Conference.
+2018.
+(37) Blaschke, T.; Olivecrona, M.; Engkvist, O.; Bajorath, J.; Chen, H. Application of
+Generative Autoencoder in De Novo Molecular Design. Mol. Inf. 2018, 37, 1700123.
+34
+
+(38) Kusner, M. J.; Paige, B.; Hern´andez-Lobato, J. M. Grammar Variational Autoencoder.
+2017, arXiv:1703.01925.
+(39) Dai, H.; Tian, Y.; Dai, B.; Skiena, S.; Song, L. Syntax-Directed Variational Autoencoder
+for Structured Data. 2018, arXiv:1802.08786.
+(40) Harel, S.; Radinsky, K. Prototype-Based Compound Discovery Using Deep Generative
+Models. Mol. Pharmaceutics 2018,
+(41) Simonovsky, M.; Komodakis, N. GraphVAE: Towards Generation of Small Graphs Us-
+ing Variational Autoencoders. 2018, arXiv:1802.03480.
+(42) Samanta, B.; De, A.; Ganguly, N.; Gomez-Rodriguez, M. Designing Random Graph
+Models Using Variational Autoencoders With Applications to Chemical Design. 2018,
+arXiv:1802.05283.
+(43) Jin, W.; Barzilay, R.; Jaakkola, T. Junction Tree Variational Autoencoder for Molecular
+Graph Generation. 2018, arXiv:1802.04364.
+(44) Kajino, H. Molecular Hypergraph Grammar with its Application to Molecular Opti-
+mization. 2018, arXiv:1809.02745.
+(45) Lim, J.; Ryu, S.; Kim, J. W.; Kim, W. Y. Molecular generative model based on con-
+ditional variational autoencoder for de novo molecular design. J. Cheminf. 2018, 10,
+31.
+(46) Yuan, W.; Jiang, D.; Nambiar, D. K.; Liew, L. P.; Hay, M. P.; Bloomstein, J.; Lu, P.;
+Turner, B.; Le, Q.-T.; Tibshirani, R.; Khatri, P.; Moloney, M. G.; Koong, A. C. Chem-
+ical Space Mimicry for Drug Discovery. J. Chem. Inf. Model. 2017, 57, 875–882.
+(47) Bjerrum, E. J.; Threlfall, R. Molecular Generation with Recurrent Neural Networks
+(RNNs). 2017, arXiv:1705.04612.
+35
+
+(48) Ertl, P.; Lewis, R.; Martin, E.; Polyakov, V. In silico generation of novel, drug-like
+chemical matter using the LSTM neural network. 2017, arXiv:1712.07449.
+(49) Neil, D.; Segler, M.; Guasch, L.; Ahmed, M.; Plumbley, D.; Sellwood, M.; Brown, N.
+Exploring Deep Recurrent Models with Reinforcement Learning for Molecule Design.
+ICLR 2018 Conference. 2018.
+(50) Olivecrona, M.; Blaschke, T.; Engkvist, O.; Chen, H. Molecular de-novo design through
+deep reinforcement learning. J. Cheminf. 2017, 9, 48.
+(51) Gupta, A.; M¨uller, A. T.; Huisman, B. J. H.; Fuchs, J. A.; Schneider, P.; Schneider, G.
+Generative Recurrent Networks for De Novo Drug Design. Mol. Inf. 37, 1700111.
+(52) Jaques, N.; Gu, S.; Bahdanau, D.; Hern´andez-Lobato, J. M.; Turner, R. E.; Eck, D.
+Sequence Tutor: Conservative Fine-Tuning of Sequence Generation Models with KL-
+control. 2016, arXiv:1611.02796.
+(53) Popova, M.; Isayev, O.; Tropsha, A. Deep reinforcement learning for de novo drug
+design. Sci. Adv. 2018, 4, eaap7885.
+(54) Guimaraes, G. L.; Sanchez-Lengeling, B.; Outeiral, C.; Farias, P. L. C.; Aspuru-
+Guzik, A. Objective-Reinforced Generative Adversarial Networks (ORGAN) for Se-
+quence Generation Models. 2017, arXiv:1705.10843.
+(55) Sanchez-Lengeling, B.; Outeiral, C.; Guimaraes, G. L.; Aspuru-Guzik, A. Optimizing
+distributions over molecular space. An Objective-Reinforced Generative Adversarial
+Network for Inverse-design Chemistry (ORGANIC). 2017, ChemRxiv:5309668.
+(56) Li, Y.; Vinyals, O.; Dyer, C.; Pascanu, R.; Battaglia, P. Learning Deep Generative
+Models of Graphs. 2018, arXiv:1803.03324.
+(57) Li, Y.; Zhang, L.; Liu, Z. Multi-objective de novo drug design with conditional graph
+generative model. J. Cheminf. 2018, 10, 33.
+36
+
+(58) Li, Y.; Zhou, X.; Liu, Z.; Zhang, L. Designing natural product-like virtual libraries
+using deep molecule generative models. J. Chin. Pharm. Sci. 2018, 27, 451–459.
+(59) Putin, E.; Asadulaev, A.; Ivanenkov, Y.; Aladinskiy, V.; Sanchez-Lengeling, B.; Aspuru-
+Guzik, A.; Zhavoronkov, A. Reinforced Adversarial Neural Computer for de Novo
+Molecular Design. J. Chem. Inf. Model. 2018, 58, 1194–1204.
+(60) De Cao, N.; Kipf, T. MolGAN: An implicit generative model for small molecular graphs.
+2018, arXiv:1805.11973.
+(61) Kadurin, A.; Aliper, A.; Kazennov, A.; Mamoshina, P.; Vanhaelen, Q.; Khrabrov, K.;
+Zhavoronkov, A. The cornucopia of meaningful leads: Applying deep adversarial au-
+toencoders for new molecule development in oncology. Oncotarget 2016, 8, 10883–
+10890.
+(62) Kadurin, A.; Nikolenko, S.; Khrabrov, K.; Aliper, A.; Zhavoronkov, A. druGAN: An
+Advanced Generative Adversarial Autoencoder Model for de Novo Generation of New
+Molecules with Desired Molecular Properties in Silico. Mol. Pharmaceutics 2017, 14,
+3098–3104.
+(63) Putin, E.; Asadulaev, A.; Vanhaelen, Q.; Ivanenkov, Y.; Aladinskaya, A. V.; Aliper, A.;
+Zhavoronkov, A. Adversarial Threshold Neural Computer for Molecular de Novo De-
+sign. Mol. Pharmaceutics 2018, 15, 4386–4397.
+(64) Polykovskiy, D.; Zhebrak, A.; Vetrov, D.; Ivanenkov, Y.; Aladinskiy, V.; Mamoshina, P.;
+Bozdaganyan, M.; Aliper, A.; Zhavoronkov, A.; Kadurin, A. Entangled Conditional
+Adversarial Autoencoder for de Novo Drug Discovery. Mol. Pharmaceutics 2018, 15,
+4398–4405.
+(65) Assouel, R.; Ahmed, M.; Segler, M. H.; Saﬀari, A.; Bengio, Y. DEFactor: Diﬀerentiable
+Edge Factorization-based Probabilistic Graph Generation. 2018, arXiv:1811.09766.
+37
+
+(66) Merk, D.; Grisoni, F.; Friedrich, L.; Schneider, G. Tuning artiﬁcial intelligence on the de
+novo design of natural-product-inspired retinoid X receptor modulators. Nat. Commun.
+Chem. 2018, 1, 68.
+(67) Merk, D.; Friedrich, L.; Grisoni, F.; Schneider, G. De novo design of bioactive small
+molecules by artiﬁcial intelligence. Mol. Inf. 2018, 37, 1700153.
+(68) Ar´us-Pous, J.; Blaschke, T.; Reymond, J.-L.; Chen, H.; Engkvist, O. Exploring the
+GDB-13 Chemical Space Using Deep Generative Models. 2018, ChemRxiv:7172849.
+(69) Mendez, D.; Gaulton, A.; Bento, A. P.; Chambers, J.; De Veij, M.; F´elix, E.; Ma-
+gari˜nos, M. P.; Mosquera, J. F.; Mutowo, P.; Nowotka, M.; Gordillo-Mara˜n´on, M.;
+Hunter, F.; Junco, L.; Mugumbate, G.; Rodriguez-Lopez, M.; Atkinson, F.; Bosc, N.;
+Radoux, C. J.; Segura-Cabrera, A.; Hersey, A.; Leach, A. R. ChEMBL: towards direct
+deposition of bioassay data. Nucleic Acids Res. 2018,
+(70) Preuer, K.; Renz, P.; Unterthiner, T.; Hochreiter, S.; Klambauer, G. Fr´echet ChemNet
+Distance: A Metric for Generative Models for Molecules in Drug Discovery. J. Chem.
+Inf. Model. 2018, 58, 1736–1741.
+(71) Kullback, S.; Leibler, R. A. On information and suﬃciency. Ann. Math. Stat. 1951, 22,
+79–86.
+(72) Benhenda, M. ChemGAN challenge for drug discovery: can AI reproduce natural chem-
+ical diversity? 2017, arXiv:1708.08227.
+(73) Willett, P.; Barnard, J. M.; Downs, G. M. Chemical similarity searching. J. Chem. Inf.
+Comput. Sci. 1998, 38, 983–996.
+(74) Gasteiger, J.; Engel, T. Chemoinformatics: a textbook; John Wiley & Sons, 2006.
+(75) Gasteiger, J. De novo design and synthetic accessibility. J. Comput.-Aided Mol. Des.
+2007, 21, 307–309.
+38
+
+(76) Walters, P. rd ﬁlters. https://github.com/PatWalters/rd_filters, Accessed: Jan-
+uary 14, 2019.
+(77) GuacaMol
+Package.
+https://github.com/benevolentAI/guacamol,
+Accessed:
+November 19, 2018.
+(78) Schneider, N.; Sayle, R. A.; Landrum, G. A. Get Your Atoms in Order — An Open-
+Source Implementation of a Novel and Robust Molecular Canonicalization Algorithm.
+J. Chem. Inf. Model. 2015, 55, 2111–2120.
+(79) Ertl, P.; Rohde, B.; Selzer, P. Fast Calculation of Molecular Polar Surface Area as a
+Sum of Fragment-Based Contributions and Its Application to the Prediction of Drug
+Transport Properties. J. Med. Chem. 2000, 43, 3714–3717.
+(80) Landrum, G. RDKit: Open-source cheminformatics. http://www.rdkit.org.
+(81) GuacaMol baselines repository. https://github.com/benevolentAI/guacamol_baselines,
+Accessed: November 19, 2018.
+(82) Tevet, G.; Habib, G.; Shwartz, V.; Berant, J. Evaluating Text GANs as Language
+Models. 2018, arXiv:1810.12686.
+(83) Ramakrishnan, R.; Dral, P. O.; Rupp, M.; Von Lilienfeld, O. A. Quantum chemistry
+structures and properties of 134 kilo molecules. Sci. Data 2014, 1, 140022.
+(84) Landrum, G. RDKit blog. http://rdkit.blogspot.com/2013/10/fingerprint-thresholds.html,
+Accessed: January 14, 2019.
+(85) Post-processed ChEMBL datasets. https://figshare.com/projects/GuacaMol/56639,
+Accessed: November 20, 2018.
+(86) FCD Package. https://github.com/bioinf-jku/FCD, Accessed: November 15, 2018.
+39
+
+(87) Yoshikawa, N.; Terayama, K.; Honma, T.; Oono, K.; Tsuda, K. Population-based de
+novo molecule generation, using grammatical evolution. 2018, arXiv:1804.02134.
+(88) Jensen, J. H. Graph-based Genetic Algorithm and Generative Model/Monte Carlo Tree
+Search for the Exploration of Chemical Space. 2018, ChemRxiv:7240751.
+(89) Weiss, G.; Goldberg, Y.; Yahav, E. On the practical computational power of ﬁnite
+precision RNNs for language recognition. 2018, arXiv:1805.04908.
+(90) MOSES repository. https://github.com/molecularsets/moses, Accessed: January
+14, 2019.
+(91) Wager, T. T.; Hou, X.; Verhoest, P. R.; Villalobos, A. Central Nervous System Mul-
+tiparameter Optimization Desirability: Application in Drug Discovery. ACS Chem.
+Neurosci. 2016, 7, 767–775.
+(92) Bickerton, G. R.; Paolini, G. V.; Besnard, J.; Muresan, S.; Hopkins, A. L. Quantifying
+the chemical beauty of drugs. Nat. Chem. 2012, 4, 90–98.
+(93) Lipinski, C. A.; Lombardo, F.; Dominy, B. W.; Feeney, P. J. Experimental and com-
+putational approaches to estimate solubility and permeability in drug discovery and
+development settings. Adv. Drug Deliv. Rev. 1997, 23, 3–25.
+40

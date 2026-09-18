@@ -1,0 +1,2226 @@
+Gradient Surgery for Multi-Task Learning
+Tianhe Yu1, Saurabh Kumar1, Abhishek Gupta2, Sergey Levine2,
+Karol Hausman3, Chelsea Finn1
+Stanford University1, UC Berkeley2, Robotics at Google3
+tianheyu@cs.stanford.edu
+Abstract
+While deep learning and deep reinforcement learning (RL) systems have demon-
+strated impressive results in domains such as image classiﬁcation, game playing,
+and robotic control, data efﬁciency remains a major challenge. Multi-task learning
+has emerged as a promising approach for sharing structure across multiple tasks to
+enable more efﬁcient learning. However, the multi-task setting presents a number
+of optimization challenges, making it difﬁcult to realize large efﬁciency gains com-
+pared to learning tasks independently. The reasons why multi-task learning is so
+challenging compared to single-task learning are not fully understood. In this work,
+we identify a set of three conditions of the multi-task optimization landscape that
+cause detrimental gradient interference, and develop a simple yet general approach
+for avoiding such interference between task gradients. We propose a form of gradi-
+ent surgery that projects a task’s gradient onto the normal plane of the gradient of
+any other task that has a conﬂicting gradient. On a series of challenging multi-task
+supervised and multi-task RL problems, this approach leads to substantial gains
+in efﬁciency and performance. Further, it is model-agnostic and can be combined
+with previously-proposed multi-task architectures for enhanced performance.
+1
+Introduction
+While deep learning and deep reinforcement learning (RL) have shown considerable promise in
+enabling systems to learn complex tasks, the data requirements of current methods make it difﬁcult to
+learn a breadth of capabilities, particularly when all tasks are learned individually from scratch. A
+natural approach to such multi-task learning problems is to train a network on all tasks jointly, with
+the aim of discovering shared structure across the tasks in a way that achieves greater efﬁciency and
+performance than solving tasks individually. However, learning multiple tasks all at once results is a
+difﬁcult optimization problem, sometimes leading to worse overall performance and data efﬁciency
+compared to learning tasks individually [42, 50]. These optimization challenges are so prevalent that
+multiple multi-task RL algorithms have considered using independent training as a subroutine of the
+algorithm before distilling the independent models into a multi-tasking model [32, 42, 50, 21, 56],
+producing a multi-task model but losing out on the efﬁciency gains over independent training. If we
+could tackle the optimization challenges of multi-task learning effectively, we may be able to actually
+realize the hypothesized beneﬁts of multi-task learning without the cost in ﬁnal performance.
+While there has been a signiﬁcant amount of research in multi-task learning [6, 49], the optimization
+challenges are not well understood. Prior work has described varying learning speeds of different
+tasks [8, 26] and plateaus in the optimization landscape [52] as potential causes, whereas a range of
+other works have focused on the model architecture [40, 33]. In this work, we instead hypothesize
+that one of the main optimization issues in multi-task learning arises from gradients from different
+tasks conﬂicting with one another in a way that is detrimental to making progress. We deﬁne two
+gradients to be conﬂicting if they point away from one another, i.e., have a negative cosine similarity.
+We hypothesize that such conﬂict is detrimental when a) conﬂicting gradients coincide with b) high
+positive curvature and c) a large difference in gradient magnitudes.
+34th Conference on Neural Information Processing Systems (NeurIPS 2020), Vancouver, Canada.
+arXiv:2001.06782v4  [cs.LG]  22 Dec 2020
+
+Figure 1: Visualization of PCGrad on a 2D multi-task optimiza-
+tion problem. (a) A multi-task objective landscape. (b) & (c)
+Contour plots of the individual task objectives that comprise (a).
+(d) Trajectory of gradient updates on the multi-task objective using
+the Adam optimizer. The gradient vectors of the two tasks at the
+end of the trajectory are indicated by blue and red arrows, where
+the relative lengths are on a log scale.(e) Trajectory of gradient
+updates on the multi-task objective using Adam with PCGrad. For
+(d) and (e), the optimization trajectory goes from black to yellow.
+As an illustrative example, consider the
+2D optimization landscapes of two task
+objectives in Figure 1a-c. The opti-
+mization landscape of each task con-
+sists of a deep valley, a property that
+has been observed in neural network
+optimization landscapes [22], and the
+bottom of each valley is characterized
+by high positive curvature and large
+differences in the task gradient mag-
+nitudes.
+Under such circumstances,
+the multi-task gradient is dominated
+by one task gradient, which comes at
+the cost of degrading the performance
+of the other task. Further, due to high
+curvature, the improvement in the dominating task may be overestimated, while the degradation in
+performance of the non-dominating task may be underestimated. As a result, the optimizer struggles
+to make progress on the optimization objective. In Figure 1d), the optimizer reaches the deep valley of
+task 1, but is unable to traverse the valley in a parameter setting where there are conﬂicting gradients,
+high curvature, and a large difference in gradient magnitudes (see gradients plotted in Fig. 1d). In
+Section 5.3, we ﬁnd experimentally that this tragic triad also occurs in a higher-dimensional neural
+network multi-task learning problem.
+The core contribution of this work is a method for mitigating gradient interference by altering the
+gradients directly, i.e. by performing “gradient surgery.” If two gradients are conﬂicting, we alter the
+gradients by projecting each onto the normal plane of the other, preventing the interfering components
+of the gradient from being applied to the network. We refer to this particular form of gradient
+surgery as projecting conﬂicting gradients (PCGrad). PCGrad is model-agnostic, requiring only a
+single modiﬁcation to the application of gradients. Hence, it is easy to apply to a range of problem
+settings, including multi-task supervised learning and multi-task reinforcement learning, and can
+also be readily combined with other multi-task learning approaches, such as those that modify the
+architecture. We theoretically prove the local conditions under which PCGrad improves upon standard
+multi-task gradient descent, and we empirically evaluate PCGrad on a variety of challenging problems,
+including multi-task CIFAR classiﬁcation, multi-objective scene understanding, a challenging multi-
+task RL domain, and goal-conditioned RL. Across the board, we ﬁnd PCGrad leads to substantial
+improvements in terms of data efﬁciency, optimization speed, and ﬁnal performance compared to
+prior approaches, including a more than 30% absolute improvement in multi-task reinforcement
+learning problems. Further, on multi-task supervised learning tasks, PCGrad can be successfully
+combined with prior state-of-the-art methods for multi-task learning for even greater performance.
+2
+Multi-Task Learning with PCGrad
+While the multi-task problem can in principle be solved by simply applying a standard single-task
+algorithm with a suitable task identiﬁer provided to the model, or a simple multi-head or multi-output
+model, a number of prior works [42, 50, 53] have found this learning problem to be difﬁcult. In this
+section, we introduce notation, identify possible causes for the difﬁculty of multi-task optimization,
+propose a simple and general approach to mitigate it, and theoretically analyze the proposed approach.
+2.1
+Preliminaries: Problem and Notation
+The goal of multi-task learning is to ﬁnd parameters θ of a model fθ that achieve high average
+performance across all the training tasks drawn from a distribution of tasks p(T ). More formally, we
+aim to solve the problem: min
+θ
+ETi∼p(T ) [Li(θ)], where Li is a loss function for the i-th task Ti that
+we want to minimize. For a set of tasks, {Ti}, we denote the multi-task loss as L(θ) = P
+i Li(θ),
+and the gradients of each task as gi = ∇Li(θ) for a particular θ. (We drop the reliance on θ in the
+notation for brevity.) To obtain a model that solves a speciﬁc task from the task distribution p(T ),
+we deﬁne a task-conditioned model fθ(y|x, zi), with input x, output y, and encoding zi for task Ti,
+which could be provided as a one-hot vector or in any other form.
+2
+
+2.2 The Tragic Triad: Conﬂicting Gradients, Dominating Gradients, High Curvature
+We hypothesize that a key optimization issue in multi-task learning arises from conﬂicting gradients,
+where gradients for different tasks point away from one another as measured by a negative inner
+product. However, conﬂicting gradients are not detrimental on their own. Indeed, simply averaging
+task gradients should provide the correct solution to descend the multi-task objective. However, there
+are conditions under which such conﬂicting gradients lead to signiﬁcantly degraded performance.
+Consider a two-task optimization problem. If the gradient of one task is much larger in magnitude
+than the other, it will dominate the average gradient. If there is also high positive curvature along the
+directions of the task gradients, then the improvement in performance from the dominating task may
+be signiﬁcantly overestimated, while the degradation in performance from the dominated task may
+be signiﬁcantly underestimated. Hence, we can characterize the co-occurrence of three conditions
+as follows: (a) when gradients from multiple tasks are in conﬂict with one another (b) when the
+difference in gradient magnitudes is large, leading to some task gradients dominating others, and (c)
+when there is high curvature in the multi-task optimization landscape. We formally deﬁne the three
+conditions below.
+Deﬁnition 1. We deﬁne φij as the angle between two task gradients gi and gj. We deﬁne the
+gradients as conﬂicting when cos φij < 0.
+Deﬁnition 2. We deﬁne the gradient magnitude similarity between two gradients gi and gj as
+Φ(gi, gj) = 2∥gi∥2∥gj∥2
+∥gi∥2
+2+∥gj∥2
+2 .
+When the magnitude of two gradients is the same, this value is equal to 1. As the gradient magnitudes
+become increasingly different, this value goes to zero.
+Deﬁnition 3. We deﬁne multi-task curvature as H(L; θ, θ′) =
+R 1
+0 ∇L(θ)T ∇2L(θ + a(θ′ −
+θ))∇L(θ)da, which is the averaged curvature of L between θ and θ′ in the direction of the multi-task
+gradient ∇L(θ).
+When H(L; θ, θ′) > C for some large positive constant C, for model parameters θ and θ′ at the
+current and next iteration, we characterize the optimization landscape as having high curvature.
+We aim to study the tragic triad and observe the presence of the three conditions through two examples.
+First, consider the two-dimensional optimization landscape illustrated in Fig. 1a, where the landscape
+for each task objective corresponds to a deep and curved valley with large curvatures (Fig. 1b and 1c).
+The optima of this multi-task objective correspond to where the two valleys meet. More details
+on the optimization landscape are in Appendix D. Particular points of this optimization landscape
+exhibit the three described conditions, and we observe that, the Adam [30] optimizer stalls precisely
+at one of these points (see Fig. 1d), preventing it from reaching an optimum. This provides some
+empirical evidence for our hypothesis. Our experiments in Section 5.3 further suggest that this
+phenomenon occurs in multi-task learning with deep networks. Motivated by these observations,
+we develop an algorithm that aims to alleviate the optimization challenges caused by conﬂicting
+gradients, dominating gradients, and high curvature, which we describe next.
+2.3 PCGrad: Project Conﬂicting Gradients
+Our goal is to break one condition of the tragic triad by directly altering the gradients themselves
+to prevent conﬂict. In this section, we outline our approach for altering the gradients. In the next
+section, we will theoretically show that de-conﬂicting gradients can beneﬁt multi-task learning when
+dominating gradients and high curvatures are present.
+To be maximally effective and widely applicable, we aim to alter the gradients in a way that allows
+for positive interactions between the task gradients and does not introduce assumptions on the form
+of the model. Hence, when gradients do not conﬂict, we do not change the gradients. When gradients
+do conﬂict, the goal of PCGrad is to modify the gradients for each task so as to minimize negative
+conﬂict with other task gradients, which will in turn mitigate under- and over-estimation problems
+arising from high curvature.
+To deconﬂict gradients during optimization, PCGrad adopts a simple procedure: if the gradients
+between two tasks are in conﬂict, i.e. their cosine similarity is negative, we project the gradient
+of each task onto the normal plane of the gradient of the other task. This amounts to removing
+the conﬂicting component of the gradient for the task, thereby reducing the amount of destruc-
+tive gradient interference between tasks. A pictorial description of this idea is shown in Fig. 2.
+3
+
+Algorithm 1 PCGrad Update Rule
+Require: Model parameters θ, task minibatch B =
+{Tk}
+1: gk ←∇θLk(θ) ∀k
+2: gPC
+k ←gk ∀k
+3: for Ti ∈B do
+4:
+for Tj
+uniformly
+∼
+B \ Ti in random order do
+5:
+if gPC
+i
+· gj < 0 then
+6:
+// Subtract the projection of gPC
+i
+onto gj
+7:
+Set gPC
+i
+= gPC
+i
+−
+gPC
+i ·gj
+∥gj∥2 gj
+8: return update ∆θ = gPC = P
+i gPC
+i
+Figure 2: Conﬂicting gradients and PCGrad. In (a),
+tasks i and j have conﬂicting gradient directions, which
+can lead to destructive interference. In (b) and (c), we
+illustrate the PCGrad algorithm in the case where gradi-
+ents are conﬂicting. PCGrad projects task i’s gradient
+onto the normal vector of task j’s gradient, and vice
+versa. Non-conﬂicting task gradients (d) are not altered
+under PCGrad, allowing for constructive interaction.
+Suppose the gradient for task Ti is gi, and the gradient for task Tj is gj. PCGrad proceeds as follows:
+(1) First, it determines whether gi conﬂicts with gj by computing the cosine similarity between
+vectors gi and gj, where negative values indicate conﬂicting gradients. (2) If the cosine similarity
+is negative, we replace gi by its projection onto the normal plane of gj: gi = gi −gi·gj
+∥gj∥2 gj. If the
+gradients are not in conﬂict, i.e. cosine similarity is non-negative, the original gradient gi remains
+unaltered. (3) PCGrad repeats this process across all of the other tasks sampled in random order from
+the current batch Tj ∀j̸ = i, resulting in the gradient gPC
+i
+that is applied for task Ti. We perform
+the same procedure for all tasks in the batch to obtain their respective gradients. The full update
+procedure is described in Algorithm 1 and a discussion on using a random task order is included in
+Appendix H.
+This procedure, while simple to implement, ensures that the gradients that we apply for each task
+per batch interfere minimally with the other tasks in the batch, mitigating the conﬂicting gradient
+problem, producing a variant on standard ﬁrst-order gradient descent in the multi-objective setting.
+In practice, PCGrad can be combined with any gradient-based optimizer, including commonly used
+methods such as SGD with momentum and Adam [30], by simply passing the computed update to the
+respective optimizer instead of the original gradient. Our experimental results verify the hypothesis
+that this procedure reduces the problem of conﬂicting gradients, and ﬁnd that, as a result, learning
+progress is substantially improved.
+2.4
+Theoretical Analysis of PCGrad
+In this section, we theoretically analyze the performance of PCGrad with two tasks:
+Deﬁnition 4. Consider two task loss functions L1 : Rn →R and L2 : Rn →R. We deﬁne
+the two-task learning objective as L(θ) = L1(θ) + L2(θ) for all θ ∈Rn, where g1 = ∇L1(θ),
+g2 = ∇L2(θ), and g = g1 + g2.
+We ﬁrst aim to verify that the PCGrad update corresponds to a sensible optimization procedure under
+simplifying assumptions. We analyze convergence of PCGrad in the convex setting, under standard
+assumptions in Theorem 1. For additional analysis on convergence, including the non-convex setting,
+with more than two tasks, and with momentum-based optimizers, see Appendices A.1 and A.4
+Theorem 1. Assume L1 and L2 are convex and differentiable. Suppose the gradient of L is L-
+Lipschitz with L > 0. Then, the PCGrad update rule with step size t ≤1
+L will converge to either (1)
+a location in the optimization landscape where cos(φ12) = −1 or (2) the optimal value L(θ∗).
+Proof. See Appendix A.1.
+Theorem 1 states that application of the PCGrad update in the two-task setting with a convex and
+Lipschitz multi-task loss function L leads to convergence to either the minimizer of L or a potentially
+sub-optimal objective value. A sub-optimal solution occurs when the cosine similarity between the
+gradients of the two tasks is exactly −1, i.e. the gradients directly conﬂict, leading to zero gradient
+after applying PCGrad. However, in practice, since we are using SGD, which is a noisy estimate
+of the true batch gradients, the cosine similarity between the gradients of two tasks in a minibatch
+is unlikely to be −1, thus avoiding this scenario. Note that, in theory, convergence may be slow if
+cos(φ12) hovers near −1. However, we don’t observe this in practice, as seen in the objective-wise
+learning curves in Appendix B.
+4
+
+Now that we have checked the sensibility of PCGrad, we aim to understand how PCGrad relates to
+the three conditions in the tragic triad. In particular, we derive sufﬁcient conditions under which
+PCGrad achieves lower loss after one update. Here, we still analyze the two task setting, but no
+longer assume convexity of the loss functions.
+Deﬁnition 5. We deﬁne the multi-task curvature bounding measure ξ(g1, g2)
+=
+(1 −
+cos2 φ12) ∥g1−g2∥2
+2
+∥g1+g2∥2
+2 .
+With the above deﬁnition, we present our next theorem:
+Theorem 2. Suppose L is differentiable and the gradient of L is Lipschitz continuous with constant
+L > 0. Let θMT and θPCGrad be the parameters after applying one update to θ with g and PCGrad-
+modiﬁed gradient gPC respectively, with step size t > 0. Moreover, assume H(L; θ, θMT) ≥ℓ∥g∥2
+2
+for some constant ℓ≤L, i.e. the multi-task curvature is lower-bounded. Then L(θPCGrad) ≤L(θMT)
+if (a) cos φ12 ≤−Φ(g1, g2), (b) ℓ≥ξ(g1, g2)L, and (c) t ≥
+2
+ℓ−ξ(g1,g2)L.
+Proof. See Appendix A.2.
+Intuitively, Theorem 2 implies that PCGrad achieves lower loss value after a single gradient update
+compared to standard gradient descent in multi-task learning when (i) the angle between task gradients
+is not too small, i.e. the two tasks need to conﬂict sufﬁciently (condition (a)), (ii) the difference
+in magnitude needs to be sufﬁciently large (condition (a)), (iii) the curvature of the multi-task
+gradient should be large (condition (b)), (iv) and the learning rate should be big enough so that
+large curvature would lead to overestimation of performance improvement on the dominating task
+and underestimation of performance degradation on the dominated task (condition (c)). These ﬁrst
+three points (i-iii) correspond to exactly the triad of conditions outlined in Section 2.2, while the
+latter condition (iv) is desirable as we hope to learn quickly. We empirically validate that the ﬁrst
+three points, (i-iii), are frequently met in a neural network multi-task learning problem in Figure 4 in
+Section 5.3. For additional analysis, including complete sufﬁcient and necessary conditions for the
+PCGrad update to outperform the vanilla multi-task gradient, see Appendix A.3.
+3
+PCGrad in Practice
+We use PCGrad in supervised learning and reinforcement learning problems with multiple tasks or
+goals. Here, we discuss the practical application of PCGrad to those settings.
+In multi-task supervised learning, each task Ti ∼p(T ) has a corresponding training dataset Di
+consisting of labeled training examples, i.e. Di = {(x, y)n}. The objective for each task in this
+supervised setting is then deﬁned as Li(θ) = E(x,y)∼Di [−log fθ(y|x, zi)], where zi is a one-hot
+encoding of task Ti. At each training step, we randomly sample a batch of data points B from the whole
+dataset S
+i Di and then group the sampled data with the same task encoding into small batches denoted
+as Bi for each Ti represented in B. We denote the set of tasks appearing in B as BT . After sampling,
+we precompute the gradient of each task in BT as ∇θLi(θ) = E(x,y)∼Bi [−∇θ log fθ(y|x, zi)] .
+Given the set of precomputed gradients ∇θLi(θ), we also precompute the cosine similarity between
+all pairs of the gradients in the set. Using the pre-computed gradients and their similarities, we
+can obtain the PCGrad update by following Algorithm 1, without re-computing task gradients nor
+backpropagating into the network. Since the PCGrad procedure is only modifying the gradients of
+shared parameters in the optimization step, it is model-agnostic and can be applied to any architecture
+with shared parameters. We empirically validate PCGrad with multiple architectures in Section 5.
+For multi-task RL and goal-conditioned RL, PCGrad can be readily applied to policy gradient methods
+by directly updating the computed policy gradient of each task, following Algorithm 1, analogous to
+the supervised learning setting. For actor-critic algorithms, it is also straightforward to apply PCGrad:
+we simply replace task gradients for both the actor and the critic by their gradients computed via
+PCGrad. For more details on the practical implementation for RL, see Appendix C.
+4
+Related Work
+Algorithms for multi-task learning typically consider how to train a single model that can solve a
+variety of different tasks [6, 2, 49]. The multi-task formulation has been applied to many different
+settings, including supervised learning [63, 35, 60, 53, 62] and reinforcement-learning [17, 58], as
+well as many different domains, such as vision [3, 39, 31, 33, 62], language [11, 15, 38, 44] and
+robotics [45, 59, 25]. While multi-task learning has the promise of accelerating acquisition of large
+5
+
+task repertoires, in practice it presents a challenging optimization problem, which has been tackled in
+several ways in prior work.
+A number of architectural solutions have been proposed to the multi-task learning problem based
+on multiple modules or paths [19, 14, 40, 51, 46, 57, 46], or using attention-based architectures [33,
+37]. Our work is agnostic to the model architecture and can be combined with prior architectural
+approaches in a complementary fashion. A different set of multi-task learning approaches aim to
+decompose the problem into multiple local problems, often corresponding to each task, that are
+signiﬁcantly easier to learn, akin to divide and conquer algorithms [32, 50, 42, 56, 21, 13]. Eventually,
+the local models are combined into a single, multi-task policy using different distillation techniques
+(outlined in [27, 13]). In contrast to these methods, we propose a simple and cogent scheme for
+multi-task learning that allows us to learn the tasks simultaneously using a single, shared model
+without the need for network distillation.
+Similarly to our work, a number of prior approaches have observed the difﬁculty of optimization in
+multi-task learning [26, 29, 52, 55]. Our work suggests that the challenge in multi-task learning may
+be attributed to what we describe as the tragic triad of multi-task learning (i.e., conﬂicting gradients,
+high curvature, and large gradient differences), which we address directly by introducing a simple and
+practical algorithm that deconﬂicts gradients from different tasks. Prior works combat optimization
+challenges by rescaling task gradients [53, 9]. We alter both the magnitude and direction of the
+gradient, which we ﬁnd to be critical for good performance (see Fig. 3). Prior work has also used
+the cosine similarity between gradients to deﬁne when an auxiliary task might be useful [16] or
+when two tasks are related [55]. We similarly use cosine similarity between gradients to determine
+if the gradients between a pair of tasks are in conﬂict. Unlike Du et al. [16], we use this measure
+for effective multi-task learning, instead of ignoring auxiliary objectives. Overall, we empirically
+compare our approach to a number of these prior approaches [53, 9, 55], and observe superior
+performance with PCGrad.
+Multiple approaches to continual learning have studied how to prevent gradient updates from adversely
+affecting previously-learned tasks through various forms of gradient projection [36, 7, 18, 23]. These
+methods focus on sequential learning settings, and solve for the gradient projections using quadratic
+programming [36], only project onto the normal plane of the average gradient of past tasks [7], or
+project the current task gradients onto the orthonormal set of previous task gradients [18]. In contrast,
+our work focuses on positive transfer when simultaneously learning multiple tasks, does not require
+solving a QP, and iteratively projects the gradients of each task instead of averaging or only projecting
+the current task gradient. Finally, our method is distinct from and solves a different problem than
+the projected gradient method [5], which is an approach for constrained optimization that projects
+gradients onto the constraint manifold.
+5
+Experiments
+The goal of our experiments is to study the following questions: (1) Does PCGrad make the optimiza-
+tion problems easier for various multi-task learning problems including supervised, reinforcement,
+and goal-conditioned reinforcement learning settings across different task families? (2) Can PCGrad
+be combined with other multi-task learning approaches to further improve performance? (3) Is the
+tragic triad of multi-task learning a major factor in making optimization for multi-task learning
+challenging? To broadly evaluate PCGrad, we consider multi-task supervised learning, multi-task RL,
+and goal-conditioned RL problems. We include the results on goal-conditioned RL in Appendix F.
+During our evaluation, we tune the parameters of the baselines independently, ensuring that all
+methods were fairly provided with equal model and training capacity. PCGrad inherits the hyperpa-
+rameters of the respective baseline method in all experiments, and has no additional hyperparameters.
+For more details on the experimental set-up and model architectures, see Appendix J. The code is
+available online1.
+5.1
+Multi-Task Supervised Learning
+To answer question (1) in the supervised learning setting and question (2), we perform experiments on
+ﬁve standard multi-task supervised learning datasets: MultiMNIST, CityScapes, CelebA, multi-task
+CIFAR-100 and NYUv2. We include the results on MultiMNIST and CityScapes in Appendix E.
+1Code is released at https://github.com/tianheyu927/PCGrad
+6
+
+#P.
+Architecture
+Weighting
+Segmentation
+Depth
+Surface Normal
+(Higher Better)
+(Lower Better)
+Angle Distance
+Within t◦
+(Lower Better)
+(Higher Better)
+mIoU
+Pix Acc
+Abs Err
+Rel Err
+Mean
+Median
+11.25
+22.5
+30
+Equal Weights
+14.71
+50.23
+0.6481
+0.2871
+33.56
+28.58
+20.08
+40.54
+51.97
+≈3
+Cross-Stitch‡
+Uncert. Weights∗
+15.69
+52.60
+0.6277
+0.2702
+32.69
+27.26
+21.63
+42.84
+54.45
+DWA†, T = 2
+16.11
+53.19
+0.5922
+0.2611
+32.34
+26.91
+21.81
+43.14
+54.92
+Equal Weights
+17.72
+55.32
+0.5906
+0.2577
+31.44
+25.37
+23.17
+45.65
+57.48
+1.77
+MTAN†
+Uncert. Weights∗
+17.67
+55.61
+0.5927
+0.2592
+31.25
+25.57
+22.99
+45.83
+57.67
+DWA†, T = 2
+17.15
+54.97
+0.5956
+0.2569
+31.60
+25.46
+22.48
+44.86
+57.24
+1.77
+MTAN†+ PCGrad (ours)
+Uncert. Weights∗
+20.17
+56.65
+0.5904
+0.2467
+30.01
+24.83
+22.28
+46.12
+58.77
+Table 1: Three-task learning on the NYUv2 dataset: 13-class semantic segmentation, depth estimation, and
+surface normal prediction results. #P shows the total number of network parameters. We highlight the best
+performing combination of multi-task architecture and weighting in bold. The top validation scores for each task
+are annotated with boxes. The symbols indicate prior methods: ∗: [28], †: [33], ‡: [40]. Performance of other
+methods as reported in Liu et al. [33].
+% accuracy
+task speciﬁc, 1-fc [46]
+42
+task speciﬁc, all-fc [46]
+49
+cross stitch, all-fc [40]
+53
+routing, all-fc + WPL [47]
+74.7
+independent
+67.7
+PCGrad (ours)
+71
+routing-all-fc + WPL + PCGrad (ours)
+77.5
+Table 2: CIFAR-100 multi-task results. When com-
+bined with routing networks, PCGrad leads to a large
+improvement.
+For CIFAR-100, we follow Rosenbaum et al.
+[46] to treat 20 coarse labels in the dataset as
+distinct tasks, creating a dataset with 20 tasks,
+with 2500 training instances and 500 test in-
+stances per task. We combine PCGrad with a
+powerful multi-task learning architecture, rout-
+ing networks [46, 47], by applying PCGrad only
+to the shared parameters. For the details of this
+comparison, see Appendix J.1. As shown in
+Table 2, applying PCGrad to a single network
+achieves 71% classiﬁcation accuracy, which out-
+performs most of the prior methods such as
+cross-stitch [40] and independent training, sug-
+gesting that sharing representations across tasks is conducive for good performance. While routing
+networks achieve better performance than PCGrad on its own, they are complementary: combining
+PCGrad with routing networks leads to a 2.8% absolute improvement in test accuracy.
+We also aim to use PCGrad to tackle a multi-label classﬁcation problem, which is a commonly
+used benchmark for multi-task learning. In multi-label classiﬁcation, given a set of attributes, the
+model needs to decide whether each attribute describes the input. Hence, it is essentially a binary
+classiﬁcation problem for each attribute. We choose the CelebA dataset [34], which consists of 200K
+face images with 40 attributes. Since for each attribution, it is a binary classﬁcation problem and thus
+we convert it to a 40-way multi-task learning problem following [53]. We use the same architecture
+as in [53].
+We use the binary classiﬁcation error averaged across all 40 tasks to evaluate the performance as
+in [53]. Similar to the MultiMNIST results, we compare PCGrad to Sener and Koltun [53] by
+rerunning the open-sourced code provided in [53]. As shown in Table 3, PCGrad outperforms Sener
+and Koltun [53], suggesting that PCGrad is effective in multi-label classiﬁcation and can also improve
+multi-task supervised learning performance when the number of tasks is high.
+average classiﬁcation error
+Sener and Koltun [53]
+8.95
+PCGrad (ours)
+8.69
+Table 3: CelebA results. We show the average classiﬁcation error across all 40 tasks in CelebA. PCGrad
+outperforms the prior method Sener and Koltun [53] in this dataset.
+Finally, we combine PCGrad with another state-of-art multi-task learning algorithm, MTAN [33],
+and evaluate the performance on a more challenging indoor scene dataset, NYUv2, which contains 3
+tasks: 13-class semantic segmentation, depth estimation, and surface normal prediction. We compare
+MTAN with PCGrad to a list of methods mentioned in Appendix J.1, where each method is trained
+with three different weighting schemes as in [33], equal weighting, weight uncertainty [28], and
+DWA [33]. We only run MTAN with PCGrad with weight uncertainty as we ﬁnd weight uncertainty
+7
+
+Figure 3: For the two plots on the left, we show learning curves on MT10 and MT50 respectively. PCGrad
+signiﬁcantly outperforms the other methods in terms of both success rates and data efﬁciency. In the rightmost
+plot, we present the ablation study on only using the magnitude and the direction of gradients modiﬁed by
+PCGrad and a comparison to GradNorm [8]. PCGrad outperforms both ablations and GradNorm, indicating the
+importance of modifying both the gradient directions and magnitudes in multi-task learning.
+as the most effective scheme for training MTAN. The results comparing Cross-Stitch, MTAN and
+MTAN + PCGrad are presented in Table 1 while the full comparison can be found in Table 8 in the
+Appendix J.4. MTAN with PCGrad is able to achieve the best scores in 8 out of the 9 categories
+where there are 3 categories per task.
+Our multi-task supervised learning results indicate that PCGrad can be seamlessly combined with
+state-of-art multi-task learning architectures and further improve their results on established super-
+vised multi-task learning benchmarks. We include more results of PCGrad combined with more
+multi-task learning architectures in Appendix I.
+5.2
+Multi-Task Reinforcement Learning
+To answer question (2) in the RL setting, we ﬁrst consider the multi-task RL problem and evaluate our
+algorithm on the recently proposed Meta-World benchmark [61]. In particular, we test all methods
+on the MT10 and MT50 benchmarks in Meta-World, which contain 10 and 50 manipulation tasks
+respectively shown in Figure 10. in Appendix J.2.
+The results are shown in left two plots in Figure 3. PCGrad combined with SAC learns all tasks
+with the best data efﬁciency and successfully solves all of the 10 tasks in MT10 and about 70% of
+the 50 tasks in MT50. Training a single SAC policy and a multi-head policy is unable to acquire
+half of the skills in both MT10 and MT50, suggesting that eliminating gradient interference across
+tasks can signiﬁcantly boost performance of multi-task RL. Training independent SAC agents is able
+to eventually solve all tasks in MT10 and 70% of the tasks in MT50, but requires about 2 millions
+and 15 millions more samples than PCGrad with SAC in MT10 and MT50 respectively, implying
+that applying PCGrad can result in leveraging shared structure among tasks that expedites multi-task
+learning. As noted by Yu et al. [61], these tasks involve distinct behavior motions, which makes
+learning all tasks with a single policy challenging as demonstrated by poor baseline performance.
+The ability to learn these tasks together opens the door for a number of interesting extensions to
+meta-learning and generalization to novel task families.
+Since the PCGrad update affects both the gradient direction and the gradient magnitude, we perform
+an ablation study that tests two variants of PCGrad: (1) only applying the gradient direction corrected
+with PCGrad while keeping the gradient magnitude unchanged and (2) only applying the gradient
+magnitude computed by PCGrad while keeping the gradient direction unchanged. We further run a
+direction comparison to GradNorm [8], which also scales only the magnitudes of the task gradients.
+As shown in the rightmost plot in Figure 3, both variants and GradNorm perform worse than PCGrad
+and the variant where we only vary the gradient magnitude is much worse than PCGrad. This
+emphasizes the importance of the orientation change, which is particularly notable as multiple prior
+works only alter gradient magnitudes [8, 53]. We also notice that the variant of PCGrad where only
+the gradient magnitudes change achieves comparable performance to GradNorm, which suggests that
+it is important to modify both the gradient directions and magnitudes to eliminate interference and
+achieve good multi-task learning results. Finally, to test the importance of keeping positive cosine
+similarities between tasks for positive transfer, we compare PCGrad to a recently proposed method
+in [55] that regularizes cosine similarities of different task gradients towards 0. PCGrad outperforms
+Suteu and Guo [55] by a large margin. We leave details of the comparison to Appendix G.
+8
+
+Figure 4: An empirical analysis of the theoretical conditions discussed in Theorem 2, showing the ﬁrst 100
+iterations of training on two RL tasks, reach and press button top. Left: The estimated value of the multi-task
+curvature. We observe high multi-task curvatures exist throughout training, providing evidence for condition (b)
+in Theorem 2. Middle: The solid lines show the percentage gradients with positive cosine similarity between
+two task gradients, while the dotted lines and dashed lines show the percentage of iterations in which condition
+(a) and the implication of condition (b) (ξ(g1, g2) ≤1) in Theorem 2 are held respectively, among iterations
+when the cosine similarity is negative. Right: The average return of each task achieved by SAC and SAC
+combined with PCGrad. From the plots in the Middle and on the Right, we can tell that condition (a) holds
+most of the time for both Adam and Adam combined with PCGrad when they haven’t solved Task 2 and as soon
+as Adam combined PCGrad starts to learn Task 2, the percentage of condition (a) held starts to decline. This
+observation suggests that condition (a) is a key factor for PCGrad excelling in multi-task learning.
+5.3
+Empirical Analysis of the Tragic Triad
+Finally, to answer question (1), we compare the performance of standard multi-task SAC and the
+multi-task SAC with PCGrad. We evaluate each method on two tasks, reach and press button top,
+in the Meta-World [61] benchmark. As shown in the leftmost plot in Figure 4, we plot the multi-
+task curvature, which is computed as H(L; θt,θt+1)=2·
+
+L(θt+1)−L(θt)−∇θtL(θt)T(θt+1−θt)
+
+by
+Taylor’s Theorem where L is the multi-task loss, and θt and θt+1 are the parameters at iteration
+t and t + 1. During the training process, the multi-task curvature stays positive and is increasing
+for both Adam and Adam combined PCGrad, suggesting that condition (b) in Theorem 2 that the
+multi-task curvature is lower bounded by some positive value is widely held empirically. To further
+analyze conditions in Theorem 2 empirically, we plot the percentage of condition (a) (i.e. conﬂicting
+gradients) and the implication of condition (b) (ξ(g1, g2) ≤1) in Theorem 2 being held among the
+total number of iterations where the cosine similarity is negative in the plot in the middle of Figure 4.
+Along with the plot on the right in Figure 4, which presents the average return of the two tasks during
+training, we can see that while Adam and Adam with PCGrad haven’t received reward signal from
+Task 2, condition (a) and the implication of condition (b) stay held and as soon as Adam with PCGrad
+begins to solve Task 2, the percentage of condition (a) and the implication of condition (b) being held
+start to decrease. Such a pattern suggests that conﬂicting gradients, high curvatures and dominating
+gradients indeed produce considerable challenges in optimization before multi-task learner gains any
+useful learning signal, which also implies that the tragic triad may indeed be the determining factor
+where PCGrad can lead to better performance gain over standard multi-task learning in practice.
+6
+Conclusion
+In this work, we identiﬁed a set of conditions that underlies major challenges in multi-task optimiza-
+tion: conﬂicting gradients, high positive curvature, and large gradient differences. We proposed a
+simple algorithm (PCGrad) to mitigate these challenges via “gradient surgery.” PCGrad provides
+a simple solution to mitigating gradient interference, which substantially improves optimization
+performance. We provide simple didactic examples and subsequently show signiﬁcant improvement
+in optimization for a variety of multi-task supervised learning and reinforcement learning problems.
+We show that, when some optimization challenges of multi-task learning are alleviated by PCGrad,
+we can obtain hypothesized beneﬁts in efﬁciency and asymptotic performance of multi-task settings.
+While we studied multi-task supervised learning and multi-task reinforcement learning in this work,
+we suspect the problem of conﬂicting gradients to be prevalent in a range of other settings and
+applications, such as meta-learning, continual learning, multi-goal imitation learning [10], and
+multi-task problems in natural language processing applications [38]. Due to its simplicity and
+model-agnostic nature, we expect that applying PCGrad in these domains to be a promising avenue
+for future investigation. Further, the general idea of gradient surgery may be an important ingredient
+for alleviating a broader class of optimization challenges in deep learning, such as the challenges in
+the stability challenges in two-player games [48] and multi-agent optimizations [41]. We believe this
+work to be a step towards simple yet general techniques for addressing some of these challenges.
+9
+
+Broader Impact
+Applications and Beneﬁts.
+Despite recent success, current deep learning and deep RL methods
+mostly focus on tackling a single speciﬁc task from scratch. Prior methods have proposed methods
+that can perform multiple tasks, but they often yield comparable or even higher data complexity
+compared to learning each task individually. Our method enables deep learning systems that mitigate
+inferences between differing tasks and thus achieves data-efﬁcient multi-task learning. Since our
+method is general and simple to apply to various problems, there are many possible real-world
+applications, including but not limited to computer vision systems, autonomous driving, and robotics.
+For computer vision systems, our method can be used to develop algorithms that enable efﬁcient
+classiﬁcation, instance and semantics segmentation and object detection at the same time, which
+could improve performances of computer vision systems by reusing features obtained from each task
+and lead to a leap in real-world domains such as autonomous driving. For robotics, there are many
+situations where multi-task learning is needed. For example, surgical robots are required to perform a
+wide range of tasks such as stitching and removing tumour from the patient’s body. Kitchen robots
+should be able to complete multiple chores such as cooking and washing dishes at the same time.
+Hence, our work represents a step towards making multi-task reinforcement learning more applicable
+to those settings.
+Risks.
+However, there are potential risks that apply to all machine learning and reinforcement
+learning systems including ours, including but not limited to safety, reward speciﬁcation in RL
+which is often difﬁcult to acquire in the real world, bias in supervised learning systems due to the
+composition of training data, and compute/data-intensive training procedures. For example, safety
+issues arise when autonomous driving cars fail to generalize to out-of-distribution data, which leads
+to crashing or even hurting people. Moreover, reward speciﬁcation in RL is generally inaccessible in
+the real world, making RL unable to scale to real robots. In supervised learning domains, learned
+models could inherit the bias that exists in the training dataset. Furthermore, training procedures of
+ML models are generally compute/data-intensive, which cause inequitable access to these models.
+Our method is not immune to these risks. Hence, we encourage future research to design more robust
+and safe multi-task RL algorithms that can prevent unsafe behaviors. It is also important to push
+research in self-supervised and unsupervised multi-task RL in order to resolve the issue of reward
+speciﬁcation. For supervised learning, we recommend researchers to publish their trained multi-task
+learning models to make access to those models equitable to everyone in ﬁeld and develop new
+datasets that can mitigate biases and also be readily used in multi-task learning.
+Acknowledgments and Disclosure of Funding
+The authors would like to thank Annie Xie for reviewing an earlier draft of the paper, Eric Mitchell
+for technical guidance, and Aravind Rajeswaran and Deirdre Quillen for helpful discussions. Tianhe
+Yu is partially supported by Intel Corporation. Saurabh Kumar is supported by an NSF Graduate
+Research Fellowship and the Stanford Knight Hennessy Fellowship. Abhishek Gupta is supported by
+an NSF Graduate Research Fellowship. Chelsea Finn is a CIFAR Fellow in the Learning in Machines
+and Brains program.
+References
+[1] Vijay Badrinarayanan, Alex Kendall, and Roberto Cipolla. Segnet: A deep convolutional
+encoder-decoder architecture for image segmentation. IEEE transactions on pattern analysis
+and machine intelligence, 39(12), 2017.
+[2] Bart Bakker and Tom Heskes. Task clustering and gating for bayesian multitask learning. J.
+Mach. Learn. Res., 2003.
+[3] Hakan Bilen and Andrea Vedaldi. Integrated perception with recurrent multi-task neural
+networks. In Advances in Neural Information Processing Systems, 2016.
+[4] Stephen Boyd and Lieven Vandenberghe. Convex optimization. Cambridge university press,
+2004.
+[5] Paul H Calamai and Jorge J Mor´e. Projected gradient methods for linearly constrained problems.
+Mathematical programming, 39(1), 1987.
+[6] Rich Caruana. Multitask learning. Machine Learning, 1997.
+10
+
+[7] Arslan Chaudhry, Marc’Aurelio Ranzato, Marcus Rohrbach, and Mohamed Elhoseiny. Efﬁcient
+lifelong learning with a-gem. arXiv:1812.00420, 2018.
+[8] Zhao Chen, Vijay Badrinarayanan, Chen-Yu Lee, and Andrew Rabinovich. Gradnorm: Gradient
+normalization for adaptive loss balancing in deep multitask networks. arXiv:1711.02257, 2017.
+[9] Zhao Chen, Vijay Badrinarayanan, Chen-Yu Lee, and Andrew Rabinovich. Gradnorm: Gra-
+dient normalization for adaptive loss balancing in deep multitask networks. In International
+Conference on Machine Learning, 2018.
+[10] Felipe Codevilla, Matthias Miiller, Antonio L´opez, Vladlen Koltun, and Alexey Dosovitskiy.
+End-to-end driving via conditional imitation learning. In International Conference on Robotics
+and Automation (ICRA), 2018.
+[11] Ronan Collobert and Jason Weston. A uniﬁed architecture for natural language processing: Deep
+neural networks with multitask learning. In International Conference on Machine Learning,
+2008.
+[12] Marius Cordts, Mohamed Omran, Sebastian Ramos, Timo Rehfeld, Markus Enzweiler, Rodrigo
+Benenson, Uwe Franke, Stefan Roth, and Bernt Schiele. The cityscapes dataset for semantic
+urban scene understanding. In Proceedings of the IEEE conference on computer vision and
+pattern recognition, pages 3213–3223, 2016.
+[13] Wojciech M. Czarnecki, Razvan Pascanu, Simon Osindero, Siddhant M. Jayakumar, Grzegorz
+Swirszcz, and Max Jaderberg. Distilling policy distillation. In International Conference on
+Artiﬁcial Intelligence and Statistics, AISTATS, 2019.
+[14] Coline Devin, Abhishek Gupta, Trevor Darrell, Pieter Abbeel, and Sergey Levine. Learning
+modular neural network policies for multi-task and multi-robot transfer. CoRR, abs/1609.07088,
+2016.
+[15] Daxiang Dong, Hua Wu, Wei He, Dianhai Yu, and Haifeng Wang. Multi-task learning for multi-
+ple language translation. In Annual Meeting of the Association for Computational Linguistics
+and the 7th International Joint Conference on Natural Language Processing (Volume 1: Long
+Papers), 2015.
+[16] Yunshu Du, Wojciech M. Czarnecki, Siddhant M. Jayakumar, Razvan Pascanu, and Balaji
+Lakshminarayanan. Adapting auxiliary losses using gradient similarity. CoRR, abs/1812.02224,
+2018.
+[17] Lasse Espeholt, Hubert Soyer, R´emi Munos, Karen Simonyan, Volodymyr Mnih, Tom Ward,
+Yotam Doron, Vlad Firoiu, Tim Harley, Iain Dunning, Shane Legg, and Koray Kavukcuoglu.
+IMPALA: scalable distributed deep-rl with importance weighted actor-learner architectures. In
+International Conference on Machine Learning, 2018.
+[18] Mehrdad Farajtabar, Navid Azizan, Alex Mott, and Ang Li. Orthogonal gradient descent for
+continual learning. arXiv preprint arXiv:1910.07104, 2019.
+[19] Chrisantha Fernando, Dylan Banarse, Charles Blundell, Yori Zwols, David Ha, Andrei A. Rusu,
+Alexander Pritzel, and Daan Wierstra. Pathnet: Evolution channels gradient descent in super
+neural networks. CoRR, abs/1701.08734, 2017. URL http://arxiv.org/abs/1701.
+08734.
+[20] William Fulton. Eigenvalues, invariant factors, highest weights, and schubert calculus. Bulletin
+of the American Mathematical Society, 37(3):209–249, 2000.
+[21] Dibya Ghosh, Avi Singh, Aravind Rajeswaran, Vikash Kumar, and Sergey Levine. Divide-and-
+conquer reinforcement learning. CoRR, abs/1711.09874, 2017.
+[22] Ian J Goodfellow, Oriol Vinyals, and Andrew M Saxe. Qualitatively characterizing neural
+network optimization problems. arXiv:1412.6544, 2014.
+[23] Yunhui Guo, Mingrui Liu, Tianbao Yang, and Tajana Rosing. Improved schemes for episodic
+memory-based lifelong learning, 2020.
+[24] Tuomas Haarnoja, Aurick Zhou, Pieter Abbeel, and Sergey Levine. Soft actor-critic: Off-policy
+maximum entropy deep reinforcement learning with a stochastic actor. International Conference
+on Machine Learning, 2018.
+[25] Karol Hausman, Jost Tobias Springenberg, Ziyu Wang, Nicolas Heess, and Martin Riedmiller.
+Learning an embedding space for transferable robot skills. 2018.
+11
+
+[26] Matteo Hessel, Hubert Soyer, Lasse Espeholt, Wojciech Czarnecki, Simon Schmitt, and Hado
+van Hasselt. Multi-task deep reinforcement learning with popart. In Proceedings of the AAAI
+Conference on Artiﬁcial Intelligence, volume 33, 2019.
+[27] Geoffrey Hinton, Oriol Vinyals, and Jeff Dean. Distilling the knowledge in a neural network.
+arXiv:1503.02531, 2015.
+[28] Alex Kendall, Yarin Gal, and Roberto Cipolla. Multi-task learning using uncertainty to weigh
+losses for scene geometry and semantics. In Computer Vision and Pattern Recognition, 2018.
+[29] Alex Kendall, Yarin Gal, and Roberto Cipolla. Multi-task learning using uncertainty to weigh
+losses for scene geometry and semantics. In CVPR, 2018.
+[30] Diederik P Kingma and Jimmy Ba.
+Adam:
+A method for stochastic optimization.
+arXiv:1412.6980, 2014.
+[31] Iasonas Kokkinos. Ubernet: Training a universal convolutional neural network for low-, mid-,
+and high-level vision using diverse datasets and limited memory. In Computer Vision and
+Pattern Recognition, 2017.
+[32] Sergey Levine, Chelsea Finn, Trevor Darrell, and Pieter Abbeel. End-to-end training of deep
+visuomotor policies. The Journal of Machine Learning Research, 17(1), 2016.
+[33] Shikun Liu, Edward Johns, and Andrew J. Davison. End-to-end multi-task learning with
+attention. CoRR, abs/1803.10704, 2018.
+[34] Ziwei Liu, Ping Luo, Xiaogang Wang, and Xiaoou Tang. Deep learning face attributes in
+the wild. In Proceedings of the IEEE international conference on computer vision, pages
+3730–3738, 2015.
+[35] Mingsheng Long and Jianmin Wang. Learning multiple tasks with deep relationship networks.
+arXiv:1506.02117, 2, 2015.
+[36] David Lopez-Paz and Marc’Aurelio Ranzato. Gradient episodic memory for continual learning.
+In Advances in Neural Information Processing Systems, 2017.
+[37] Kevis-Kokitsi Maninis, Ilija Radosavovic, and Iasonas Kokkinos. Attentive single-tasking of
+multiple tasks. CoRR, abs/1904.08918, 2019.
+[38] Bryan McCann, Nitish Shirish Keskar, Caiming Xiong, and Richard Socher. The natural
+language decathlon: Multitask learning as question answering. arXiv:1806.08730, 2018.
+[39] Ishan Misra, Abhinav Shrivastava, Abhinav Gupta, and Martial Hebert. Cross-stitch networks
+for multi-task learning. In Computer Vision and Pattern Recognition, 2016.
+[40] Ishan Misra, Abhinav Shrivastava, Abhinav Gupta, and Martial Hebert. Cross-stitch networks
+for multi-task learning. In Conference on Computer Vision and Pattern Recognition, CVPR,
+2016.
+[41] Angelia Nedic and Asuman Ozdaglar. Distributed subgradient methods for multi-agent opti-
+mization. IEEE Transactions on Automatic Control, 54(1), 2009.
+[42] Emilio Parisotto, Jimmy Lei Ba, and Ruslan Salakhutdinov. Actor-mimic: Deep multitask and
+transfer reinforcement learning. arXiv:1511.06342, 2015.
+[43] Boris T Polyak. Some methods of speeding up the convergence of iteration methods. USSR
+Computational Mathematics and Mathematical Physics, 4(5):1–17, 1964.
+[44] Alec Radford, Jeffrey Wu, Rewon Child, David Luan, Dario Amodei, and Ilya Sutskever.
+Language models are unsupervised multitask learners. OpenAI Blog, 1(8), 2019.
+[45] Martin Riedmiller, Roland Hafner, Thomas Lampe, Michael Neunert, Jonas Degrave, Tom
+Van de Wiele, Volodymyr Mnih, Nicolas Heess, and Jost Tobias Springenberg. Learning by
+playing-solving sparse reward tasks from scratch. arXiv:1802.10567, 2018.
+[46] Clemens Rosenbaum, Tim Klinger, and Matthew Riemer. Routing networks: Adaptive selec-
+tion of non-linear functions for multi-task learning. International Conference on Learning
+Representations (ICLR), 2018.
+[47] Clemens Rosenbaum, Ignacio Cases, Matthew Riemer, and Tim Klinger. Routing networks and
+the challenges of modular and compositional computation. arXiv:1904.12774, 2019.
+12
+
+[48] Kevin Roth, Aurelien Lucchi, Sebastian Nowozin, and Thomas Hofmann. Stabilizing training
+of generative adversarial networks through regularization. In Advances in Neural Information
+Processing Systems, 2017.
+[49] Sebastian Ruder. An overview of multi-task learning in deep neural networks. arXiv:1706.05098,
+2017.
+[50] Andrei A. Rusu, Sergio Gomez Colmenarejo, C¸ aglar G¨ulc¸ehre, Guillaume Desjardins, James
+Kirkpatrick, Razvan Pascanu, Volodymyr Mnih, Koray Kavukcuoglu, and Raia Hadsell. Policy
+distillation. In International Conference on Learning Representations, ICLR, 2016.
+[51] Andrei A Rusu, Neil C Rabinowitz, Guillaume Desjardins, Hubert Soyer, James Kirkpatrick,
+Koray Kavukcuoglu, Razvan Pascanu, and Raia Hadsell.
+Progressive neural networks.
+arXiv:1606.04671, 2016.
+[52] Tom Schaul, Diana Borsa, Joseph Modayil, and Razvan Pascanu. Ray interference: a source of
+plateaus in deep reinforcement learning. arXiv:1904.11455, 2019.
+[53] Ozan Sener and Vladlen Koltun. Multi-task learning as multi-objective optimization. In
+Advances in Neural Information Processing Systems, 2018.
+[54] Yuekai
+Sun.
+Notes
+on
+ﬁrst-order
+methods
+for
+minimizing
+smooth
+func-
+tions,
+2015.
+https://web.stanford.edu/class/msande318/notes/
+notes-first-order-smooth.pdf.
+[55] Mihai Suteu and Yike Guo. Regularizing deep multi-task networks using orthogonal gradients.
+arXiv preprint arXiv:1912.06844, 2019.
+[56] Yee Teh, Victor Bapst, Wojciech M Czarnecki, John Quan, James Kirkpatrick, Raia Hadsell,
+Nicolas Heess, and Razvan Pascanu. Distral: Robust multitask reinforcement learning. In
+Advances in Neural Information Processing Systems, 2017.
+[57] Simon Vandenhende, Bert De Brabandere, and Luc Van Gool. Branched multi-task networks:
+Deciding what layers to share. CoRR, abs/1904.02920, 2019.
+[58] Aaron Wilson, Alan Fern, Soumya Ray, and Prasad Tadepalli. Multi-task reinforcement learning:
+a hierarchical bayesian approach. In International Conference on Machine Learning, 2007.
+[59] Markus Wulfmeier, Abbas Abdolmaleki, Roland Hafner, Jost Tobias Springenberg, Michael
+Neunert, Tim Hertweck, Thomas Lampe, Noah Siegel, Nicolas Heess, and Martin Riedmiller.
+Regularized hierarchical policies for compositional transfer in robotics. arXiv:1906.11228,
+2019.
+[60] Yongxin Yang and Timothy M Hospedales. Trace norm regularised deep multi-task learning.
+arXiv:1606.04038, 2016.
+[61] Tianhe Yu, Deirdre Quillen, Zhanpeng He, Ryan Julian, Karol Hausman, Chelsea Finn, and
+Sergey Levine. Meta-world: A benchmark and evaluation for multi-task and meta-reinforcement
+learning. arXiv:1910.10897, 2019.
+[62] Amir R Zamir, Alexander Sax, William Shen, Leonidas J Guibas, Jitendra Malik, and Silvio
+Savarese. Taskonomy: Disentangling task transfer learning. In Computer Vision and Pattern
+Recognition, 2018.
+[63] Zhanpeng Zhang, Ping Luo, Chen Change Loy, and Xiaoou Tang. Facial landmark detection by
+deep multi-task learning. In European conference on computer vision. Springer, 2014.
+13
+
+Appendix
+A
+Proofs
+A.1
+Proof of Theorem 1
+Theorem 1. Assume L1 and L2 are convex and differentiable. Suppose the gradient of L is L-
+Lipschitz with L > 0. Then, the PCGrad update rule with step size t ≤1
+L will converge to either (1)
+a location in the optimization landscape where cos(φ12) = −1 or (2) the optimal value L(θ∗).
+Proof. We will use the shorthand || · || to denote the L2-norm and ∇L = ∇θL, where θ is the
+parameter vector. Following Deﬁnition 1 and 4, let g1 = ∇L1, g2 = ∇L2, g = ∇L = g1 + g2,
+and φ12 be the angle between g1 and g2.
+At each PCGrad update, we have two cases: cos(φ12) ≥0 or cos(φ12) < 0.
+If cos(φ12) ≥0, then we apply the standard gradient descent update using t ≤1
+L, which leads to a
+strict decrease in the objective function value L(θ) (since it is also convex) unless ∇L(θ) = 0, which
+occurs only when θ = θ∗[4].
+In the case that cos(φ12) < 0, we proceed as follows:
+Our assumption that ∇L is Lipschitz continuous with constant L implies that ∇2L(θ) −LI is a
+negative semi-deﬁnite matrix. Using this fact, we can perform a quadratic expansion of L around
+L(θ) and obtain the following inequality:
+L(θ+) ≤L(θ) + ∇L(θ)T (θ+ −θ) + 1
+2∇2L(θ)||θ+ −θ||2
+≤L(θ) + ∇L(θ)T (θ+ −θ) + 1
+2L||θ+ −θ||2
+Now, we can plug in the PCGrad update by letting θ+ = θ −t · (g −g1·g2
+||g1||2 g1 −g1·g2
+||g2||2 g2). We then
+get:
+L(θ+) ≤L(θ) + t · gT (−g + g1 · g2
+||g1||2 g1 + g1 · g2
+||g2||2 g2) + 1
+2Lt2||g −g1 · g2
+||g1||2 g1 −g1 · g2
+||g2||2 g2||2
+(Expanding, using the identity g = g1 + g2)
+= L(θ) + t
+
+−||g1||2 −||g2||2 + (g1 · g2)2
+||g1||2
++ (g1 · g2)2
+||g2||2
+
++ 1
+2Lt2||g1 + g2
+−g1 · g2
+||g1||2 g1 −g1 · g2
+||g2||2 g2||2
+(Expanding further and re-arranging terms)
+= L(θ) −(t −1
+2Lt2)(||g1||2 + ||g2||2 −(g1 · g2)2
+||g1||2
+−(g1 · g2)2
+||g2||2
+)
+−Lt2(g1 · g2 −
+(g1 · g2)2
+||g1||2||g2||2 g1 · g2)
+(Using the identity cos(φ12) =
+g1 · g2
+||g1||||g2||)
+= L(θ) −(t −1
+2Lt2)[(1 −cos2(φ12))||g1||2 + (1 −cos2(φ12))||g2||2]
+−Lt2(1 −cos2(φ12))||g1||||g2|| cos(φ12)
+(1)
+(Note that cos(φ12) < 0 so the ﬁnal term is non-negative)
+14
+
+Using t ≤1
+L, we know that −(1 −1
+2Lt) = 1
+2Lt −1 ≤1
+2L(1/L) −1 = −1
+2 and Lt2 ≤t.
+Plugging this into the last expression above, we can conclude the following:
+L(θ+) ≤L(θ) −1
+2t[(1 −cos2(φ12))||g1||2 + (1 −cos2(φ12))||g2||2]
+−t(1 −cos2(φ12))||g1||||g2|| cos(φ12)
+= L(θ) −1
+2t(1 −cos2(φ12))[||g1||2 + 2||g1||||g2|| cos(φ12) + ||g2||2]
+= L(θ) −1
+2t(1 −cos2(φ12))[||g1||2 + 2g1 · g2 + ||g2||2]
+= L(θ) −1
+2t(1 −cos2(φ12))||g1 + g2||2
+= L(θ) −1
+2t(1 −cos2(φ12))∥g∥2
+If cos(φ12) > −1, then 1
+2t(1 −cos2(φ12))∥g∥2 will always be positive unless g = 0. This inequality
+implies that the objective function value strictly decreases with each iteration where cos(φ12) > −1.
+Hence repeatedly applying PCGrad process can either reach the optimal value L(θ) = L(θ∗) or
+cos(φ12) = −1, in which case 1
+2t(1 −cos2(φ12))∥g∥2 = 0. Note that this result only holds when
+we choose t to be small enough, i.e. t ≤1
+L.
+Corollary 1. Assume the n objectives L1, L2, ..., Ln are convex and differentiable. Suppose the
+gradient of L is Lipschitz continuous with constant L > 0. Assume that cos(g, gPC) ≥1
+2. Then, the
+PCGrad update rule with step size t ≤1
+L will converge to either (1) a location in the optimization
+landscape where cos(gi, gj) = −1∀i, j or (2) the optimal value L(θ∗).
+Proof. Our assumption that ∇L is Lipschitz continuous with constant L implies that ∇2L(θ) −LI
+is a negative semi-deﬁnite matrix. Using this fact, we can perform a quadratic expansion of L around
+L(θ) and obtain the following inequality:
+L(θ+) ≤L(θ) + ∇L(θ)T (θ+ −θ) + 1
+2∇2L(θ)||θ+ −θ||2
+≤L(θ) + ∇L(θ)T (θ+ −θ) + 1
+2L||θ+ −θ||2
+Now, we can plug in the PCGrad update by letting θ+ = θ −t · gPC. We then get:
+L(θ+) ≤L(θ) −t · gT gPC + 1
+2Lt2||gPC||2
+(Using the assumption that cos(g, gPC) ≥1
+2.)
+≤L(θ) −1
+2t||g|| · ||gPC|| + 1
+2Lt2||gPC||2
+≤L(θ) −1
+2t||g|| · ||gPC|| + 1
+2Lt2||gPC|| · ||g||
+Note that −1
+2t||g|| · ||gPC|| + 1
+2Lt2||gPC|| · ||g|| ≤0 when t ≤1
+L. Further, when t < 1
+L, −1
+2t||g|| ·
+||gPC|| + 1
+2Lt2||gPC|| · ||g|| = 0 if and only if ||g|| = 0 or ||gPC|| = 0.
+Hence repeatedly applying PCGrad process can either reach the optimal value L(θ) = L(θ∗) or a
+location in the optimization landscape where cos(gi, gj) = −1 for all pairs of tasks i, j. Note that
+this result only holds when we choose t to be small enough, i.e. t ≤1
+L.
+Proposition 1. Assume L1 and L2 are differentiable but possibly non-convex. Suppose the gradient
+of L is Lipschitz continuous with constant L > 0. Then, the PCGrad update rule with step size t ≤1
+L
+will converge to either (1) a location in the optimization landscape where cos(φ12) = −1 or (2) ﬁnd
+a θk that is almost a stationary point.
+15
+
+Proof. Following Deﬁnition 1 and 4, let g1k = ∇L1 at iteration k, g2k = ∇L2 at iteration k, and
+gk = ∇L = g1k + g2k at iteration k, and φ12,k be the angle between g1k and g2k.
+From the proof of Theorem 1, when cos(φ12, k) < 0 we have:
+||gk||2 ≤2
+t
+L(θk−1) −L(θk)
+(1 −cos2(φ12,k)).
+Thus, we have:
+min
+0≤k≤K ||gk||2 ≤1
+K
+K−1
+X
+i=0
+||gi||2
+≤2
+Kt
+K−1
+X
+i=0
+L(θi−1) −L(θi)
+(1 −cos2(φ12,i))
+If at any iteration, cos(φ12,k) = −1, then the optimization will stop at that point. If ∀k ∈[0, K],
+cos(φ12,k) ≥α > −1, then, we have:
+min
+0≤k≤K ||gk||2 ≤
+2
+K(1 −α2)t
+K−1
+X
+i=0
+(L(θi−1) −L(θi))
+=
+2
+K(1 −α2)t(L(θ0) −L(θK))
+≤
+2
+K(1 −α2)t(L(θ0) −L∗).
+where L∗is the minimal function value.
+Note that the convergence rate of PCGrad in the non-convex setting largely depends on the value of
+α and generally how small cos(φ12,k) is on average.
+A.2
+Proof of Theorem 2
+Theorem 2. Suppose L is differentiable and the gradient of L is Lipschitz continuous with constant
+L > 0. Let θMT and θPCGrad be the parameters after applying one update to θ with g and PCGrad-
+modiﬁed gradient gPC respectively, with step size t > 0. Moreover, assume H(L; θ, θMT) ≥ℓ∥g∥2
+2
+for some constant ℓ≤L, i.e. the multi-task curvature is lower-bounded. Then L(θPCGrad) ≤L(θMT)
+if (a) cos φ12 ≤−Φ(g1, g2), (b) ℓ≥ξ(g1, g2)L, and (c) t ≥
+2
+ℓ−ξ(g1,g2)L.
+Proof. Note that θMT = θ −t · g and θPCGrad = θ −t(g −g1·g2
+||g1||2 g1 −g1·g2
+||g2||2 g2). Based on the
+condition that H(L; θ, θMT) ≥ℓ∥g∥2
+2, we ﬁrst apply Taylor’s Theorem to L(θMT) and obtain the
+following result:
+L(θMT) = L(θ) + gT (−tg) +
+Z 1
+0
+(−tg)T ∇2L(θ + a · (−tg))
+2
+(−tg)da
+≥L(θ) + gT (−tg) + t2 · 1
+2ℓ· ∥g∥2
+2
+= L(θ) −t∥g∥2
+2 + 1
+2ℓt2∥g∥2
+2
+= L(θ) + (1
+2ℓt2 −t)∥g∥2
+2
+(2)
+where the ﬁrst inequality follows from Deﬁnition 3 and the assumption H(L; θ, θMT) ≥ℓ∥g∥2
+2. From
+equation 1, we have the simpliﬁed upper bound for L(θPCGrad):
+L(θPCGrad) ≤L(θ) −(1 −cos2 φ12)[(t −1
+2Lt2) · (∥g1∥2
+2 + ∥g1∥2
+2) + Lt2∥g1∥2∥g2∥2 cos φ12]
+(3)
+16
+
+Apply Equation 2 and Equation 3 and we have the following inequality:
+L(θMT) −L(θPCGrad) ≥L(θ) + (1
+2ℓt2 −t)∥g∥2
+2 −L(θ)
++ (1 −cos2 φ12)[(t −1
+2Lt2)(∥g1∥2
+2 + ∥g2∥2
+2) + Lt2∥g1∥2∥g2∥2 cos φ12]
+= (1
+2ℓt2 −t)∥g1 + g2∥2
+2+(1 −cos2 φ12)
+
+(t −1
+2Lt2)·(∥g1∥2
+2+∥g2∥2
+2)+Lt2∥g1∥2∥g2∥2 cos φ12
+
+=
+1
+2∥g1 + g2∥2
+2ℓ−1 −cos2 φ12
+2
+(∥g1∥2
+2 + ∥g2∥2
+2 −2∥g1∥2∥g2∥2 cos φ12)L
+
+t2
+−
+ (∥g1∥2
+2 + ∥g2∥2
+2) cos2 φ12 + 2∥g1∥2∥g2∥2 cos φ12
+
+t
+=
+1
+2∥g1 + g2∥2
+2ℓ−1 −cos2 φ12
+2
+∥g1 −g2∥2
+2L
+
+t2
+−
+ (∥g1∥2
+2 + ∥g2∥2
+2) cos2 φ12 + 2∥g1∥2∥g2∥2 cos φ12
+
+t
+= t ·
+1
+2∥g1 + g2∥2
+2ℓ−1 −cos2 φ12
+2
+(∥g1 −g2∥2
+2)L
+
+t
+−
+ (∥g1∥2
+2 + ∥g2∥2
+2) cos2 φ12 + 2∥g1∥2∥g2∥2 cos φ12
+
+(4)
+Since cos φ12 ≤−Φ(g1, g2) = −2∥g1∥2∥g2∥2
+∥g1∥2
+2+∥g2∥2
+2 and ℓ≥ξ(g1, g2) = (1−cos2 φ12)(∥g1−g2∥2
+2)
+∥g1+g2∥2
+2
+L, we
+have
+1
+2∥g1 + g2∥2
+2ℓ−1 −cos2 φ12
+2
+∥g1 −g2∥2
+2L ≥0
+and
+(∥g1∥2
+2 + ∥g2∥2
+2) cos2 φ12 + 2∥g1∥2∥g2∥2 cos φ12 ≥0.
+By the condition that t ≥
+2
+ℓ−ξ(g1,g2)L =
+2
+ℓ−
+(1−cos2 φ12)∥g1−g2∥2
+2
+∥g1+g2∥2
+2
+L and monotonicity of linear func-
+tions, we have the following:
+L(θMT)−L(θPCGrad) ≥[
+1
+2∥g1+g2∥2
+2ℓ−1−cos2 φ12
+2
+·∥g1−g2∥2
+2L
+
+·
+2
+ℓ−(1−cos2 φ12)∥g1−g2∥2
+2
+∥g1+g2∥2
+2
+L
+−
+ (∥g1∥2
+2 + ∥g2∥2
+2) cos2 φ12 + 2∥g1∥2∥g2∥2 cos φ12
+
+] · t
+= [∥g1 + g2∥2
+2 ·
+
+ℓ−(1 −cos2 φ12) · ∥g1 −g2∥2
+2
+∥g1 + g2∥2
+2
+)L
+
+·
+1
+ℓ−(1−cos2 φ12)∥g1−g2∥2
+2
+∥g1+g2∥2
+2
+L
+−
+ (∥g1∥2
+2 + ∥g2∥2
+2) cos2 φ12 + 2∥g1∥2∥g2∥2 cos φ12
+
+] · t
+=
+
+∥g1 + g2∥2
+2 −
+ (∥g1∥2
+2 + ∥g2∥2
+2) cos2 φ12 + 2∥g1∥2∥g2∥2 cos φ12
+
+· t
+=
+
+∥g1∥2
+2+∥g2∥2
+2+2∥g1∥2∥g2∥2cos φ12−
+ (∥g1∥2
+2+∥g2∥2
+2) cos2φ12+2∥g1∥2∥g2∥2cos φ12
+
+· t
+= (1 −cos2 φ12)(∥g1∥2
+2 + ∥g2∥2
+2) · t
+≥0
+A.3
+PCGrad: Sufﬁcient and Necessary Conditions for Loss Improvement
+Beyond the sufﬁcient conditions shown in Theorem 2, we also present the sufﬁcient and necessary
+conditions under which PCGrad achieves lower loss after one gradient update in Theorem 3 in the
+two-task setting.
+Theorem 3. Suppose L is differentiable and the gradient of L is Lipschitz continuous with constant
+L > 0. Let θMT and θPCGrad be the parameters after applying one update to θ with g and PCGrad-
+modiﬁed gradient gPC respectively, with step size t > 0. Moreover, assume H(L; θ, θMT) ≥ℓ∥g∥2
+2
+for some constant ℓ≤L, i.e. the multi-task curvature is lower-bounded. Then L(θPCGrad) ≤L(θMT)
+if and only if
+17
+
+• −Φ(g1, g2) ≤cos φ12 < 0
+• ℓ≤ξ(g1, g2)L
+• 0 < t ≤(∥g1∥2
+2+∥g2∥2
+2) cos2 φ12+2∥g1∥2∥g2∥2 cos φ12
+1
+2 ∥g1+g2∥2
+2ℓ−1−cos2 φ12
+2
+(∥g1−g2∥2
+2)L
+or
+• cos φ12 ≤−Φ(g1, g2)
+• ℓ≥ξ(g1, g2)L
+• t ≥(∥g1∥2
+2+∥g2∥2
+2) cos2 φ12+2∥g1∥2∥g2∥2 cos φ12
+1
+2 ∥g1+g2∥2
+2ℓ−1−cos2 φ12
+2
+(∥g1−g2∥2
+2)L
+.
+Proof. To show the necessary conditions, from Equation 4, all we need is
+t · [(1
+2∥g1 + g2∥2
+2ℓ−1 −cos2 φ12
+2
+(∥g1 −g2∥2
+2)L)t
+−
+ (∥g1∥2
+2 + ∥g2∥2
+2) cos2 φ12 + 2∥g1∥2∥g2∥2 cos φ12
+
+] ≥0
+(5)
+Since t ≥0, it reduces to show
+(1
+2∥g1 + g2∥2
+2ℓ−1 −cos2 φ12
+2
+(∥g1 −g2∥2
+2)L)t
+−
+ (∥g1∥2
+2 + ∥g2∥2
+2) cos2 φ12 + 2∥g1∥2∥g2∥2 cos φ12
+
+≥0
+(6)
+For Equation 6 to hold while ensuring that t ≥0, there are two cases:
+•
+1
+2∥g1 + g2∥2
+2ℓ−(1 −cos2 φ12)(∥g1∥2
+2 + ∥g2∥2
+2)L ≥0,
+(∥g1∥2
+2 + ∥g2∥2
+2) cos2 φ12 + 2∥g1∥2∥g2∥2 cos φ12 ≥0,
+t ≥(∥g1∥2
+2+∥g2∥2
+2) cos2 φ12+2∥g1∥2∥g2∥2 cos φ12
+1
+2 ∥g1+g2∥2
+2ℓ−1−cos2 φ12
+2
+(∥g1−g2∥2
+2)L
+•
+1
+2∥g1 + g2∥2
+2ℓ−(1 −cos2 φ12)(∥g1∥2
+2 + ∥g2∥2
+2)L ≤0,
+(∥g1∥2
+2 + ∥g2∥2
+2) cos2 φ12 + 2∥g1∥2∥g2∥2 cos φ12 ≤0,
+t ≥(∥g1∥2
+2+∥g2∥2
+2) cos2 φ12+2∥g1∥2∥g2∥2 cos φ12
+1
+2 ∥g1+g2∥2
+2ℓ−1−cos2 φ12
+2
+(∥g1−g2∥2
+2)L
+, which can be simpliﬁed to
+• cos φ12 ≤−2∥g1∥2∥g2∥2
+∥g1∥2
+2+∥g2∥2
+2 = −Φ(g1, g2),
+ℓ≥(1−cos2 φ12)(∥g1∥2
+2+∥g2∥2
+2)
+∥g1+g2∥2
+2
+L = ξ(g1, g2),
+t ≥(∥g1∥2
+2+∥g2∥2
+2) cos2 φ12+2∥g1∥2∥g2∥2 cos φ12
+1
+2 ∥g1+g2∥2
+2ℓ−1−cos2 φ12
+2
+(∥g1−g2∥2
+2)L
+• −2∥g1∥2∥g2∥2
+∥g1∥2
+2+∥g2∥2
+2 = −Φ(g1, g2) ≤cos φ12 < 0,
+ℓ≤(1−cos2 φ12)(∥g1∥2
+2+∥g2∥2
+2)
+∥g1+g2∥2
+2
+L = ξ(g1, g2),
+0 < t ≤(∥g1∥2
+2+∥g2∥2
+2) cos2 φ12+2∥g1∥2∥g2∥2 cos φ12
+1
+2 ∥g1+g2∥2
+2ℓ−1−cos2 φ12
+2
+(∥g1−g2∥2
+2)L
+.
+The sufﬁcient conditions hold as we can plug the conditions to RHS of Equation 6 and achieve
+non-negative result.
+18
+
+A.4
+Convergence of PCGrad with Momentum-Based Gradient Descent
+In this subsection, we show convergence of PCGrad with momentum-based methods, which is more
+aligned with our practical implementation. In our analysis, we consider the heavy ball method [43]
+as follows:
+θk+1 ←θk −αk∇L(θk) + βk(θk −θk−1)
+where k denotes the k-th step and αk and βk are step sizes for the gradient and momentum at step k
+respectively. We now present our theorem.
+Theorem 4. Assume L1 and L2 are µ1- and µ2-strongly convex and also L1- and L2-smooth
+respectively where µ1, µ2, L1, L2 > 0. Deﬁne φk
+12 as the angle between two task gradients g1(θk)
+and g2(θk) and deﬁne Rk = ∥g1(θk)∥
+∥g2(θk)∥. Denote µk = (1 −cos φk
+12/Rk)µ1 + (1 −cos φk
+12 · Rk)µ2
+and Lk = (1 −cos φk
+12/Rk)L1 + (1 −cos φk
+12 · Rk)L2 Then, the PCGrad update rule of the heavy
+ball method with step sizes αk =
+4
+√Lk+√µk and βk = max{|1 −√αkµk|, |1 −√αkLk|}2 will
+converge linearly to either (1) a location in the optimization landscape where cos(φk
+12) = −1 or (2)
+the optimal value L(θ∗).
+Proof. We ﬁrst observe that the PCGrad-modiﬁed gradient gPC has the following identity:
+gPC = g −g1 · g2
+||g1||2 g1 −g1 · g2
+||g2||2 g2
+= (1 −g1 · g2
+||g1||2 )g1 + (1 −g1 · g2
+||g2||2 )g2
+= (1 −
+g1 · g2
+∥g1∥∥g2∥
+∥g2∥
+∥g1∥)g1 + (1 −
+g1 · g2
+∥g1∥∥g2∥
+∥g1∥
+∥g2∥)g2
+= (1 −cos φ12/R)g1 + (1 −cos φ12 · R)g2.
+(7)
+Applying Equation 7, we can write the PCGrad update rule of the heavy ball method in matrix form
+as follows:
+
+
+θk+1 −θ∗
+θk −θ∗
+
+2
+=
+
+
+θk + βk(θk −θk−1) −θ∗
+θk −θ∗
+
+−αk
+
+gPC(θk)
+0
+
+2
+=
+
+
+θk + βk(θk −θk−1) −θ∗
+θk −θ∗
+
+−αk
+
+(1 −cos φk
+12/Rk)g1(θk) + (1 −cos φk
+12 · Rk)g2(θk)
+0
+
+2
+=
+
+
+θk + βk(θk −θk−1) −θ∗
+θk −θ∗
+
+−αk
+
+(1 −cos φk
+12/Rk)∇2L1(zk) + (1 −cos φk
+12 · Rk)∇2L2(z′
+k)
+
+(θk −θ∗)
+0
+
+2
+for some zk, z′
+k on the line segment between θk and θ∗
+=
+
+
+(1 + βk)I −αkHk
+−βkI
+I
+0
+ 
+θk −θ∗
+θk−1 −θ∗
+
+2
+≤
+
+
+(1 + βk)I −αkHk
+−βkI
+I
+0
+
+2
+
+
+θk −θ∗
+θk−1 −θ∗
+
+2
+where Hk = (1 −cos φk
+12/Rk)∇2L1(zk) + (1 −cos φk
+12 · Rk)∇2L2(z′
+k).
+By strong convexity and smoothness of L1 and L2, we have the eigenvalues of ∇2L1(zk) are
+between µ1 and L1. Similarly, the eigenvalues of ∇2L2(z′
+k) are between µ2 and L2. Thus the
+eigenvalues of Hk are between µk = (1 −cos φk
+12/Rk)µ1 + (1 −cos φk
+12 · Rk)µ2 and Lk =
+(1 −cos φk
+12/Rk)L1 + (1 −cos φk
+12 · Rk)L2 [20]. Hence following Lemma 3.1 in [54], we have
+
+
+(1 + βk)I −αkHk
+−βkI
+I
+0
+
+2
+≤max{|1 −√αkµk|, |1 −
+p
+αkLk|}.
+19
+
+Thus we have
+
+
+θk+1 −θ∗
+θk −θ∗
+
+2
+≤max{|1 −√αkµk|, |1 −
+p
+αkLk|}
+
+
+θk −θ∗
+θk−1 −θ∗
+
+2
+=
+√κk −1
+√κk + 1
+
+
+θk −θ∗
+θk−1 −θ∗
+
+2
+(8)
+≤
+
+
+θk −θ∗
+θk−1 −θ∗
+
+2
+where κk = Lk
+µk and Equation 8 follows from substitution αk =
+4
+√Lk+√µk . Hence PCGrad with
+heavy ball method converges linearly if cos φk
+12̸ = −1.
+B
+Empirical Objective-Wise Evaluations of PCGrad
+In this section, we visualize the per-task training loss and validation loss curves respectively on
+NYUv2. The goal of measuring objective-wise performance is to study the convergence of PCGrad
+in practice, particularly amidst the possibility of slow convergence due to cosine similarities near -1,
+as discussed in Section 2.4.
+We show the objective-wise evaluation results on NYUv2 in Figure 5. For evaluations on NYUv2,
+PCGrad + MTAN attains similar training convergence rate compared to MTAN in three tasks in
+NYUv2 while converging faster and achieving lower validation loss in 2 out of 3 tasks. Note that in
+task 0 of the NYUv2 dataset, both methods seem to overﬁt, suggesting a better regularization scheme
+for this domain.
+In general, these results suggest that PCGrad has a regularization effect on supervised multi-task
+learning, rather than an improvement on optimization speed or convergence. We hypothesize that this
+regularization is caused by PCGrad leading to greater sharing of representations across tasks, such that
+the supervision for one task better regularizes the training of another. This regularization effect seems
+notably different from the effect of PCGrad on reinforcement learning problems, where PCGrad
+dramatically improves training performance. This suggests that multi-task supervised learning and
+multi-task reinforcement learning problems may have distinct challenges.
+Figure 5: Empirical objective-wise evaluations on NYUv2. On the top row, we show the objective-wise training
+learning curves and on the bottom row, we show the objective-wise validation learning curves. PCGrad+MTAN
+converges with a similar rate compared to MTAN in training and for validation losses, PCGrad+MTAN converges
+faster and obtains a lower ﬁnal validation loss in two out of three tasks. This result corroborate that in practice,
+PCGrad does not exhibit the potential slow convergence problem shown in Theorem 1.
+C
+Practical Details of PCGrad on Multi-Task and Goal-Conditioned
+Reinforcement Learning
+In our experiments, we apply PCGrad to the soft actor-critic (SAC) algorithm [24], an off-policy RL
+method. In SAC, we employ a Q-learning style gradient to compute the gradient of the Q-function
+20
+
+network, Qφ(s, a, zi), often known as the critic, and a reparameterization-style gradient to compute
+the gradient of the policy network πθ(a|s, zi), often known as the actor. For sampling, we instantiate
+a set of replay buffers {Di}Ti∼p(T ). Training and data collection are alternated throughout training.
+During a data collection step, we run the policy πθ on all the tasks Ti ∼p(T ) to collect an equal
+number of paths for each task and store the paths of each task Ti into the corresponding replay buffer
+Di. At each training step, we sample an equal amount of data from each replay buffer Di to form a
+stratiﬁed batch. For each task Ti ∼p(T ), the parameters of the critic θ are optimized to minimize
+the soft Bellman residual:
+J(i)
+Q (φ) = E(st,at,zi)∼Di
+
+Qφ(st, at, zi) −(r(st, at, zi) + γV ¯φ(st+1, zi))
+
+,
+(9)
+V ¯φ(st+1, zi) = Eat+1∼πθ
+
+Q ¯φ(st+1, at+1, zi) −α log πθ(at+1|st+1, zi)
+
+,
+(10)
+where γ is the discount factor, ¯φ are the delayed parameters, and α is a learnable temperature that
+automatically adjusts the weight of the entropy term. For each task Ti ∼p(T ), the parameters of the
+policy πθ are trained to minimize the following objective
+J(i)
+π (θ) = Est∼Di
+
+Eat∼πθ(at|st,zi)) [α log πθ(at|st, zi) −Qφ(st, at, zi)]
+
+.
+(11)
+We compute ∇φJ(i)
+Q (φ) and ∇θJ(i)
+π (θ) for all Ti ∼p(T ) and apply PCGrad to both following
+Algorithm 1.
+In the context of SAC speciﬁcally, we also propose to learn the temperature α for adjusting entropy of
+the policy on a per-task basis. This allows the method to control the entropy of the multi-task policy
+per-task. The motivation is that if we use a single learnable temperature for adjusting entropy of the
+multi-task policy πθ(a|s, zi), SAC may stop exploring once all easier tasks are solved, leading to poor
+performance on tasks that are harder or require more exploration. To address this issue, we propose
+to learn the temperature on a per-task basis as mentioned in Section 3, i.e. using a parametrized
+model to represent αψ(zi). This allows the method to control the entropy of πθ(a|s, zi) per-task. We
+optimize the parameters of αψ(zi) using the same constrained optimization framework as in [24].
+When applying PCGrad to goal-conditioned RL, we represent p(T ) as a distribution of goals and let zi
+be the encoding of a goal. Similar to the multi-task supervised learning setting discussed in Section 3,
+PCGrad may be combined with various architectures designed for multi-task and goal-conditioned
+RL [19, 14], where PCGrad operates on the gradients of shared parameters, leaving task-speciﬁc
+parameters untouched.
+D
+2D Optimization Landscape Details
+To produce the 2D optimization visualizations in Figure 1, we used a parameter vector θ = [θ1, θ2] ∈
+R2 and the following task loss functions:
+L1(θ) = 20 log(max(|.5θ1 + tanh(θ2)|, 0.000005))
+L2(θ) = 25 log(max(|.5θ1 −tanh(θ2) + 2|, 0.000005))
+The multi-task objective is L(θ) = L1(θ) + L2(θ). We initialized θ = [0.5, −3] and performed
+500,000 gradient updates to minimize L using the Adam optimizer with learning rate 0.001. We
+compared using Adam for each update to using Adam in conjunction with the PCGrad method
+presented in Section 2.3.
+E
+Additional Multi-Task Supervised Learning Results
+We present our multi-task supervised learning results on MultiMNIST and CityScapes here.
+MultiMNIST.
+Following the same set-up of Sener and Koltun [53], for each image, we sample a
+different one uniformly at random. Then we put one of the image on the top left and the other one on
+the bottom right. The two tasks in the multi-task learning problem are to classify the digits on the top
+left (task-L) and bottom right (task-R) respectively. We construct such 60K examples. We combine
+PCGrad with the same backbone architecture used in [53] and compare its performance to Sener and
+Koltun [53] by running the open-sourced code provided in [53]. As shown in Table 4, PCGrad results
+0.13% and 0.55% improvement over [53] in left and right digit accuracy respectively.
+21
+
+left digit
+right digit
+Sener and Koltun [53]
+96.45
+94.95
+PCGrad (ours)
+96.58
+95.50
+Table 4: MultiMNIST results. PCGrad achieves improvements over the approach by Sener and Koltun [53] in
+both left and right digit classﬁcation accuracy.
+CityScapes.
+The CityScapes dataset [12] contains 19 classes of street-view images resized to
+128×256. There are two tasks in this dataset: semantic segmentation and depth estimation. Following
+the setup in Liu et al. [33], we pair the depth estimation task with semantic segmentation using the
+coarser 7 categories instead of the ﬁner 19 classes in the original CityScapes dataset. Similar to
+NYUv2 evaluations described in Section 5, we also combine PCGrad with MTAN [33] and compare
+it to a range of methods discussed in Appendix J.1. For the combination of PCGrad and MTAN, we
+only use equal weighting as discussed in [33] as we ﬁnd it working well in practice. We present the
+results in Table 5. As shown in Table 5, PCGrad + MTAN outperforms MTAN in three out of four
+scores while obtaining the top scores in both mIoU abd pixel accuracy for the semantic segmentation
+task, suggesting the effectiveness of PCGrad on realistic image datasets. We also provide the full
+results including three different weighting schemes in Table 7 in Appendix J.4.
+#P.
+Architecture
+Segmentation
+Depth
+(Higher Better)
+(Lower Better)
+mIoU
+Pix Acc Abs Err Rel Err
+2
+One Task
+51.09
+90.69
+0.0158
+34.17
+3.04 STAN
+51.90
+90.87
+0.0145
+27.46
+1.75 Split, Wide
+50.17
+90.63
+0.0167
+44.73
+2
+Split, Deep
+49.85
+88.69
+0.0180
+43.86
+3.63 Dense
+51.91
+90.89
+0.0138
+27.21
+≈2
+Cross-Stitch [39]
+50.08
+90.33
+0.0154
+34.49
+1.65 MTAN
+53.04
+91.11
+0.0144
+33.63
+1.65 PCGrad+MTAN (Ours)
+53.59
+91.45
+0.0171
+31.34
+Table 5: We present the 7-class semantic segmentation and depth estimation results on CityScapes
+dataset. We use #P to denote the number of parameters of the network. We use box and bold text
+to highlight the method that achieves the best validation score for each task. As seen in the results,
+PCGrad+MTAN with equal weights outperforms MTAN with equal weights in three out of four
+scores while achieving the top score both scores in the segmentation task.
+F
+Goal-Conditioned Reinforcement Learning Results
+For our goal-conditioned RL evaluation, we adopt the goal-conditioned robotic pushing task with a
+Sawyer robot where the goals are represented as the concatenations of the initial positions of the puck
+to be pushed and the its goal location, both of which are uniformly sampled (details in Appendix J.3).
+We also apply the temperature adjustment strategy as discussed in Section 3 to predict the temperature
+for entropy term given the goal. We summarize the results in Figure 6. PCGrad with SAC achieves
+better performance in terms of average distance to the goal position, while the vanilla SAC agent
+is struggling to successfully accomplish the task. This suggests that PCGrad is able to ease the RL
+optimization problem also when the task distribution is continuous.
+G
+Comparison to CosReg
+We compare PCGrad to a prior method CosReg [55], which adds a regularization term to force the
+cosine similarity between gradients of two different tasks to stay 0. PCGrad achieves much better
+average success rate in MT10 benchmark as shown in Figure 7. Hence, while it’s important to reduce
+interference between tasks, it’s also crucial to keep the task gradients that enjoy positive cosine
+similarities in order to ensure sharing across tasks.
+22
+
+Figure 6: We present the goal-conditioned RL results. PCGrad outperforms vanilla SAC in terms of both
+average distance the goal and data efﬁciency.
+Figure 7: Comparison between PCGrad and CosReg [55]. PCGrad outperforms CosReg, suggesting that we
+should both reduce the interference and keep shared structure across tasks.
+H
+Ablation study on the task order
+As stated on line 4 in Algorithm 1, we sample the tasks from the batch and randomly shufﬂe the
+order of the tasks before performing the update steps in PCGrad. With random shufﬂing, we make
+PCGrad symmetric w.r.t. the task order in expectation. In Figure 8, we observe that PCGrad with a
+random task order achieves better performance between PCGrad with a ﬁxed task order in the setting
+of MT50 where the number of tasks is large and the conﬂicting gradient phenomenon is much more
+likely to happen.
+I
+Combining PCGrad with other architectures
+In this subsection, we test whether PCGrad can improve performances when combined with more
+methods. In Table 6, we ﬁnd that PCGrad does improve the performance in all four metrics of the
+three tasks on the NYUv2 dataset when combined with Cross-Stitch [39] and Dense. In Figure 9, we
+also show that PCGrad + Multi-head SAC outperforms Multi-head SAC on its own. These results
+suggest that PCGrad can be ﬂexibly combined with any multi-task learning architectures to further
+improve performance.
+23
+
+Figure 8: Ablation study on using a ﬁxed task order during PCGrad. PCGrad with a random task order does
+signiﬁcantly better PCGrad with a ﬁxed task order in MT50 benchmark.
+Method
+Segmentation
+Depth
+Surface Normal
+mIoU
+Abs Err
+Angle Distance
+Within 11.25◦
+Cross-Stitch
+15.69
+0.6277
+32.69
+21.63
+Cross-Stitch + PCGrad
+18.14
+0.5805
+31.38
+21.75
+Dense
+16.48
+0.6282
+31.68
+21.73
+Dense + PCGrad
+18.08
+0.5850
+30.17
+23.29
+Table 6: We show the performances of PCGrad combined with other methods on three-task learning on the
+NYUv2 dataset, where PCGrad further improves the results of prior multi-task learning architectures.
+J
+Experiment Details
+J.1
+Multi-Task Supervised Learning Experiment Details
+For all the multi-task supervised learning experiments, PCGrad converges within 12 hours on a
+NVIDIA TITAN RTX GPU while the vanilla models without PCGrad converge within 8 hours.
+PCGrad consumes at most 10 GB memory on GPU while the vanilla method consumes 6GB on GPU
+among all experiments.
+For our CIFAR-100 multi-task experiment, we adopt the architecture used in [47], which is a
+convolutional neural network that consists of 3 convolutional layers with 160 3 × 3 ﬁlters each layer
+and 2 fully connected layers with 320 hidden units. As for experiments on the NYUv2 dataset, we
+follow [33] to use SegNet [1] as the backbone architecture.
+We use ﬁve algorithms as baselines in the CIFAR-100 multi-task experiment: task speciﬁc-1-fc
+[46]: a convolutional neural network shared across tasks except that each task has a separate last
+fully-connected layer, task speciﬁc-1-fc [46] : all the convolutional layers shared across tasks with
+separate fully-connected layers for each task, cross stitch-all-fc [40]: one convolutional neural
+network per task along with cross-stitch units to share features across tasks, routing-all-fc + WPL
+[47]: a network that employs a trainable router trained with multi-agent RL algorithm (WPL) to
+select trainable functions for each task, independent: training separate neural networks for each task.
+For comparisons on the NYUv2 dataset, we consider 5 baselines: Single Task, One Task: the
+vanilla SegNet used for single-task training, Single Task, STAN [33]: the single-task version of
+MTAN as mentioned below, Multi-Task, Split, Wide / Deep [33]: the standard SegNet shared for
+all three tasks except that each task has a separate last layer for ﬁnal task-speciﬁc prediction with two
+variants Wide and Deep speciﬁed in [33], Multi-Task Dense: a shared network followed by separate
+task-speciﬁc networks, Multi-Task Cross-Stitch [40]: similar to the baseline used in CIFAR-100
+experiment but with SegNet as the backbone, MTAN [33]: a shared network with a soft-attention
+module for each task.
+J.2
+Multi-Task Reinforcement Learning Experiment Details
+Our reinforcement learning experiments all use the SAC [24] algorithm as the base algorithm, where
+the actor and the critic are represented as 6-layer fully-connected feedforward neural networks for all
+24
+
+Figure 9: We show the comparison between Multi-head SAC and Multi-head SAC + PCGrad on MT10.
+Multi-head SAC + PCGrad outperforms Multi-head SAC, suggesting that PCGrad can improves the performance
+of multi-headed architectures in the multi-task RL settings.
+Figure 10: The 50 tasks of MT50 from Meta-World [61]. MT10 is a subset of these tasks, which includes
+reach, push, pick & place, open drawer, close drawer, open door, press button top, open window, close window,
+and insert peg inside.
+methods. The numbers of hidden units of each layer of the neural networks are 160, 300 and 200 for
+MT10, MT50 and goal-conditioned RL respectively. For the multi-task RL experiments, PCGrad +
+SAC converges in 1 day (5M simulation steps) and 5 days (20M simulation steps) on the MT10 and
+MT50 benchmarks respectively on a NVIDIA TITAN RTX GPU while vanilla SAC converges in 12
+hours and 3 days on the two benchmarks respectively. PCGrad + SAC consumes 1 GB and 6 GB
+memory on GPU on the MT10 and MT50 benchmarks respectively while the vanilla SAC consumes
+0.5 GB and 3 GB respectively.
+In the case of multi-task reinforcement learning, we evaluate our algorithm on the recently proposed
+Meta-World benchmark [61]. This benchmark includes a variety of simulated robotic manipulation
+tasks contained in a shared, table-top environment with a simulated Sawyer arm (visualized in Fig. 10).
+In particular, we use the multi-task benchmarks MT10 and MT50, which consists of the 10 tasks and
+50 tasks respectively depicted in Fig. 10 that require diverse strategies to solve them, which makes
+them difﬁcult to optimize jointly with a single policy. Note that MT10 is a subset of MT50. At each
+25
+
+data collection step, we collect 600 samples for each task, and at each training step, we sample 128
+datapoints per task from corresponding replay buffers. We measure success according to the metrics
+used in the Meta-World benchmark where the reported the success rates are averaged across tasks.
+For all methods, we apply the temperature adjustment strategy as discussed in Section 3 to learn a
+separate alpha term per task as the task encoding in MT10 and MT50 is just a one-hot encoding.
+On the multi-task and goal-conditioned RL domain, we apply PCGrad to the vanilla SAC algorithm
+with task encoding as part of the input to the actor and the critic as described in Section 3 and compare
+PCGrad to the vanilla SAC without PCGrad and training actors and critics for each task individually
+(Independent).
+J.3
+Goal-conditioned Experiment Details
+We use the pushing environment from the Meta-World benchmark [61] as shown in Figure 10. In this
+environment, the table spans from [−0.4, 0.2] to [0.4, 1.0] in the 2D space. To construct the goals, we
+sample the intial positions of the puck from the range [−0.2, 0.6] to [0.2, 0.7] on the table and the
+goal positions from the range [−0.2, 0.85] to [0.2, 0.95] on the table. The goal is represented as a
+concatenation of the initial puck position and the goal position. Since in the goal-conditioned setting,
+the task distribution is continuous, we sample a minibatch of 9 goals and 128 samples per goal at
+each training iteration and also sample 600 samples per goal in the minibatch at each data collection
+step.
+J.4
+Full CityScapes and NYUv2 Results
+We provide the full comparison on the CityScapes and NYUv2 datasets in Table 7 and Table 8
+respectively.
+#P.
+Architecture
+Weighting
+Segmentation
+Depth
+(Higher Better)
+(Lower Better)
+mIoU
+Pix Acc Abs Err Rel Err
+2
+One Task
+n.a.
+51.09
+90.69
+0.0158
+34.17
+3.04 STAN
+n.a.
+51.90
+90.87
+0.0145
+27.46
+Equal Weights
+50.17
+90.63
+0.0167
+44.73
+1.75 Split, Wide
+Uncert. Weights [28]
+51.21
+90.72
+0.0158
+44.01
+DWA, T = 2
+50.39
+90.45
+0.0164
+43.93
+Equal Weights
+49.85
+88.69
+0.0180
+43.86
+2
+Split, Deep
+Uncert. Weights [28]
+48.12
+88.68
+0.0169
+39.73
+DWA, T = 2
+49.67
+88.81
+0.0182
+46.63
+Equal Weights
+51.91
+90.89
+0.0138
+27.21
+3.63 Dense
+Uncert. Weights [28]
+51.89
+91.22
+0.0134
+25.36
+DWA, T = 2
+51.78
+90.88
+0.0137
+26.67
+Equal Weights
+50.08
+90.33
+0.0154
+34.49
+≈2
+Cross-Stitch [39]
+Uncert. Weights [28]
+50.31
+90.43
+0.0152
+31.36
+DWA, T = 2
+50.33
+90.55
+0.0153
+33.37
+Equal Weights
+53.04
+91.11
+0.0144
+33.63
+1.65 MTAN
+Uncert. Weights [28]
+53.86
+91.10
+0.0144
+35.72
+DWA, T = 2
+53.29
+91.09
+0.0144
+34.14
+1.65 PCGrad+MTAN (Ours) Equal Weights
+53.59
+91.45
+0.0171
+31.34
+Table 7: We present the 7-class semantic segmentation and depth estimation results on CityScapes
+dataset. We use #P to denote the number of parameters of the network, and the best performing
+variant of each architecture is highlighted in bold. We use box to highlight the method that achieves
+the best validation score for each task. As seen in the results, PCGrad+MTAN with equal weights
+outperforms MTAN with equal weights in three out of four scores while achieving the top score in
+pixel accuracy across all methods.
+26
+
+Type
+#P.
+Architecture
+Weighting
+Segmentation
+Depth
+Surface Normal
+(Higher Better)
+(Lower Better) Angle Distance
+Within t◦
+(Lower Better)
+(Higher Better)
+mIoU Pix Acc Abs Err Rel Err Mean Median 11.25
+22.5
+30
+Single Task
+3
+One Task
+n.a.
+15.10
+51.54
+0.7508
+0.3266
+31.76
+25.51
+22.12
+45.33
+57.13
+4.56 STAN†
+n.a.
+15.73
+52.89
+0.6935
+0.2891
+32.09
+26.32
+21.49
+44.38
+56.51
+Multi Task
+Equal Weights
+15.89
+51.19
+0.6494
+0.2804
+33.69
+28.91
+18.54
+39.91
+52.02
+1.75 Split, Wide
+Uncert. Weights∗15.86
+51.12
+0.6040 0.2570 32.33
+26.62
+21.68
+43.59
+55.36
+DWA†, T = 2
+16.92
+53.72
+0.6125 0.2546 32.34
+27.10
+20.69
+42.73
+54.74
+Equal Weights
+13.03
+41.47
+0.7836
+0.3326
+38.28
+36.55
+9.50
+27.11
+39.63
+2
+Split, Deep
+Uncert. Weights∗14.53
+43.69
+0.7705
+0.3340 35.14
+32.13
+14.69
+34.52
+46.94
+DWA†, T = 2
+13.63
+44.41
+0.7581
+0.3227 36.41
+34.12
+12.82
+31.12
+43.48
+Equal Weights
+16.06
+52.73
+0.6488
+0.2871
+33.58
+28.01
+20.07
+41.50
+53.35
+4.95 Dense
+Uncert. Weights∗16.48
+54.40
+0.6282
+0.2761 31.68
+25.68
+21.73
+44.58
+56.65
+DWA†, T = 2
+16.15
+54.35
+0.6059
+0.2593 32.44
+27.40
+20.53
+42.76
+54.27
+Equal Weights
+14.71
+50.23
+0.6481
+0.2871
+33.56
+28.58
+20.08
+40.54
+51.97
+≈3 Cross-Stitch‡
+Uncert. Weights∗15.69
+52.60
+0.6277
+0.2702
+32.69
+27.26
+21.63
+42.84
+54.45
+DWA†, T = 2
+16.11
+53.19
+0.5922
+0.2611
+32.34
+26.91
+21.81
+43.14
+54.92
+Equal Weights
+17.72
+55.32
+0.5906 0.2577
+31.44
+25.37
+23.17
+45.65
+57.48
+1.77 MTAN†
+Uncert. Weights∗17.67
+55.61
+0.5927
+0.2592 31.25
+25.57
+22.99
+45.83
+57.67
+DWA†, T = 2
+17.15
+54.97
+0.5956
+0.2569 31.60
+25.46
+22.48
+44.86
+57.24
+1.77 MTAN† + PCGrad (ours) Uncert. Weights∗20.17
+56.65
+0.5904 0.2467 30.01
+24.83
+22.28 46.12 58.77
+Table 8: We present the full results on three tasks on the NYUv2 dataset: 13-class semantic segmen-
+tation, depth estimation, and surface normal prediction results. #P shows the total number of network
+parameters. We highlight the best performing combination of multi-task architecture and weighting
+in bold. The top validation scores for each task are annotated with boxes. The symbols indicate prior
+methods: ∗: [28], †: [33], ‡: [40]. Performance of other methods taken from [33].
+27

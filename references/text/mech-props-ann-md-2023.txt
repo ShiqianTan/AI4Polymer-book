@@ -1,0 +1,623 @@
+Artificial Neural Networks for Predicting Mechanical Properties
+of Crystalline Polyamide12 via Molecular Dynamics Simulations
+Caglar Tamur†, Shaofan Li†1, Danielle Zeng‡
+†Department of Civil and Environmental Engineering, University of California, Berkeley, California, USA
+‡Ford Motor Company, Dearborn, Michigan, USA
+Abstract
+Predicting material properties of 3D printed polymer products is a challenge in additive
+manufacturing due to the highly localized and complex manufacturing process. The mi-
+crostructure of such products is fundamentally different from the ones obtained by using
+conventional manufacturing methods, which makes the task even more difficult. As a first
+step of a systematic multiscale approach, in this work, we have developed an artificial neural
+network (ANN) to predict the mechanical properties of the crystalline form of Polyamide12
+(PA12) based on data collected from molecular dynamics (MD) simulations. Using the ma-
+chine learning approach, we are able to predict the stress-strain relations of PA12 once the
+macroscale deformation gradient is provided as an input to the ANN. We have shown that
+this is an efficient and accurate approach, which can provide a three-dimensional molecular-
+level anisotropic stress-strain relation of PA12 for any macroscale mechanics model, such as
+finite element modeling at arbitrary quadrature points. This work lays the foundation for
+a multiscale finite element method for simulating semicrystalline polymers, which will be
+published as a separate study.
+Keywords:
+molecular dynamics; crystalline polymers; reaxff; polyamide; machine learning;
+neural network
+1. Introduction
+Material modeling of 3D printed material products has been a great challenge for additive
+manufacturing and other advanced manufacturing technologies. In additive manufacturing,
+the product is built on a material point upon a material point; thus, the resultant properties
+are highly dependent on the printing process both spatially and temporally at the localized
+regions. A microstructurally informed and robust mechanical model is highly anticipated,
+as it would help to overcome the challenges with manufacturing process, product design,
+and material selection.
+One of the promising approaches is the multiscale modeling of 3D printed materials
+[1, 2, 3], which has the ability to extract bottom-up material information to assess the
+1Email:shaofan@berkeley.edu
+Published in Polymers
+November 1, 2023
+arXiv:2307.10139v3  [cond-mat.soft]  31 Oct 2023
+
+macroscale properties of a product that is additively manufactured. However, the cost of
+multiscale modeling may vary, especially when it is involved with molecular-scale simula-
+tions.
+Traditionally, in multiscale modeling of crystalline materials, this is overcome by
+using a technique called the Cauchy-Born rule [4, 5], which is an approximation of molecu-
+lar dynamics by using simplified molecular statics or by using phase field crystal method for
+polycrystalline metals [6]. However, for semicrystalline or amorphous materials, due to the
+lack of a definite crystal structure, full-scale molecular dynamics must be utilized, which will
+significantly increase the cost of the multiscale simulation. This is because the macroscale
+finite element method would require a molecular-level stress-strain relation at each quadra-
+ture point for an arbitrarily given strain, and it is almost impossible to conduct concurrent
+molecular dynamics simulations unless one has abundant computational resources.
+The task at hand is to simulate the molecular-level stress-strain relation under arbitrary
+strain and temperature with good accuracy, efficiency, and low cost. To solve this problem,
+in the present work, we adopted a machine learning approach by developing an artificial
+neural network (ANN) that is trained on a molecular dynamics (MD) data set, which can
+predict the molecular-level mechanical material properties of polymeric materials.
+Current efforts in machine learning-driven material property predictions involve a variety
+of approaches. One common approach is to use features based on the material composition to
+obtain structure and electronic properties, such as predicting the band gap of semiconductor
+materials using convolutional neural networks [7] and predicting adsorption energies of high-
+entropy alloys through deep neural networks [8]. In a recent study, standard feed-forward
+neural networks are used with EAM-based MD simulations to model crystal plasticity in a
+multiscale framework [5].
+Additive manufacturing can use a wide range of materials, such as synthetic polymers,
+metal alloys [9], and biomaterials. Industrial applications range from the automotive indus-
+try to tissue engineering [10], and understanding the mechanical properties of such materials
+is still an open topic. Our focus in this work is on polymers, for which new applications
+emerge everyday, such as polyester membranes for biomedical applications [11] and geopoly-
+mers used in the construction industry [12].
+Polymeric materials have three different microstructural forms: crystal, amorphous, and
+semicrystalline. As a starting point, we first develop an ANN to predict the mechanical
+response of the anisotropic crystalline forms of polymers. The approach we presented can
+be extended to include amorphous phases and will eventually be incorporated into the con-
+stitutive relations of a multiscale finite element method for semicrystalline polymers. One of
+the polymeric materials widely used in additive manufacturing is Polyamide12 (PA12), also
+known as Nylon12, which is a synthetic polymer that is used in many industrial applications,
+such as automotive parts, aerospace applications and medical components. An automotive
+part manufactured using the multi-jet fusion process is shown in Figure 1.
+2
+
+Figure 1: 3D printed PA12 auto part via HP multi-jet fusion (Courtesy of Ford Motor Company).
+PA12 has the chemical formula [-(CH2)11C(O)NH-]n as visualized in Figure 2. In recent
+years, many 3D printed PA12 products have been fabricated, and they have shown some
+outstanding material properties. Additively manufactured PA12 is a semicrystalline ma-
+terial, in which the microstructure has a sandwich-like structure of alternating regions of
+crystal and amorphous zones.
+Figure 2: Polyamide12 molecules. Gray, white, blue and red spheres represent carbon, hydrogen, nitrogen
+and oxygen atoms respectively. Dashed lines indicate the H bonds.
+Its structural characterization has been extensively studied since the 1970s with x-ray
+diffraction (XRD) experiments [13, 14] and with nuclear magnetic resonance (NMR) spec-
+troscopy [15], which revealed that PA12 displays polymorphism and can have crystal phases
+α, α′, γ and γ′. The most abundant phase is the γ form, which results from slow cooling
+at atmospheric pressure, whereas the other phases require specific conditions such as rapid
+quenching and/or high-pressure treatment. For the purposes of our study, we focus on the
+γ crystal form.
+2. Molecular dyanmics simulations
+In this section, we describe the details of molecular dynamics simulations, such as the
+preparation of initial configurations, the force field selection, and simulation procedures, and
+we conduct a preliminary study.
+2.1. System setup
+We start by constructing the unit cell of the γ form PA12 crystal. The γ phase has a
+pseudo-hexagonal monoclinic structure with the lattice parameters summarized in Table 1
+3
+
+[13, 14]. Using the atomistic coordinates and the lattice parameters from the experimental
+literature [14], the unit cell of the γ phase is constructed. This monoclinic structure contains
+four PA12 chains and is visualized in Figure 3. Note that the dashed lines indicate hydrogen
+bonds and that the unit cell is periodic in all directions.
+Lattice Parameters
+a
+4.79 ˚A
+b
+31.90 ˚A
+c
+9.58 ˚A
+β
+120◦
+Space Group
+P21/C
+Table 1: Lattice Parameters for γ form PA12 crystal
+(a)
+(b)
+Figure 3: Unit cell of the γ form PA12: (a) Monoclinic cell (b) Orthogonal transformation.
+Polymer chains are aligned with the y-axis, and the unit cell represents a perfect crys-
+talline system with infinite chain length and no defects. MD simulations of triclinic (non-
+orthogonal) boxes are computationally expensive, due to the irregular partitioning of the
+processor subdomain. To improve the efficiency, we transform the simulation box into an
+orthogonal cell with chains aligned with the z-axis, which is depicted in Figure 3. The unit
+cell is then duplicated by (8 × 4 × 2) in the (x, y, z) directions, respectively, to create a
+supercell for MD simulations. The resulting model, which consists of around 9,500 atoms,
+has dimensions [38.3˚A × 33.2˚A × 63.8˚A], is visualized in Figure 4.
+(a)
+(b)
+Figure 4: Supercell of perfect PA12 crystals (a) View from x-y plane (b) View from y-z plane.
+4
+
+2.2. Force field selection
+Force fields represent the interactions between atoms and molecules using a set of equa-
+tions. In classical forms, force fields consist of empirical potentials that describe bonded
+interactions (primary bonds, bond angles, and dihedrals) and non-bonded interactions (van
+der Waals and electostatic). Choosing a suitable force field for the system under considera-
+tion is a crucial part of molecular dynamics simulations.
+Several empirical force fields have been used in the simulation of polyamides; some
+popular examples being OPLS, CVFF, COMPASS, and DREIDING [16]. However, these
+potentials are typically unable to model chemical reactions and cannot account for bond
+dissociation. Hence, they are not the ideal choice for investigating the mechanical response
+of the system in the context of fracture mechanics and rupture of polymer crystals, which
+may involve the chain scission process [17, 18].
+Reactive force fields, on the other hand, have been developed to simulate complex chem-
+ical reactions and have been used successfully in deformation simulations that involve bond
+cleavage. Once such a force field is ReaxFF, originally developed by van Duin [19], which
+utilizes the so-called bond order formalism to describe chemical bonding. ReaxFF requires
+no topology information, and it is easy to construct initial MD configurations since only the
+atomistic coordinates are needed. ReaxFF specially treats weak hydrogen bonds with an
+explicit energy term in the functional, which plays an important role in polymer systems.
+The current implementation in LAMMPS utilizes the functional described in [20].
+ReaxFF is parameterized for a wide range of materials through quantum mechanical
+calculations [21] and has also been used in the simulation of polyamide crystals before
+[22]. For our polymer system, we tested three such parameterizations [23, 24, 25]. The
+test process involved relaxing the initial structure in the NPT ensemble and comparing
+the resultant lattice parameters with the experimental values. Among these, the ReaxFF
+parameterization by Mattson [24] yielded the best result; therefore, it was chosen as the
+force field for this study.
+2.3. Simulation details and preliminary analysis
+Molecular dynamics simulations are performed using the Large-Scale Atomic/Molecular
+Massively Parallel Simulator (LAMMPS) [26]. The simulations are run on Berkeley’s high-
+performance computing cluster Savio using a [4 × 2 × 4] CPU grid. MD time steps are
+chosen as 0.5 fs. Nos´e-Hoover thermostat and barostat [27] are used to control temperature
+and pressure, respectively, with damping parameters chosen as 50 fs and 500 fs. Damp-
+ing parameters were chosen according to the LAMMPS documentation, which recommends
+temperature and pressure damping to be 100 and 1000 times the time step, respectively.
+The initial structure is relaxed in the constant pressure and temperature (NPT) ensemble
+at 300 K and 1 atm, where the pressure is controlled independently in all directions. We
+observed that an NPT simulation for 50 ps was sufficient to reach equilibrium, as the lattice
+parameters stabilized adequately at this point.
+As a preliminary study and to investigate in detail the anisotropic mechanical response of
+PA12 crystals, we constructed a larger MD cell with 38,000 atoms. After relaxation under
+ambient conditions, we deform the system in different directions under uniaxial tension.
+5
+
+Uniaxial deformation is imposed by stretching the unit cell in one direction at a constant
+strain rate and relaxing the other two dimensions with the NPT ensemble at 1 atm. For
+this part of the study, we used slower strain rates and deformed the cell quasi-statically in a
+step-by-step fashion as described in [28]. In this process, the MD cell is deformed to 1% of
+its final stretch, relaxed in the NVT ensemble, and the stress is sampled and averaged over
+5 ps intervals. These steps are repeated until rupture of the polymer chains is observed and
+the resulting stress-strain behaviors are shown in Figure 5 for each direction.
+(a) x-direction
+(b) y-direction
+(c) z-direction
+Figure 5: Stress (MPa) versus Strain (engineering) behavior of PA12 in uniaxial tension.
+In Figure 5, we observe that the system is highly anisotropic; crystal is significantly more
+stiff in the z-direction, which is the direction of polymer chain alignment, and it is more
+ductile in the other two directions. Interestingly, for the x-direction, Figure 5 (a) , there
+was a remarkable increase in the elastic modulus once the strain reaches around 12%. We
+explored this phenomenon to comprehend whether it involves a mechanically induced phase
+transformation, by deforming the original monoclinic crystal supercell in the x-direction.
+The resulting atomistic configurations before and after the change in elastic modulus are
+visualized in Figure 6, in which we clearly observe a change in the microstructural configu-
+rations.
+(a) Before the elastic modulus change
+(b) After the elastic modulus change
+Figure 6: Snapshots of the atomistic configurations during deformation in the x-direction.
+Upon additional analysis, we understood that the process is completely reversible and
+the effect disappears once the MD cell is unloaded to its original state. Further investigation
+may be required to draw a meaningful conclusion on the phenomenon.
+6
+
+3. Artificial neural network for constitutive law
+In this section, we present a data-driven approach to model the hyperelastic constitutive
+law of crystalline PA12, to be used in multiscale mechanics simulations. Our task is to
+find the mapping between the deformation state and the resulting material response, using
+the data obtained from the molecular dynamics simulations on an artificial neural network
+(ANN). We discuss data collection, model selection, training phase, and predictions in detail.
+3.1. Data collection and processing
+In order to generate the data set to train the learning model, we performed MD simula-
+tions by deforming the PA12 supercell in different directions with varying strain rates. For
+the purposes of this study, we limit our attention to uniaxial and biaxial tensile deforma-
+tions, although the presented methodology should be applicable to any deformation mode.
+Using the findings of the preliminary study, Figure 5, we determined the final stretch limits
+of the simulation box necessary in each direction and corresponding strain rate ranges, as
+summarized in Table 2. In all simulations, the supercell is deformed for 10,000 steps with
+a rate chosen from the prescribed ranges depending on the loading direction. Specifically,
+we chose 15 evenly spaced values from the ranges in Table 2 and took their combinations
+to obtain uniaxial and biaxial loading cases, resulting in 720 different MD simulations, each
+having different final stretches and strain rates. Note that the ultimate strains would only
+be reached at simulations which utilize the maximum strain rates.
+Deformation Direction
+x
+y
+z
+Ultimate Strain
+0.5
+0.6
+0.15
+Strain Rate (10−6/fs)
+[3.3, 50]
+[4, 60]
+[1, 15]
+Table 2: Ultimate strain and resulting ranges of strain rates for each direction.
+Each deformation simulation is run for 5 ps, and the Virial stress and the box dimensions
+are sampled at 50 fs intervals.
+Consequently, after running all the 720 simulations, we
+collected a data set consisting of 72,720 data points. Each data point is 12 dimensional,
+representing the deformation (6 components) and stress (6 components) states of the PA12
+crystal. Note that the process described here involves remarkably high strain rates and short
+simulation times, since it was not computationally feasible to conduct slower simulations and
+collect a large data set at the same time.
+The original data from MD simulations consist of box dimensions l = {lx, ly, lz} which
+can be used to construct the deformation gradient F , and the stress measure we get is the
+pressure tensor, known as the Virial stress. Virial stress has been shown to be equivalent to
+continuum Cauchy stress σ [29]. In order to adopt the model into the continuum mechanics
+framework, we need to transform the data set into the tensor quantities utilized in finite
+deformation. To preserve material objectivity [30, 5], we chose the energetic conjugates right
+Cauchy-Green tensor C and the second Piola-Kirchhoff (PK2) stress tensor S to represent
+the deformation state and material response, respectively. Each of these second-order tensors
+7
+
+have nine components, but making use of the symmetry and Voigt notation we represent
+them in the vector form as below.
+C = [C11, C22, C33, C12, C13, C23]
+(1)
+S = [S11, S22, S33, S12, S13, S23]
+(2)
+Using the elementary relations of continuum mechanics, we can obtain the C and S
+tensors as follows.
+J = det F
+(3)
+C = F TF
+(4)
+S = JF −1σF −T
+(5)
+Now we can state our goal as finding the map,
+Ψ : C →S
+(6)
+where Ψ encapsulates the constitutive model that we are going to approximate through
+supervised learning.
+Finally, we normalize our input data set to have a mean of zero and a standard deviation
+of one, a process known as standardization. It is common practice in gradient-based learning
+methods to standardize the data, which improves the performance of ANNs by helping to
+solve the convergence issues of the backpropagation algorithm [31, 32]. Standardization can
+be described as follows.
+Cstd
+ij
+= Cij −ˆµij
+ˆσij
+for
+i, j = 1, 2, 3.
+(7)
+where Cstd
+ij
+are the normalized components of the right Cauchy-Green tensor, ˆµij is the
+sample mean and ˆσij is the sample standard deviation of the respective component.
+3.2. Model selection and results
+We adopt a fully connected feedforward network architecture to construct our regres-
+sion ANN, which may be called a multilayer perceptron (MLP). As shown by the universal
+approximation theorem, feedforward neural networks can approximate any continuous func-
+tion, provided that they have at least one hidden layer, have enough neurons, and the
+activation functions satisfy certain properties [33, 34]. Thus, we believe that an MLP is a
+suitable choice to approximate the hyperelastic constitutive law. Keras [35] Python interface
+of the TensorFlow [36] machine learning package is used to select and train our ANN model.
+8
+
+Our task is to find an approximation to the constitutive model defined in Equation(6).
+Formally, we can express the learning problem as follows. Find
+N(C, w) = ˆS ,
+(8)
+such that
+w = argmin
+w
+L(S, ˆS) ,
+(9)
+where N is encodes the ANN, w are known as the weights of each neuron and L is a loss
+function. The task in supervised learning is to find optimal weights w such that the metric
+defined in the loss function is minimized.
+To select the ANN model parameters known as hyperparameters, such as the number of
+hidden layers, the number of neurons in each layer, the type of activation functions and the
+learning rate of the gradient descent, we perform hyperparameter optimization. We chose
+two candidate activation functions that are commonly used in regression, ReLu function and
+its smooth approximate version known as the Softplus function.
+ReLu : σ(x) = max(x)
+Softplus : σ(x) = log(1 + ex)
+(10)
+For the loss function, we choose the mean squared error (MSE) of the PK2 stress:
+LMSE(S, ˆS) = 1
+n
+n
+X
+i=1
+||Si −ˆSi||2
+2 ,
+(11)
+where S is the PK2 stress obtain from MD simulations, ˆS is the predicted stress from ANN
+and n is the number of data points.
+We tried two methodologies to select the best set of hyperparameters, the HyperBand al-
+gorithm [37] and Bayesian Optimization with Gaussian Process [38]. Both algorithms would
+pick the best parameters from a predefined set, which would give the lowest validation loss.
+The set of parameters that we make the search is determined by preliminary analysis, where
+the optimizer of the ANN is chosen as the Adam algorithm [39], which implements a version
+of the stochastic gradient descent (SGD) method. Accordingly, we chose the following range
+of parameters to perform hyperparameter tuning.
+Hyperparameters
+Hidden Layers
+Neurons
+Activation Function
+Learning Rate
+[2, 5]
+[32, 256]
+{ReLu, Softplus}
+{10−1, 10−2, 10−3}
+Table 3: Hyperparameter search grid
+We start by partitioning the data into a random 80% - 20% train-test split. Then, we run
+hyperparameter optimization using Hyperband and Bayesian Optimization methods in the
+domain described in Table 3, leaving aside 20% of the training data to be used to compute
+validation loss. For all models, the learning rate γ = 10−2 and the number of hidden layers
+of four or five gave us the best results. For the rest of the hyperparameters, we investigated
+the top ten models and chose the ones with the lowest complexity to reduce overfitting.
+Resulting candidate models are summarized in Table 4.
+9
+
+Hyperband (1)
+Bayesian (2)
+Hyperband (3)
+Bayesian (4)
+Input Layer
+6
+6
+6
+6
+Hidden Layer 1
+192 × ReLu
+64 × ReLu
+160 × ReLu
+224 × ReLu
+Hidden Layer 2
+32 × Softplus
+32 × Softplus
+64 × Softplus
+96 × Softplus
+Hidden Layer 3
+32 × ReLu
+256 × Softplus
+32 × ReLu
+64 × ReLu
+Hidden Layer 4
+64 × ReLu
+32 × ReLu
+128 Softplus
+96 × Softplus
+Hidden Layer 5
+128 × ReLu
+64 × ReLu
+-
+-
+Output Layer
+6 × Linear
+6 ×Linear
+6 × Linear
+6 ×Linear
+Validation Loss
+15630
+15026
+14109
+13538
+Table 4: ANN architectures resulting from Hyperband method and Bayesian Optimization
+The models summarized above are trained on the train data set for 1000 epochs, and
+predictions are made on the test data to assess our final performance. The resulting train-
+test history curves, in terms of MSE in PK2 stress (MPa), are presented in Figure 7. We
+conclude that the ANNs are stable, there is no significant overfitting, and they perform well
+against the test data set. The best model appears to be ANN-4, the rightmost column in
+Table 4, and its architecture is schematically visualized in Figure 8.
+Figure 7: Learning curves of the ANNS: Training and test loss (MPa) during training phase.
+Finally, we tested ANN-4 against a new set of uniaxial tension MD simulations to observe
+the performance of our models against the variance in the strain rate. Two of the simulations
+utilized strain rates ˙ϵ1 = 5 × 10−6/fs and ˙ϵ2 = 10 × 10−6/fs, which are within the training
+10
+
+Figure 8: ANN-4 schematic representation [40].
+interval defined in Table 7. Predictions from ANN-4 is compared with the MD results and
+the resultant C33 versus S33 (MPa) relations are shown in Figure 9. The predictions in
+the elastic range and the ultimate strength are in great agreement with the MD findings,
+demonstrating the predictive power of the ML approach.
+Figure 9: Predictions of ANN-4 for uniaxial tension in z-direction for a new set of simulations. The strain
+rates are contained in the training range.
+We consider two additional MD simulations that employed strain rates lying beyond
+the training range, encompassing both extremes. These strain rates are defined as ˙ϵ3 =
+0.5 × 10−6/fs (slower) and ˙ϵ4 = 30 × 10−6/fs (faster). The corresponding results are shown
+in Figure 10, together with the MD results, for comparison. Although the slower rate led to a
+slightly higher ultimate strength, remarkable agreement is observed within the elastic range.
+Here, the ANN effectively captured intricate aspects of the loading path. The findings clearly
+demonstrate the capacity of the model for generalization and robustness across various strain
+rates, which makes it a promising candidate for effectively describing the constitutive laws
+of crystalline polymers to be used in large-deformation FEM simulations.
+11
+
+Figure 10: Predictions of ANN-4 for uniaxial tension in z-direction for a new set of simulations. The strain
+rates are beyond the range of the training data.
+In order to better quantify model uncertainty of the ANN, we performed an error analysis.
+We use the same four sets of simulations with different strain rates as previously shown in
+Figures 9-10. We consider the full six components of the prediction, namely the second
+Piola-Kirchhoff tensor ˆS, and investigate how the error evolves with the deformation by
+comparing it to the MD result S. Since the use of MSE does not make sense here, we use
+the percentage error defined below.
+Percentage Error = 100 × ||S −ˆS||2
+||S||2
+,
+(12)
+Results are presented in Figure 11, with respect to the deformation. Note that we used
+the tensor component C33 to represent axial deformation, to be consistent with the previous
+discussions. We observe that the error remains close to zero for the elastic region, except for
+the initial loading regime. When the material is further deformed and starts to yield, that is,
+for C33 > 1.20, we start to see a significant increase in error. This is expected as the failure
+mechanism and the material response beyond yielding would involve high uncertainty. Out-
+of-domain data ˙ϵ3 result in a significant error, especially during the initial loading phase. On
+the other hand, ˙ϵ4 outcomes are similar to those of the in-range data. From these findings
+we infer that the model performs better when dealing with faster loading rates, and there is
+a high uncertainty within the initial loading and the failure regions. Further analysis may
+be required to draw a final conclusion as the data here were rather limited.
+Figure 11: Percentage error, as defined in Equation 12, for different strain rates.
+12
+
+4. Conclusions
+In this study, we have developed an artificial neural network to model the mechanical
+response of crystalline polymers based on molecular dynamics simulations. Initial configu-
+rations are generated to model PA12 in γ crystal form. ReaxFF was our choice for the force
+field, and MD simulations are performed under uniaxial and biaxial tensile deformations to
+generate a data set for the learning model.
+ANN architecture is selected through hyperparameter tuning algorithms and carefully
+calibrated using the training set. The training and validation process produced the best
+model to be ANN-4, which is proven to be robust and accurate with no significant overfitting.
+The best model is tested against different strain rates, which covers above and beyond the
+loading rate range of the training set. The results demonstrated the predictive power and
+generalization capacity of our approach, even with strain rates that are much slower or faster
+than the original data.
+The presented methodology proved to be an efficient way of modeling the microstruc-
+turally informed constitutive relation of crystalline polymers, which would be used in macroscale
+FEM simulations. Namely, we presented an approach to accurately predict the mapping
+between the right Cauchy-Green (C) and second PK2 stress (S) tensors, which shall be uti-
+lized to compute the strain energy density of large deformation problems. Once the model
+is trained, we can simply treat it as a black box for computing the strain energy at arbitrary
+quadrature points and time steps, corresponding to the current deformation state of the
+material.
+There are some caveats that need further attention. As detailed in Section 2.3, there
+may be a mechanically induced phase transformation of PA12, which may depend on the
+particular additive manufacturing method and process parameters such as temperature and
+printing speed. Furthermore, we only considered uniaxial and biaxial tensile deformations in
+our training set. For general loading conditions, such as pure shear, compression, and torsion,
+the artificial neural network will need more data and the associated ML training procedure
+may become more complicated and expensive. Nevertheless, the approached outlined in this
+work can easily be extended to any deformation mode by obtaining the corresponding MD
+data set and repeating the ML process.
+It should be noted that our current investigation was limited to the fully crystalline form
+of PA12 for demonstration purposes. The actual material components consist of semicrys-
+talline structures wherein the microstructure comprises amorphous and crystalline regions.
+However, the MD and ML methodologies presented can be easily adopted for amorphous
+domains. Additionally, considering larger simulation cells, having longer relaxation windows
+and adopting slower strain rates may be necessary to simulate more accurate and realistic
+scenarios. These matters will be further investigated and reported in a separate study.
+5. Acknowledgements
+We acknowledge the support from the University Grant by Ford Motor Company. Caglar
+Tamur gratefully acknowledges the financial support for his graduate studies and research
+by the Fulbright Scholarship Program.
+13
+
+References
+[1] D. L´opez Barreiro, J. Yeo, A. Tarakanova, F.J. Martin-Martinez, and M.J. Buehler. Multiscale modeling
+of silk and silk-based biomaterials a review. Macromolecular bioscience, 19(3):1800253, 2019.
+[2] S. Sharafi, M.H. Santare, J. Gerdes, and S.G. Advani. A multiscale modeling approach of the fused
+filament fabrication process to predict the mechanical response of 3d printed parts. Additive Manufac-
+turing, 51:102597, 2022.
+[3] M. Jamshidian, N. Boddeti, D.W. Rosen, and O. Weeger. Multiscale modelling of soft lattice metama-
+terials: Micromechanical nonlinear buckling analysis, experimental verification, and macroscale consti-
+tutive behaviour. International Journal of Mechanical Sciences, 188:105956, 2020.
+[4] S. Urata and S. Li. Higher order cauchy born rule based multiscale cohesive zone model and prediction
+of fracture toughness of silicon thin films. International Journal of Fracture, 203:159–181, 2017.
+[5] Dana Bishara and Shaofan Li. A machine-learning aided multiscale homogenization model for crystal
+plasticity: application for face-centered cubic single crystals. Computational Mechanics, pages 1–17,
+2023.
+[6] Yuhong Zhao, Kexin Liu, Haibin Zhang, Xiaolin Tian, Qinglong Jiang, Vignesh Murugadoss, and Hua
+Hou. Dislocation motion in plastic deformation of nano polycrystalline metal materials: a phase field
+crystal method study. Advanced Composites and Hybrid Materials, 5(3):2546–2556, 2022.
+[7] Wissam A Saidi, Waseem Shadid, and Ivano E Castelli. Machine-learning structural and electronic
+properties of metal halide perovskites using a hierarchical convolutional neural network. npj Computa-
+tional Materials, 6(1):36, 2020.
+[8] Wissam A Saidi. Emergence of local scaling relations in adsorption energies on high-entropy alloys. npj
+Computational Materials, 8(1):86, 2022.
+[9] Jun Wang, Zengxi Pan, Yangfan Wang, Long Wang, Lihong Su, Dominic Cuiuri, Yuhong Zhao, and
+Huijun Li. Evolution of crystallographic orientation, precipitation, phase transformation and mechani-
+cal properties realized by enhancing deposition current for dual-wire arc additive manufactured ni-rich
+niti alloy. Additive Manufacturing, 34:101240, 2020.
+[10] Yuanhang Xu, Feiyang Zhang, Weijie Zhai, Shujie Cheng, Jinghua Li, and Yi Wang. Unraveling of
+advances in 3d-printed polymer-based bone scaffolds. Polymers, 14(3):566, 2022.
+[11] Yi Wang, Weijie Zhai, Junhan Li, Haotian Liu, Chong Li, and Jinghua Li.
+Friction behavior of
+biodegradable electrospun polyester nanofibrous membranes. Tribology International, 188:108891, 2023.
+[12] Hossein Khorshidi, Chunwei Zhang, Elham Najafi, and Marziyeh Ghasemi.
+Fresh, mechanical and
+microstructural properties of alkali-activated composites incorporating nanomaterials: A comprehensive
+review. Journal of Cleaner Production, page 135390, 2022.
+[13] Gianna Cojazzi, Annamaria Fichera, Carmine Garbuglio, Viscardo Malta, and Roberto Zannetti. The
+crystal structure of polylauryllactam (nylon 12). Die Makromolekulare Chemie: Macromolecular Chem-
+istry and Physics, 168(1):289–301, 1973.
+[14] Kazuo Inoue and Sadao Hoshino. Crystal structure of nylon 12. Journal of Polymer Science: Polymer
+Physics Edition, 11(6):1077–1089, 1973.
+[15] Lon J Mathias and C Greg Johnson.
+Solid-state nmr investigation of nylon 12.
+Macromolecules,
+24(23):6114–6122, 1991.
+[16] Sanjay Krishna, I Sreedhar, and Chetan M Patel. Molecular dynamics simulation of polyamide-based
+materials–a review. Computational Materials Science, 200:110853, 2021.
+[17] Lu´ıs Antonio Pinheiro, Marcelo Aparecido Chinelatto, and Sebasti˜ao Vicente Canevarolo. The role of
+chain scission and chain branching in high density polyethylene during thermo-mechanical degradation.
+Polymer Degradation and Stability, 86(3):445–453, 2004.
+[18] Firas Awaja, Shengnan Zhang, Manoj Tripathi, Anton Nikiforov, and Nicola Pugno. Cracks, microc-
+racks and fracture in polymer structures: Formation, detection, autonomic repair. Progress in Materials
+Science, 83:536–573, 2016.
+[19] Adri CT Van Duin, Siddharth Dasgupta, Francois Lorant, and William A Goddard. Reaxff: a reactive
+force field for hydrocarbons. The Journal of Physical Chemistry A, 105(41):9396–9409, 2001.
+[20] Kimberly Chenoweth, Adri CT Van Duin, and William A Goddard. Reaxff reactive force field for
+14
+
+molecular dynamics simulations of hydrocarbon oxidation.
+The Journal of Physical Chemistry A,
+112(5):1040–1053, 2008.
+[21] T.P. Senftle, S. Hong, M. M. Islam, S. B. Kylasa, Y. Zheng, Y. K. Shin, C. Junkermeier, R. Engel-
+Herbert, M. J. Janik, H. M. Aktulga, et al. The reaxff reactive force-field: development, applications
+and future directions. npj Computational Materials, 2(1):1–14, 2016.
+[22] Quanpeng Yang, Wenjun Li, Spencer T Stober, Adam B Burns, Manesh Gopinadhan, and Ashlie
+Martini. Molecular dynamics simulation of the stress–strain behavior of polyamide crystals. Macro-
+molecules, 54(18):8289–8302, 2021.
+[23] Malgorzata Kowalik, Chowdhury Ashraf, Behzad Damirchi, Dooman Akbarian, Siavash Rajabpour, and
+Adri CT Van Duin. Atomistic scale analysis of the carbonization process for c/h/o/n-based polymers
+with the reaxff reactive force field. The Journal of Physical Chemistry B, 123(25):5357–5367, 2019.
+[24] Thomas R Mattsson, J Matthew D Lane, Kyle R Cochrane, Michael P Desjarlais, Aidan P Thompson,
+Flint Pierce, and Gary S Grest. First-principles and classical molecular dynamics simulation of shocked
+polymers. Physical Review B, 81(5):054103, 2010.
+[25] Weiwei Zhang and Adri CT Van Duin. Improvement of the reaxff description for functionalized hy-
+drocarbon/water weak interactions in the condensed phase. The Journal of Physical Chemistry B,
+122(14):4083–4092, 2018.
+[26] Aidan P Thompson, H Metin Aktulga, Richard Berger, Dan S Bolintineanu, W Michael Brown, Paul S
+Crozier, Pieter J in’t Veld, Axel Kohlmeyer, Stan G Moore, Trung Dac Nguyen, et al.
+Lammps-
+a flexible simulation tool for particle-based materials modeling at the atomic, meso, and continuum
+scales. Computer Physics Communications, 271:108171, 2022.
+[27] Denis J Evans and Brad Lee Holian. The nose–hoover thermostat. The Journal of chemical physics,
+83(8):4069–4074, 1985.
+[28] Dundar E Yilmaz and Adri CT van Duin. Investigating structure property relations of poly (p-phenylene
+terephthalamide) fibers via reactive molecular dynamics simulations. Polymer, 154:172–181, 2018.
+[29] Arun K Subramaniyan and CT Sun. Continuum interpretation of virial stress in molecular simulations.
+International Journal of Solids and Structures, 45(14-15):4340–4346, 2008.
+[30] Faisal As’ ad, Philip Avery, and Charbel Farhat.
+A mechanics-informed artificial neural network
+approach in data-driven constitutive modeling. International Journal for Numerical Methods in Engi-
+neering, 123(12):2738–2759, 2022.
+[31] Y. LeCun, L. Bottou, G. B. Orr, and K. M¨uller. Efficient backprop. In Neural networks: Tricks of the
+trade, pages 9–50. Springer, 2002.
+[32] J. Sola and J. Sevilla. Importance of input data normalization for the application of neural networks
+to complex industrial problems. IEEE Transactions on nuclear science, 44(3):1464–1468, 1997.
+[33] Kurt Hornik, Maxwell Stinchcombe, and Halbert White. Multilayer feedforward networks are universal
+approximators. Neural networks, 2(5):359–366, 1989.
+[34] Kurt Hornik.
+Approximation capabilities of multilayer feedforward networks.
+Neural networks,
+4(2):251–257, 1991.
+[35] Fran¸cois Chollet et al. Keras. ttps://keras.io, 2015.
+[36] Mart´ın Abadi, Ashish Agarwal, Paul Barham, Eugene Brevdo, Zhifeng Chen, Craig Citro, Greg S.
+Corrado, Andy Davis, Jeffrey Dean, Matthieu Devin, Sanjay Ghemawat, Ian Goodfellow, Andrew Harp,
+Geoffrey Irving, Michael Isard, Yangqing Jia, Rafal Jozefowicz, Lukasz Kaiser, Manjunath Kudlur, Josh
+Levenberg, Dandelion Man´e, Rajat Monga, Sherry Moore, Derek Murray, Chris Olah, Mike Schuster,
+Jonathon Shlens, Benoit Steiner, Ilya Sutskever, Kunal Talwar, Paul Tucker, Vincent Vanhoucke, Vijay
+Vasudevan, Fernanda Vi´egas, Oriol Vinyals, Pete Warden, Martin Wattenberg, Martin Wicke, Yuan
+Yu, and Xiaoqiang Zheng. TensorFlow: Large-scale machine learning on heterogeneous systems, 2015.
+Software available from tensorflow.org.
+[37] L. Li, K. Jamieson, G. DeSalvo, A. Rostamizadeh, and A. Talwalkar. Hyperband: A novel bandit-based
+approach to hyperparameter optimization. The Journal of Machine Learning Research, 18(1):6765–
+6816, 2017.
+[38] T. O’Malley, E. Bursztein, J. Long, F. Chollet, H. Jin, L. Invernizzi, et al. Kerastuner, 2019.
+15
+
+[39] Diederik P Kingma and Jimmy Ba. Adam: A method for stochastic optimization. arXiv preprint
+arXiv:1412.6980, 2014.
+[40] Alexander LeNail. Nn-svg: Publication-ready neural network architecture schematics. J. Open Source
+Softw., 4(33):747, 2019.
+16

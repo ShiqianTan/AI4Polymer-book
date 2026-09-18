@@ -1,0 +1,1899 @@
+POINT2: A Polymer Informatics Training and Testing Database
+Jiaxin Xu, Gang Liu, Ruilan Guo, Meng Jiang, Tengfei Luo*
+University of Notre Dame
+Notre Dame, IN, USA
+*tluo@nd.edu
+Abstract
+The advancement of polymer informatics has been significantly propelled by the integration
+of machine learning (ML) techniques, enabling the rapid prediction of polymer properties and
+expediting the discovery of high-performance polymeric materials. However, the field lacks a
+standardized workflow that encompasses prediction accuracy, uncertainty quantification, ML
+interpretability, and polymer synthesizability. In this study, we introduce POINT2 (POlymer
+INformatics Training and Testing), a comprehensive benchmark database and protocol
+designed to address these critical challenges. Leveraging the existing labeled datasets and the
+unlabeled PI1M dataset—a collection of approximately one million virtual polymers generated
+via a recurrent neural network trained on the realistic polymers—we develop an ensemble
+of ML models, including Quantile Random Forests, Multilayer Perceptrons with dropout,
+Graph Neural Networks, and pretrained large language models. These models are coupled
+with diverse polymer representations such as Morgan, MACCS, RDKit, Topological, Atom
+Pair fingerprints, and graph-based descriptors to achieve property predictions, uncertainty
+estimations, model interpretability, and template-based polymerization synthesizability across
+a spectrum of properties, including gas permeability, thermal conductivity, glass transition
+temperature, melting temperature, fractional free volume, and density. The POINT2 database
+can serve as a valuable resource for the polymer informatics community for polymer discovery
+and optimization.
+Keywords Polymer Informatics · Machine Learning · Database Benchmarking · Graph Neural Networks ·
+Property Prediction · Uncertainty Quantification · Interpretability · Synthesizability · Virtual Polymers ·
+Material Discovery
+1
+Introduction
+Polymers are essential to numerous industries such as renewable energy, biomedical devices, aerospace
+engineering, food, consumer goods, and advanced electronics, due to their diverse and tunable properties
+[1–3]. The traditional trial-and-error approach to polymer development is often time-consuming and resource-
+intensive [4–6]. Recent advancements in polymer informatics have demonstrated the potential of data-driven
+methodologies, particularly machine learning (ML), to predict polymer properties and streamline the discovery
+of novel polymeric materials [7–10]. Despite significant advancements, polymer informatics faces critical
+challenges hindering its progress towards robust, automated material discovery. Key among these is the
+absence of standardized workflows that effectively integrate prediction accuracy, uncertainty quantification
+(UQ), model interpretability, and polymer synthesizability—four elements that we propose to address in this
+work, as shown in Fig. 1.
+1.1
+Prediction Accuracy
+The capability to accurately predict polymer properties using ML models is a cornerstone of polymer
+informatics. While numerous studies showcase the application of various ML algorithms for this purpose
+[11–21], the field lacks standardized benchmark datasets. Unlike in areas such as small molecule discovery
+arXiv:2503.23491v1  [cond-mat.mtrl-sci]  30 Mar 2025
+
+Figure 1: Schematic representation of the integrated workflow for polymer screening, highlighting four
+key components: Accurate Prediction, Uncertainty Quantification, Model Interpretability, and Polymer
+Synthesizability.
+[22–25], natural language processing [26–29], and computer vision [30–32], where well-designed benchmarking
+datasets facilitate fair comparisons of model performance, polymer informatics has not yet established similar
+resources. Moreover, large language models (LLMs) have demonstrated remarkable capabilities across diverse
+domains [33–35]. In chemistry, they have shown promise in tasks such as molecular property prediction
+[36–38], retrosynthetic analysis [39], and inverse design [37]. However, their application to polymer property
+prediction remains largely unexplored, necessitating further investigation into their capacity to learn and
+generalize polymer-specific structure-property relationships. The creation of standardized benchmarks is
+crucial as they would not only validate the efficacy of predictive models but also promote transparency and
+reproducibility in research. Additionally, such benchmarks would provide a foundation for systematically
+evaluating the potential of emerging technologies, e.g., LLMs, in polymer informatics. There is a clear need
+for a comprehensive database to further fuel innovation in the field of polymer informatics.
+1.2
+Uncertainty Quantification
+Current research in polymer informatics primarily focuses on predictive accuracy, often overlooking the
+critical aspect of UQ. UQ sheds light on the confidence of model predictions by addressing both aleatoric
+uncertainty, which arises from inherent variability in polymeric materials and measurement processes, and
+epistemic uncertainty, stemming from model limitations and incomplete knowledge of the input space [40–
+42]. In polymer science, aleatoric uncertainty can emerge from multiple stages of the materials pipeline,
+including monomer variability, polymerization pathways, molecular weight distributions, and processing and
+measurement conditions, all of which influence final properties such as thermal conductivity, glass transition
+temperature, and gas permeability [43–45]. However, this work focuses specifically on epistemic uncertainty,
+as the datasets available do not contain sufficient information to model aleatoric uncertainty—such as replicate
+measurements or labeled noise distributions. In ML, epistemic uncertainty is commonly estimated through
+2
+
+Bayesian methods like Gaussian Processes [46, 47] and Bayesian Neural Networks [48–50], which capture
+parameter uncertainty directly, or through ensemble methods such as Random Forests [51, 52] and Monte
+Carlo Dropout [53, 54], which assess uncertainty by analyzing variability across multiple predictions.
+Beyond enhancing model confidence, UQ also serves as a valuable feedback mechanism in iterative model
+development and decision-making frameworks, including active learning [55, 56], Bayesian optimization
+[57, 58], and reinforcement learning [59, 60]. This is especially important in polymer discovery, where models
+must often extrapolate into sparsely sampled or out-of-distribution regions to identify novel, high-performance
+polymers. In such scenarios, reliable uncertainty estimates are essential for evaluating model trustworthiness
+and guiding experimental validation. Ultimately, integrating UQ into automated polymer property prediction
+workflows is essential—not only to improve robustness and transparency, but also to support risk-aware
+decisions in materials design. UQ should be treated as a first-class metric, on par with accuracy, in advancing
+the next generation of polymer informatics.
+1.3
+Model Interpretability
+As ML models grow in complexity, they often become more opaque, earning the label of "black boxes."
+However, interpretability is crucial for gaining user trust and enabling developers to effectively monitor and
+refine these models [61, 62]. It also plays a key role in deciphering the complex mechanisms underlying
+big data, potentially leading to new scientific discoveries [63–65]. Understanding how models make their
+predictions allows researchers to gain deeper insights into polymer behaviors and the intricate relationships
+between their structures and properties [14, 17, 19, 66, 67]. This advancement enriches both the scientific
+understanding and practical applications of polymer informatics. There are two main types of interpretability
+methods for ML models: model-agnostic and model-intrinsic. Model-agnostic methods, such as LIME (Local
+Interpretable Model-agnostic Explanations) [68] and SHAP (SHapley Additive exPlanations) [69], provide
+insights regardless of the model architecture. Model-intrinsic methods, like linear models, tree-based models
+[70, 71], attention mechanisms [72–76], and rationalization [12, 77–79], offer interpretability directly embedded
+within the model’s structure, facilitating a more integrated understanding of prediction processes.
+1.4
+Synthesizability
+Finally, even if the aforementioned challenges are addressed, the practical application of predicted polymer
+structures remains contingent upon their synthesizability. The integration of synthesizability assessments,
+especially polymerization assessments, into the workflow ensures that the predicted polymers are not only
+theoretically optimal but also practically synthesizable. Unlike small molecules, polymers require specific
+polymerization steps that must be feasible. Polymerization is the chemical process in which small molecules,
+known as monomers, combine to form larger, chain-like or network structures of polymers [80, 81]. In
+small organic molecule design, various methods have been developed to predict or evaluate synthesizability.
+Retrosynthesis planning, encompassing both template-based and template-free approaches, deconstructs a
+target molecule into simpler precursor structures, effectively mapping a synthetic route [82–86]. Template-
+based methods utilize predefined or retrieved reaction templates to guide the deconstruction process [87–91],
+while template-free methods employ ML techniques, e.g., deep generative models, to generate retrosynthetic
+pathways without relying on explicit templates [92–100]. Another approach to evaluating synthesizability,
+without proposing explicit reaction routes, involves structural complexity-based scoring systems. Methods such
+as the Synthetic Accessibility Score (SAScore) [101] assess the ease of synthesis based on molecular complexity
+and the presence of challenging substructures. Variants of SAScore include the SCScore [102], Synthetic
+Bayesian Accessibility (SYBA) [103], and Graph Attention-based assessment of Synthetic Accessibility (GASA)
+[104]. These methodologies collectively contribute to the understanding of the synthesizability of small organic
+molecules, bridging theoretical predictions and practical applications.
+However, these approaches often do not extend easily to polymers due to the complexities inherent in
+polymerization processes, which are not included in the synthesizability assessments of small organic molecules.
+Generative models, such as deep generative models, have shown promise in designing novel polymers with
+desired properties [105–114]. Nevertheless, without incorporating polymer-specific synthesizability assessments,
+these models may propose structures that are challenging or impractical to synthesize. To the best of our
+knowledge, the work by Chen et al. [115] is the only study specifically focused on polymer retrosynthesis
+planning, taking into account the unique complexities of polymerization processes. In their study, Chen et al.
+manually compiled a comprehensive dataset of polymerization reactions from various resources, extracting
+hundreds of synthetic templates that interpret the chemical reactions between reactant monomers. Utilizing
+this dataset, they built a polymer retrosynthesis framework that employs a similarity metric to select
+3
+
+synthetic pathways for target polymers, facilitating the prediction of feasible synthesis routes. However, the
+retrosynthesis tool and the underlying polymer reaction data are not open-sourced and can only be accessed
+via a web interface [13], limiting exhaustive searches and broader accessibility. Additionally, the web interface
+may encounter challenges with complex polymer structures, leading to extended computation times and
+instability.
+In this study, we present the POINT2 (POlymer INformatics Training and Testing) framework, a benchmark
+database and protocol designed for polymer property prediction and screening. We utilize an ensemble of ML
+models, including Quantile Random Forests (QRF) [116], Multilayer Perceptrons with dropout (MLP-D)
+[53], and various Graph Neural Networks (GNN), like Graph Isomorphism Networks (GIN) [117], Graph
+Convolutional Networks (GCN) [118], and Graph Rationalization with Environment-based Augmentations
+(GREA) [12]), chosen for their robust accuracy and capacity for uncertainty estimation.In addition to these
+ML models, we also evaluate the predictive capabilities of pretrained LLMs in an in-context learning (ICL)
+setting [119], comparing their performance against traditional ML approaches to assess the potential of LLMs
+in polymer informatics and property prediction. These models are integrated with interpretable polymer
+representations such as Morgan, MACCS, RDKit, Topological, Atom Pair fingerprints, and graph-based
+descriptors, ensuring accurate and interpretable results. Our predictive tasks target key polymer properties
+such as gas permeability (P) for five major industrial gases (O2, N2, O2, CH2, H2, and CO2), thermal
+conductivity (TC), glass transition temperature (Tg), melting temperature (Tm), fractional free volume
+(FFV), and density (ρ), chosen for their relatively extensive data availability and their significant roles in
+practical applications across various industries. Alongside these capabilities, we introduce an open-sourced,
+template-based retrosynthesis tool for polymers, equipped with a synthesizability score tailored for polymers
+(PolyScore), which can aid chemists in synthetic planning and evaluate the results of polymer generative
+models. Our models systematically screen the PI1M [108] database—a collection of approximately one
+million hypothetical polymers generated using a recurrent neural network (RNN) trained on the realistic
+polymers—delivering comprehensive results that include predicted properties, their uncertainties, model
+prediction interpretation, and polymer synthesizability. Additionally, the curated labeled dataset provided by
+POINT2 can serve as a benchmark resource for future work in polymer informatics and the evaluation of ML
+algorithms, establishing a foundational tool for the community’s ongoing research and development efforts.
+2
+Results and Discussion
+2.1
+Benchmark Dataset
+This study utilizes a comprehensive dataset encompassing a diverse range of polymer properties essential for
+different applications, such as renewable energy, biomedical devices, aerospace engineering, and advanced
+electronics. As summarized in Table 1, the benchmark dataset includes properties obtained through both
+experimental measurements and computational simulations. Specifically, Tg, Tm, ρ, and P (for O2, O2, CH4,
+H2, and CO2 gases) are experimentally measured labels, collected from established databases like MSA [120],
+along with additional literature sources [14, 43, 121–128]. FFV and TC were derived from molecular dynamics
+(MD) simulations in previous studies [11, 18]. The data for each property were cleaned and randomly split into
+training and testing sets in a 4:1 ratio. Further chemical space and property space distribution comparison of
+the training and testing data for each property can be found in Figs. A.6 and A.7.
+Specifically, the polymer properties featured in this benchmark dataset represent a hierarchical level of
+difficulty in prediction. ρ, for instance, is closely related to more intrinsic aspects of the polymer’s chemical
+structure [129], whereas Tg is influenced by the polymer’s compositional and configurational characteristics
+[66]. TC presents a greater challenge, as it involves complex interactions at the molecular level, which are
+often more difficult to predict accurately compared to bulk properties like density [11]. P, involving mass
+transport phenomena through polymer matrices, is influenced by both the molecular structure and the
+interaction of gases with the polymer, making it among the most complex properties to predict [130].
+We expect this high-quality and diverse dataset to serve as a valuable benchmark for the polymer informatics
+community and beyond, enabling researchers to train models and evaluate performance on a standardized
+split, thereby promoting fair and consistent model comparisons.
+2.2
+Prediction Accuracy Comparison
+We trained multiple ML models, including QRF, MLP-D, vanilla GNN (GIN and GCN), and augmented
+GNN (GREA), using the training sets. QRF and MLP-D were evaluated with various polymer fingerprinting
+4
+
+Table 1: Summary of Properties in the Benchmark Polymer Dataset. The dataset includes glass transition
+temperature (Tg), melting temperature (Tm), thermal conductivity (TC), fractional free volume (FFV),
+density (ρ), and gas permeabilities (P) for O2, N2, CH4, H2, and CO2, with data split into training and
+testing sets at a 4:1 ratio.
+Properties
+Units
+# Training
+# Testing
+Tg
+◦C
+5,766
+1,442
+Tm
+◦C
+2,936
+735
+TC
+W/(m K)
+1,264
+316
+FFV
+1
+6,436
+1,610
+ρ
+g/cm3
+1,368
+342
+P(O2)
+log10(Permeability in Barrer)
+644
+161
+P(N2)
+635
+159
+P(CH4)
+544
+137
+P(H2)
+407
+102
+P(CO2)
+603
+151
+methods (Morgan, MACCS, RDKit, Topological, and Atom Pair). Graph-based models (GIN, GCN, and
+GREA) were directly trained on the graph description of polymer structures. The performance of these
+models was then assessed on the hold-out test sets. To further investigate alternative predictive approaches,
+we evaluated the pretrained large language model (LLM), GPT-4o-mini [131], under zero-shot and few-shot
+in-context learning (ICL) settings, with 0, 5, 10, and 20 ICL examples (randomly sampled from the training
+set) provided per test sample. Detailed methodologies for polymer representation, model training, and
+evaluation are provided in Sections 4.1 and 4.2.
+Table 2: Comparison of Model Prediction Performance on Testing Dataset. All values reported are Root
+Mean Square Errors (RMSE) in units corresponding to each property. The top two models for each property
+are underscored. ‘avg’ denotes the mean RMSE for each model across all fingerprinting methods. ‘TT’ and
+‘AP’ are short for Topological Torsion fingerprint and Atom Pair fingerprint, respectively. Numbers (0, 5,
+10, and 20) after ‘GPT-4o-mini’ denotes the number of examples used in ICL. ‘Training (avg)’ refers to the
+RMSE obtained when using the training set mean as the prediction for the test set.
+Models
+Tg
+Tm
+TC
+FFV
+ρ
+P(O2)
+P(N2)
+P(H2)
+P(CH4)
+P(CO2)
+QRF-Morgan
+38.07
+59.79
+0.056
+0.016
+0.107
+0.698
+0.577
+0.436
+0.606
+0.690
+QRF-MACCS
+43.53
+61.15
+0.055
+0.016
+0.101
+0.760
+0.627
+0.429
+0.809
+0.723
+QRF-RDKit
+39.23
+60.13
+0.056
+0.016
+0.118
+0.716
+0.533
+0.509
+0.593
+0.814
+QRF-TT
+39.27
+62.48
+0.051
+0.017
+0.182
+0.805
+0.526
+0.517
+0.550
+0.875
+QRF-AP
+40.05
+61.69
+0.049
+0.016
+0.120
+0.726
+0.505
+0.514
+0.568
+0.774
+QRF (avg)
+40.03
+61.05
+0.053
+0.016
+0.126
+0.741
+0.554
+0.481
+0.625
+0.775
+MLP-D-Morgan
+37.57
+59.47
+0.047
+0.015
+0.117
+0.640
+0.490
+0.478
+0.590
+0.646
+MLP-D-MACCS
+40.42
+61.06
+0.059
+0.013
+0.104
+0.695
+0.601
+0.371
+0.702
+0.704
+MLP-D-RDKit
+38.18
+58.87
+0.057
+0.014
+0.126
+0.739
+0.545
+0.469
+0.606
+0.742
+MLP-D-TT
+39.37
+63.16
+0.047
+0.016
+0.126
+0.689
+0.534
+0.486
+0.595
+0.728
+MLP-D-AP
+38.55
+59.41
+0.052
+0.014
+0.111
+0.631
+0.524
+0.437
+0.633
+0.628
+MLP-D (avg)
+38.82
+60.39
+0.052
+0.014
+0.117
+0.679
+0.539
+0.448
+0.625
+0.690
+GNN
+36.01
+55.47
+0.077
+0.021
+0.168
+0.608
+0.486
+0.469
+0.468
+0.618
+GREA
+37.32
+57.10
+0.066
+0.023
+0.126
+0.566
+0.513
+0.447
+0.549
+0.634
+GPT-4o-mini-0
+100.92 110.47
+0.112
+0.178
+0.189
+2.949
+3.023
+4.684
+3.212
+2.033
+GPT-4o-mini-5
+95.54 114.75
+0.096
+0.039
+0.182
+1.440
+1.629
+1.198
+1.656
+1.327
+GPT-4o-mini-10
+91.11 111.03
+0.092
+0.035
+0.172
+1.320
+1.520
+1.170
+1.533
+1.290
+GPT-4o-mini-20
+85.98 105.65
+0.083
+0.031
+0.169
+1.267
+1.381
+1.064
+1.342
+1.257
+Training (avg)
+111.57 113.00
+0.089
+0.030
+0.194
+1.323
+1.430
+1.167
+1.426
+1.285
+The model performance on the test sets, summarized in Table 2, indicates that graph-based models (vanilla
+GNN and GREA) generally outperformed other models across most tasks (6 out of 10). This superior
+performance can be attributed to GNNs’ ability to effectively capture the intricate topological and relational
+information inherent in polymer molecules, enabling a more natural capture of the atomic connectivity that
+5
+
+dictates different properties. Comparatively, MLP-D models demonstrated better predictive accuracy than
+QRF models in almost all tasks. This may stem from MLP-D’s capacity to model complex, non-linear
+relationships within the data, facilitated by its deep learning architecture and the incorporation of dropout
+for regularization, which enhances generalization to unseen data.
+Regarding the pre-trained LLM approach, it showed some predictive capability relative to the simplest
+baseline—using the training set mean as the prediction for test data—particularly for properties such as
+Tg, Tm, and ρ. Notably, its zero-shot performance on these three properties surpassed the training average
+baseline, which may be attributed to the hierarchical level of prediction difficulty discussed in the previous
+section, where these properties were found to be relatively easier to predict. Moreover, increasing the number
+of ICL examples (from 0 to 20) consistently improved predictive performance across all properties. For
+instance, RMSE values dropped significantly from the 0-shot to the 20-shot setting, suggesting that pre-trained
+LLMs benefit substantially from additional contextual information. Except for FFV, all tasks achieved better
+performance with 20-shot ICL than with the training average method, despite the latter leveraging the full
+training dataset (as shown in Table 1). However, despite these improvements, LLMs-ICL were still less
+competitive than dedicated ML models, which were explicitly trained on large polymer datasets.
+In evaluating the average performance of various polymer fingerprints, as shown in Appendix Table A.7, the
+frequency with which each fingerprint achieved the top rank is as follows: Morgan (Tg, P(O2), and P(CO2)) =
+MACCS (FFV, ρ, and P(H2)) > Topological Torsion (TC and P(CH4)) > RDKit (Tm) = Atom Pair (P(N2)).
+The comparable performance across different fingerprints indicates that no single representation universally
+outperforms the others across all tasks. Each fingerprint’s design emphasizes different aspects of molecular
+structure, making them more or less suitable for predicting specific properties. Therefore, selecting the most
+appropriate fingerprint may depend on the particular property of interest and the underlying structural
+features that influence it. The efficacy of different fingerprints appears to be influenced by the hierarchical
+complexity of the properties being predicted. For properties like ρ, FFV, and Tg, which are closely linked to
+the polymer’s intrinsic chemical structure, fingerprints that effectively capture local chemical environments,
+such as Morgan and MACCS, tend to yield better results. On the other hand, properties like TC and P,
+which often involve complex long-range interactions and depend on both local and global structural features,
+may require representations that strike a balance between capturing detailed local information and broader
+topological features, like Morgan, Topological Torsion, and Atom Pair. This underscores the need for more
+advanced fingerprints or hybrid representations that can encapsulate both fine-grained substructural details
+and higher-order molecular topology for accurate prediction of challenging polymer properties.
+2.3
+Prediction Uncertainty Quantification
+Evaluating UQ is crucial for assessing the confidence of model predictions, especially when selecting candidate
+polymers for experimental validation in subsequent steps. Intuitively, we expect that the predicted uncertainty
+should provide meaningful coverage of the prediction error, i.e., the difference between the predicted value
+and the ground truth. This implies that a reasonable uncertainty estimate should increase in regions where
+the model is likely to make larger errors. In this case, UQ acts as a measure of the model’s reliability—when
+uncertainty is high, the model’s prediction is less trustworthy, whereas low uncertainty indicates higher
+confidence in the predicted value. We employed two metrics to evaluate the quality of UQ: Spearman’s rank
+correlation coefficient and sparsification plots.
+Spearman’s rank correlation coefficient (ρs) measures the strength and direction of the monotonic relationship
+between prediction errors and uncertainties, which is defined as:
+ρs = 1 −
+6 P d2
+i
+n(n2 −1),
+(1)
+where di represents the difference between the ranks of the prediction errors and their corresponding
+uncertainties, and n is the total number of data points. A coefficient of 1 indicates a perfect positive
+monotonic relationship, meaning that higher uncertainties consistently correspond to larger errors. Conversely,
+a coefficient of −1 indicates a perfect negative monotonic relationship, and a coefficient close to 0 suggests
+no correlation between uncertainty and error. Sparsification plots offer a complementary approach for
+assessing UQ by systematically removing data points with the highest predicted uncertainties and tracking
+the cumulative prediction error. The idea is that if the predicted uncertainties are reliable, removing highly
+uncertain predictions should result in a rapid decline in cumulative error. Therefore, a good UQ model is
+expected to show a significant reduction in error as more uncertain points are removed. This approach not
+6
+
+Table 3: Comparison of Model Uncertainty Quantification on Testing Dataset. All values reported are the
+Spearman’s rank correlation coefficient (ρs) between prediction error and prediction uncertainty. The top
+two models with the highest ρs for each property are underscored. ‘avg’ denotes the mean coefficient value
+for each model across all fingerprinting methods. ‘TT’ and ‘AP’ are short for Topological Torsion fingerprint
+and Atom Pair fingerprint, respectively.
+Models
+Tg
+Tm
+TC
+FFV
+ρ
+P(O2)
+P(N2)
+P(H2)
+P(CH4)
+P(CO2)
+QRF-Morgan
+0.317
+0.382
+0.338
+0.385
+0.380
+0.461
+0.386
+0.376
+0.291
+0.455
+QRF-MACCS
+0.283
+0.314
+0.246
+0.355
+0.364
+0.272
+0.361
+0.254
+0.272
+0.330
+QRF-RDKit
+0.372
+0.387
+0.323
+0.377
+0.370
+0.393
+0.385
+0.327
+0.029
+0.294
+QRF-TT
+0.368
+0.452
+0.317
+0.422
+0.525
+0.524
+0.417
+0.414
+0.261
+0.317
+QRF-AP
+0.379
+0.448
+0.333
+0.360
+0.387
+0.433
+0.372
+0.423
+0.347
+0.408
+QRF (avg)
+0.344
+0.397
+0.311
+0.380
+0.405
+0.417
+0.384
+0.344
+0.234
+0.361
+MLP-D-Morgan
+0.182
+0.212
+0.252
+0.241
+0.091
+0.267
+0.229
+0.278
+0.180
+0.076
+MLP-D-MACCS
+0.237
+0.281
+0.273
+0.217
+0.204
+0.299
+0.225
+0.076
+0.210
+0.184
+MLP-D-RDKit
+0.283
+0.191
+0.308
+0.171
+0.042
+0.248
+0.080
+−0.014
+−0.027
+−0.086
+MLP-D-TT
+0.422
+0.206
+0.274
+0.231
+0.171
+0.241
+0.178
+0.270
+0.203
+0.097
+MLP-D-AP
+0.157
+0.209
+0.223
+0.231
+0.064
+0.199
+0.083
+0.195
+0.141
+0.124
+MLP-D (avg)
+0.256
+0.220
+0.266
+0.218
+0.114
+0.251
+0.159
+0.188
+0.141
+0.079
+GREA
+0.231
+0.253
+0.091
+0.016
+0.216
+0.224
+0.221
+0.069
+0.191
+0.298
+only provides insight into the quality of the uncertainty estimates but also illustrates how model performance,
+in terms of both accuracy and reliability, improves when uncertain predictions are excluded. Details on the
+calculation of prediction uncertainties are available in Section 4.2.
+The results of ρs, summarized in Table 3, highlight distinct differences in UQ performance across various
+models. Despite its lower predictive accuracy observed in Table 2, QRF showed the best UQ capability, with
+ρs values generally between 0.3 and 0.5—typically considered moderate for molecular and polymer property
+prediction [45, 132]. This can be attributed to its intrinsic mechanism of quantile estimation, which models
+the conditional distribution of the target variable, enabling it to provide more reliable uncertainty estimates.
+Although QRF may not excel in predicting the exact value of a property, it can more effectively quantify the
+confidence level of its predictions, making it suitable for scenarios where uncertainty estimation is important.
+MLP-D and GREA exhibited lower UQ performance. Although MLP-D uses dropout regularization to
+approximate Bayesian inference by simulating model uncertainty through stochastic forward passes, its UQ
+performance was less robust than QRF. This is likely because, while dropout helps reduce overfitting and
+improve generalization, it does not explicitly model the full distribution of the target variable. GREA’s UQ
+strength lies in its rationale-environment separation mechanism, which identifies key subgraphs (rationales)
+responsible for predictions. This enhances interpretability and provides a degree of uncertainty estimation by
+assessing the variability of rationales across different environments. However, unlike QRF, the environment
+replacement strategy in GREA does not offer an explicit estimate of the full distribution of the target variable,
+which also limits its UQ precision. The sparsification plots of the models with the best ρs for each property
+are shown in Fig. A.8, which illustrate how prediction error and prediction uncertainty accumulate as samples
+with the highest uncertainties are sequentially removed. In these plots, the models show a rapid decrease in
+cumulative prediction error as the most uncertain samples are excluded, demonstrating that the predicted
+uncertainties effectively capture regions of high model error.
+2.4
+Interpretability
+Understanding model predictions from both global and local perspectives is essential for improving model
+reliability, uncovering underlying patterns in the data, and facilitating decision-making in downstream tasks.
+Global interpretability helps identify key features that consistently influence predictions, enabling researchers
+to discover potential underlying mechanisms or general patterns across the dataset. Local interpretability, on
+the other hand, provides detailed insights into how specific features of individual data points contribute to
+a prediction, which is crucial for selecting candidates for experimental validation and further investigation.
+Both levels of interpretability are important for increasing trust in ML models and ensuring that predictions
+are not only accurate but also explainable.
+For global interpretability, we used SHAP (details provided in Section 4.3) to calculate feature importance
+and identify key bits in the fingerprints that influence predictions. Figure 2(a) shows a beeswarm plot of
+7
+
+(a)
+Bit 587
+Bit 314
+Bit 1380
+Bit 1911
+Bit 80
+Bit 891
+Bit 695
+Bit 147
+Bit 650
+Bit 807
+Bit 1688
+Bit 680
+Bit 352
+Bit 13
+Bit 1143
+Bit 1816
+Bit 1019
+Bit 48
+Bit 896
+Bit 1097
+(b)
+Bit 715
+Bit 1911
+Bit 1274
+(d)
+(c)
+*CC(*)CNc1ccc([N+](=O)[O-])cc1
+FC(F)(F)C(*)(c1ccc2C(=O)N(C
+(=O)c2c1)c1ccc(cc1)N1C(=O)c
+2ccc(*)cc2C1=O)C(F)(F)F
+Bit 857
+Example 1
+Example 1
+Example 2
+Example 2
+Figure 2: An example of model prediction interpretation on the Tg test dataset. (a) Beeswarm plot of SHAP
+values on the test dataset using the QFR model and Morgan fingerprints. The x-axis represents the SHAP
+values, which quantify the impact of each fingerprint bit on the model’s prediction—positive values increase
+Tg, while negative values decrease it. The y-axis lists the top-20 most important fingerprint bits, ranked in
+descending order by their average absolute SHAP value (i.e., the most influential bits are at the top). The
+color of the dots corresponds to the feature value: red indicates bit=1 in Morgan fingerprints, while blue
+represents bit=0. (b) Molecular visualization of important bits in the Morgan fingerprint. “A” is a wildcard
+atom represents any atom type and “*” represents the polymerization point in the repeated unit of polymers.
+(c) Molecular structure and rationale interpretation (highlighted in green) of two polymer explicands from
+the GREA model. (d) Waterfall plot of SHAP values of the same two polymer explicands in panel (c) using
+the QFR model and Morgan fingerprints. The x-axis shows the cumulative SHAP value contributions leading
+to the final prediction f(x), with the base value (expected model output) at the far left and the final model
+prediction at the far right. Each bar represents the contribution of a single fingerprint bit. Bars are annotated
+with the bit ID and the magnitude of their contribution.
+8
+
+SHAP values for the QRF model on the Tg test dataset using Morgan fingerprints. Each bit corresponds to a
+specific molecular structure, as listed in Fig. 2(b). Bits 587, 314, and 1380 have the most positive impact on
+Tg, while bits 1911 and 80 have the most negative impact. A rigid aromatic structure on the backbone (with
+the aromatic ring in Bit 587 directly connected to a polymerization point "*") or an aromatic structure at an
+unspecified position (Bit 1380) positively influences Tg, consistent with the general understanding that rigid,
+planar structures increase Tg by restricting chain mobility [133]. Similarly, Bit 314, representing a carbonyl
+group, positively influences Tg by enhancing intermolecular interactions and reducing chain mobility [134].
+On the other hand, Bit 1911 and Bit 80, which represent flexible aliphatic chains, negatively influence Tg
+by increasing chain mobility. Bit 1911 corresponds to a longer linear alkyl chain, while Bit 80 represents a
+shorter alkyl linkage. These flexible, non-polar structures reduce intermolecular interactions and allow easier
+interchain movements, which lower Tg [133, 134].
+For local interpretability, we utilized two approaches: one for graph-based models and another for non-graph-
+based models. The GREA model, being a graph-based approach, provides inherent rationale interpretation
+by identifying atom-level importance. Figure 2(c) illustrates two examples from the Tg dataset, where the
+important nodes are highlighted in green, indicating the substructures that play a critical role in the property
+prediction, i.e., the rationales. For non-graph-based models, we again used SHAP for local explanations.
+The explanation of the two same polymers from the Tg dataset is shown in Fig. 2(d), where the bit-level
+contributions to the prediction are visualized using a waterfall plot, with their corresponding molecular
+structures listed in Fig. 2(b). Comparing the local explanations from graph-based and non-graph-based
+models reveals that both approaches identify similar key structural elements. For instance, in example 1,
+both methods highlight the significance of the nitro group and alkyl linkages, while in example 2, they both
+emphasize the importance of carbonyl groups and tertiary carbon centers. The graph-based GREA model
+offers atom-level interpretability, providing chemists with a direct understanding of specific functional groups.
+In contrast, the SHAP-based approach for non-graph models delivers bit-level importance, which, although
+less granular, is useful for identifying broader structural patterns and offers insights into whether certain
+features have a positive or negative impact, which is not provided by GREA. By combining insights from both
+approaches, we can gain a more comprehensive understanding of the factors influencing polymer property
+predictions, ultimately improving model transparency and trustworthiness.
+2.5
+Synthesizability
+We manually curated a dataset of polymerization reactions from literature and various resources [80, 81, 115,
+135–141], with a focus exclusively on linear homopolymers with two polymerization points, omitting complex
+structures like ladder polymers and copolymers. In this study, we considered three primary polymerization
+types: condensation, addition, and ring-opening polymerization. The curated reaction data contains 578
+polymerization reactions, which were randomly split into 218 training and 360 testing samples.
+Each
+reaction comprises (1) the polymer’s SMILES (Simplified Molecular Input Line Entry System) [142], (2) the
+polymerization type, and (3) the SMILES of the corresponding monomer(s). All the monomers involved
+in these reactions can be found in PubChem [143], which suggests that they are commercially available
+or can be synthesized. Using the training set, we defined a set of reaction templates based on SMARTS
+(SMILES Arbitrary Target Specification) [144] to retro-synthetically decompose polymers into their respective
+monomers.
+Examples of the retro-synthesis procedure using these templates are illustrated in Fig. 3. Condensation
+polymerization follows a step-growth mechanism, where a small molecule byproduct (such as water or
+HCl) is released during the polymerization process. Figure 3(a) illustrates the retrosynthetic pathways for
+typical condensation reactions, demonstrating how polymers can be deconstructed into their monomeric units
+(byproducts are omitted). Addition polymerization proceeds through a chain-growth mechanism without
+the release of byproducts. Figure 3(b) depicts the retrosynthetic pathways for addition polymerizations,
+illustrating the deconstruction of polymers into their respective unsaturated monomer units. Ring-opening
+polymerization involves the opening of a ring structure in the monomer to form a linear polymer chain.
+Examples of the corresponding retrosynthetic pathways are shown in Fig. 3(c).
+We extracted 82 templates from the training set and evaluated their performance on the hold-out test set.
+Two metrics were employed for this evaluation:
+1. Prediction Accuracy: This metric assesses whether the ground truth polymerization reaction is
+accurately predicted by any of the existing templates. For each polymer in the dataset, a score of 1 is
+assigned if the ground truth reaction is among the predicted results; otherwise, a score of 0 is given.
+The Prediction Accuracy is then the percentage of polymers with a score of 1 across the dataset.
+9
+
+Retro-Synthesis: Condensation
+*
+*
++
+*Nc1ccccc1NC(=O)CCCCCCC(*)=O
+C(CCCC(=O)Cl)CCC(=O)Cl
+Nc1ccccc1N
+O=C1OC(=O)c2cc(ccc12)-
+c1ccc2C(=O)OC(=O)c2c1
+Nc1ccc(N)cc1
+*c1ccc(N2C(=O)c3ccc(-
+c4ccc5c(c4)C(=O)N(*)C5=O)cc3C2=O)cc1
+*
+*
++
+*
+*
+O=C(C(=O)c1cccc(c1)C(=O
+)C(=O)c1ccccc1)c1ccccc1
+Nc1ccc(cc1N)-
+c1ccc(N)c(N)c1
++
+*c1cccc(-c2nc3cc(-c4ccc5nc(-
+c6ccccc6)c(*)nc5c4)ccc3nc2-
+c2ccccc2)c1
+*CC(*)CCN(C(C)C)C(C)C
+*
+*
+CC(C)N(CCC=C)C(C)C
+*
+*
+*CC#CC#CCOC(=O)N
+CCCCCCNC(=O)O*
+C(C#CC#CCO)O
+C(CCCN=C=O)CCN=C=O
++
+*
+*
+*OC(*)C(Cl)Cl
+C(=O)C(Cl)Cl
+Retro-Synthesis: Addition
+Retro-Synthesis: Ring-opening
+*
+*
+*CC(COc1cccc(C)c1)O*
+CC1=CC(=CC=C1)OCC2CO2
+*
+*
+*CC(C)(CCC)C(=O)O*
+CCCC1(COC1=O)C
+*
+*
+*CCN(*)C(=O)Cc1ccc(C(F)(F)F)cc1
+FC(F)(F)c1ccc(CC2=NCCO2)cc1
+(a)
+(b)
+(c)
+Figure 3: Examples of retrosynthesis planning of polymers from: (a) condensation, (b) addition, and (c)
+ring-opening polymerization. The condensation reactions involve monomers with reactive groups that release
+small molecules upon polymerization. Addition polymerizations involve linking monomers via reactive double
+bonds. Ring-opening polymerizations involve the cleavage of ring structures to form linear chains.
+10
+
+Table 4: Summary of Training and Testing Datasets and Evaluation Metrics for Polymerization Reaction
+Templates.
+Dataset
+Prediction Accuracy (%)
+Applicability Rate (%)
+Training
+100
+100
+Testing
+59.7
+91.9
+2. Applicability Rate: This metric evaluates the applicability of existing templates to a given polymer.
+For each polymer, a score of 1 is assigned if at least one prediction result is generated using the
+current templates; if no predictions are possible due to limitations in template coverage, a score of 0
+is assigned. The Applicability Rate is the percentage of polymers with a score of 1 in the dataset.
+Table 4 presents the results of the evaluation metrics for the polymerization reaction templates applied to
+both the training and testing datasets. The Prediction Accuracy and Applicability Rate for the training set
+are both 100%, which reflects the fact that the templates were specifically designed and tailored to cover
+all the reactions in the training data. Therefore, every reaction in the training set is correctly predicted
+by the templates. For the testing dataset, the Applicability Rate remains high at 91.9%, indicating that
+the existing templates cover a large portion of the potential polymer linkages present in the test set. This
+demonstrates the broad applicability of the templates to various polymerization reactions, even those not
+explicitly included in the training data. However, the Prediction Accuracy for the testing set is 59.7%. This
+does not imply that the predictions for the testing data are incorrect, but rather that the reaction routes for
+some polymers in the test set cannot be fully covered by the current templates. It is important to note that
+one polymer may have multiple "correct" reaction routes, and the templates may not capture all possible
+pathways. As more templates are extracted, the accuracy is expected to improve by covering a broader range
+of reaction possibilities.
+Based on the retrosynthesis process, we propose a new synthesizability score specific to polymers, named
+PolyScore. Unlike existing retrosynthesis scores designed for small molecules, PolyScore is tailored to capture
+the unique characteristics of polymerization reactions, which considers the difficulty of synthesizing a polymer
+by evaluating the complexity of its retro-synthesized monomers and the number of viable polymerization
+routes. The PolyScore (SPoly) is defined as:
+SPoly = min
+
+Sj
+Poly
+
+,
+Sj
+Poly = MeanReactant
+
+Sj
+Reactant
+
+=
+n
+Pn
+i=1
+1
+Sj
+Reactant,i
+(2)
+where Sj
+Reactant,i represents the synthetic accessibility score (SAScore [101]) of the ith retro-synthesized
+monomer in the jth route. The final PolyScore (SPoly) is taken as the minimum of the scores across all
+possible polymerization routes (Sj
+Poly). This approach ensures that polymers with easier or more feasible
+synthesis routes receive a higher score, reflecting their higher likelihood of successful synthesis in practice.
+However, the current version of PolyScore has certain limitations. It only considers the synthesizability of
+monomers when a polymer can be successfully decomposed into chemically valid monomers based on our
+polymerization retrosynthesis templates. Factors such as the reaction conditions (e.g., temperature, pressure,
+solvents, and catalysts) that can impact the feasibility of polymerization are not accounted for. Additionally,
+the influence of side reactions, commercial availability of monomers, and industrial-scale synthetic constraints
+is not accounted for. Future enhancements to PolyScore could incorporate these aspects to provide a more
+comprehensive measure of polymer synthesizability.
+2.6
+Screening
+In this section, we demonstrate the use of trained models to screen an unlabeled or virtual polymer
+database, identify promising candidates for specific applications, and apply the retro-synthesis tool to propose
+polymerization routes. The PI1M [108] virtual polymer database was selected as the screening pool. We
+conducted two case studies to illustrate how the screening and retro-synthesis workflow can be potentially
+utilized for real-world applications: (1) designing high-performance polymers for thermal management
+materials and (2) developing polymers for gas separation membranes. A complete set of screening results
+on the PI1M database, including predicted properties, uncertainties, and suggested polymerization routes,
+can be found at https://github.com/Jiaxin-Xu/POINT2.git. It should be noted that in the case studies,
+11
+
+some properties, such as TC and FFV, are derived from computational simulations rather than experimental
+sources. As a result, the magnitudes used here might differ from experimental intuitions due to systematic
+differences between computational simulations and experimental measurements [11, 18].
+Case Study 1: Designing a High-Performance Polymer for Thermal Management
+Table 5: Property Constraints and Rationale for Case Study 1 - Designing a High-Performance Polymer for
+Thermal Management. Target ranges are defined for Tg, Tm, thermal conductivity (TC), density (ρ), and
+fractional free volume (FFV) to ensure thermal stability, heat dissipation, and mechanical reliability. The
+ranges for TC and FFV are based on MD simulation labels, which may slightly overestimate values relative
+to experimental data[11, 18].
+Property
+Range
+Rationale
+Tg
+> 250°C
+Ensures thermal stability; the polymer remains in its
+glassy state and maintains its mechanical integrity
+under high operational temperatures encountered in
+thermal management applications.
+Tm
+> 350°C
+Prevents melting or deformation under high tem-
+perature conditions, ensuring long-term reliability in
+heat-intensive environments.
+TC
+> 0.35 W/mK
+High thermal conductivity facilitates effective heat
+dissipation, which is essential for preventing overheat-
+ing in electronic devices and other applications.
+ρ
+0.8 – 1.2 g/cm3
+Ensures a balance between mechanical robustness and
+lightweight properties, aiding in ease of integration
+into various devices while minimizing added weight.
+FFV
+0.3 - 0.35
+Low fractional free volume promotes tight chain pack-
+ing in the polymer matrix, which reduces phonon
+scattering and energy barriers for thermal conduc-
+tion.
+In the first case study, the objective is to design a high-performance polymer for thermal management
+applications, such as heat dissipation in electronic devices, batteries and aerospace components. The polymer
+must meet specific property requirements of high thermal conductivity, mechanical integrity, and high thermal
+stability during operation [145, 146]. Table 5 summarizes these property requirements along with their design
+rationale. Utilizing selected models that consider both prediction accuracy and UQ, we screened a randomly
+sampled 10% subset of the PI1M database and identified three polymer candidates that satisfied all the
+specified property requirements. The predicted properties and retrosynthetic routes of the three candidates
+are shown in Fig. 4. Among the candidates that meet the design requirements, Candidate 3, classified as a
+polyamide, was selected as the final choice due to its synthetic feasibility. This polymer can be synthesized
+via polycondensation using readily available monomers from PubChem [143], including CID=23328712
+(4-amino-N-(4-aminophenyl)-3-methylbenzamide) and CID=60941683 (4-(5-carboxypentanoylamino)benzoic
+acid). The retrosynthetic pathway, emphasizing these monomers, is depicted in the green box of Fig. 4.
+Although another pathway consisting solely of known monomers from PubChem is feasible, the higher
+SAScores [101] of the monomers indicate greater synthesis difficulty. Thus, the route with the easiest synthesis
+process was selected as the final choice, which was further confirmed by the lowest PolyScore of the route.
+Case Study 2: Designing a High-Performance Polymer for Gas Separation Membranes
+In the second case, the objective is to design a high-performance polymer for CO2/CH4 gas separation
+membranes, particularly for applications such as natural gas purification. The polymer must meet specific
+property requirements to ensure efficiency, durability, and selectivity during operation [130].
+Table 6
+summarizes these property constraints along with their application rationale. Using the trained ML models
+and screening workflow, three candidates were identified as shown in Fig. 5. Among them, Candidate 3 was
+selected as the final choice based on its synthetic feasibility and suitability for the target CO2/CH4 separation
+application. Candidate 3, a polyimide, is a particularly promising choice as polyimides are widely recognized
+12
+
+*Nc1ccc(NC(=O)c2ccc(C(=O)Nc3ccc(C(=
+O)Nc4cccc(C(*)=O)c4)cc3)c(C)c2)cc1C
+*
+*
+*Oc1ccc(NC(=O)c2ccc(C(=O)NNC(=
+O)c3ccc(*)cc3)cc2)cc1C
+*
+*
+*Nc1ccc(NC(=O)c2ccc(NC(=O)CCCCC(=O)N
+c3ccc(C(*)=O)cc3)cc2)cc1C
+*
+*
+CID=7252
+SAScore=1.88 
+CID=UNK
+SAScore=1.84 
+CID=14227379
+SAScore=1.70 
+CID=7252
+SAScore=1.88 
+CID=60941683
+SAScore=1.58 
+CID=23328712
+SAScore=1.67 
+CID=UNK
+SAScore=1.86 
+CID=978
+SAScore=1.44 
+CID=22646064
+SAScore=1.53 
+CID= UNK
+SAScore=1.79 
+CID= UNK
+SAScore=1.91 
+CID=7419
+SAScore=1.55 
+CID= UNK
+SAScore=2.02 
+CID= UNK
+SAScore=2.04 
+Candidate 1
+Candidate 2
+Candidate 3
+PolyScore=1.86 
+PolyScore=1.65 PolyScore=1.71 
+PolyScore=2.02 
+PolyScore=2.04 
+PolyScore=1.79 
+PolyScore=1.62 PolyScore=1.62 
+Figure 4: Results of Case Study 1: designing high-performance polymers for thermal management. The top row
+shows radar plots with design constraints (shaded gray regions) for key properties: density (0.8−1.2 g/cm3),
+FFV (0.3−0.35), TC (> 0.35 W/mK), Tg (> 250◦C), and Tm (> 350◦C). The red line and numbers indicate
+the predicted mean property values, while the shaded red area represents the uncertainty range. Models used
+for predictions are: FFV (MLP-D+AP), TC (MLP-D+TT), Tg (MLP-D+Morgan),Tm (MLP-D+RDKit), and
+density (MLP-D+Morgan). The middle row displays the molecular structure and SMILES of the candidate
+polymers. The bottom row shows retrosynthetic pathways, where each box represents a potential route.
+Boxes with solid borders indicate all monomers are available in PubChem (CID provided), while dashed
+borders denote at least one monomer is unknown (UNK). The synthesizability of monomers is quantified by
+SAScore. The PolyScore of each proposed route is shown at the bottom. Candidate 3 is the final selection
+due to its optimal properties and the most feasible synthesis route, as highlighted with a green box.
+13
+
+Table 6: Property Constraints and Rationale for Case Study 2 - Designing a High-Performance Polymer for
+CO2/CH4 Gas Separation Membranes. Target ranges are defined for Tg, density (ρ), fractional free volume
+(FFV), and log10-scaled CO2 and CH4 gas permeability in units of Barrer to ensure structural integrity,
+thermal stability, and selective gas transport. The ranges for FFV are based on MD simulation labels, which
+may slightly overestimate values relative to experimental data[18].
+Property
+Range
+Rationale
+Tg
+> 180°C
+Ensures good thermal stability and rigid polymer
+backbone for size sieving.
+FFV
+> 0.35
+Provides sufficient free space within the polymer ma-
+trix to facilitate gas diffusion.
+ρ
+> 1.4 g/cm3
+High density ensures structural integrity under op-
+erational pressures, reducing the risk of polymer de-
+formation or failure in demanding gas separation
+environments.
+log10(PCO2 in
+Barrer)
+> 1.5
+High permeability to CO2 enhances separation effi-
+ciency, crucial for applications like carbon capture
+and natural gas purification.
+log10(PCH4 in
+Barrer)
+< -0.8
+Low permeability to CH4 ensures methane is effec-
+tively retained, improving product purity and process
+efficiency.
+in gas separation membrane design for their excellent thermal stability, mechanical strength, and tunable
+chemical structures, which allow for tailored permeability and selectivity [130]. The synthesis route for
+Candidate 3 is highlighted in the green box in Fig. 5. This polymer can be synthesized via polycondesation
+using two known monomers from PubChem: 3,3’-(Hexafluorotrimethylene)bisaniline (CID=19993866) and
+4,4’-(Hexafluoroisopropylidene)diphthalic anhydride (CID=70677).
+3
+Conclusion
+In this study, we introduced POINT2, a comprehensive polymer informatics framework that integrates
+property prediction, uncertainty quantification, interpretability, and synthesizability to facilitate the design
+and discovery of high-performance polymers. By leveraging advanced ML models and diverse polymer
+representations, we demonstrated the ability to predict key polymer properties, quantify uncertainties,
+interpret prediction results, and propose feasible polymerization routes using a template-based retrosynthesis
+tool. The introduction of PolyScore provides a polymer-specific synthesizability metric, enabling practical
+assessments of the ease of polymer synthesis. Through two case studies, we showcased the potential application
+of POINT2, identifying and selecting polymers tailored for thermal management and gas separation membranes.
+These case studies highlight the utility of combining property screening with retrosynthetic analysis to balance
+predictive performance and synthetic feasibility.
+We envision POINT2 as a continually evolving framework, with future developments aimed at enhancing
+its capabilities and broadening its applicability. In the near term, efforts will focus on addressing current
+limitations. For example, the current PolyScore focuses exclusively on monomer complexity and route viability
+without considering reaction conditions, side reactions, or industrial-scale constraints. Additionally, while
+UQ provides valuable insights into prediction reliability, improving its calibration across diverse property
+spaces is still challenging. This involves addressing both aleatoric uncertainty, which arises from noise and
+variability in data (e.g., gas permeability or thermal conductivity), and epistemic uncertainty, which stems
+from the model’s limited knowledge, especially in sparsely sampled regions of the polymer chemical space.
+Future enhancements could incorporate experimental validation of predicted results, expanded polymerization
+templates, and hybrid data-driven approaches to better capture polymer-specific complexities.
+We believe POINT2 establishes a robust foundation for polymer informatics and will serve as a valuable
+resource for the broader community, advancing both theoretical understanding and practical applications of
+polymer discovery.
+14
+
+*
+*
+*c1ccc2c(c1)C(=O)N(c1ccc([SH](=O)(c3ccccc3
+)c3ccccc3)c(N3C(=O)c4ccc(C(*)(C(F)(F)F)C(F
+)(F)F)cc4C3=O)c1)C2=O
+*c1ccc(-c2ccc(-
+c3cc(*)c(Cl)cc3Cl)cc2)cc1
+*
+*
+*c1ccc2c(c1)C(=O)N(c1cccc(C(F)(F)C(F
+)(F)C(F)(F)c3cccc(N4C(=O)c5ccc(C(*)(
+C(F)(F)F)C(F)(F)F)cc5C4=O)c3)c1)C2=O
+*
+*
+CID=UNK
+SAScore=3.50 
+CID=70677
+SAScore=2.90 
+Candidate 1
+Candidate 2
+Candidate 3
+CID=19993866
+SAScore=2.61 
+CID=70677
+SAScore=2.90 
+PolyScore=3.17 
+PolyScore=2.75 
+Figure 5: Results of Case Study 2: designing high-performance polymers for gas separation membranes.
+The top row shows radar plots with design constraints (shaded gray regions) for key properties: density
+(> 1.4 g/cm3), FFV (> 0.35), Tg (> 180◦C), log10(PCH4 in Barrer) (< −0.8), and log10(PCO2 in Barrer)
+(> 1.5). The red line and numbers indicate the predicted mean property values, while the shaded red area
+represents the uncertainty range. Models used for predictions are: FFV (MLP-D+AP), Tg (MLP-D+Morgan),
+density (MLP-D+Morgan), P(CH4) (QRF+TT), and P(CO2) ((MLP-D+AP)). The middle row displays the
+molecular structure and SMILES of the candidate polymers. The bottom row shows retrosynthetic pathways,
+where each box represents a potential route. No route is identified using current templates for Candidate
+2. Boxes with solid borders indicate all monomers are available in PubChem (CID provided), while dashed
+borders denote at least one monomer is unknown (UNK). The synthesizability of monomers is quantified by
+SAScore. The PolyScore of each proposed route is shown at the bottom. Candidate 3 is the final selection
+due to its optimal properties and the most feasible synthesis route, as highlighted with a green box.
+15
+
+4
+Method
+4.1
+Polymer Representations
+In this study, we employed various molecular fingerprinting techniques to represent polymer structures from
+SMILES [142] to numerical values, each capturing distinct aspects of molecular information:
+Morgan Fingerprints: Also known as circular fingerprints, these are generated using the Morgan algorithm,
+which iteratively encodes atomic environments up to a specified radius [147]. This method effectively captures
+structural information and is widely used for similarity assessments and ML applications [148–150]. The
+radius parameter determines the neighborhood size considered around each atom, and the bit vector size
+defines the length of the fingerprint. Commonly used parameters, a radius of 2 and a bit vector size of 2048,
+were used in this work through RDKit [151].
+MACCS Keys: The MACCS (Molecular ACCess System) keys [152] comprise a set of 166 predefined structural
+fragments used to represent molecular structures as binary vectors, where each bit indicates the presence or
+absence of a specific substructure. In this work, we utilized RDKit [151] to generate MACCS fingerprints for
+our dataset.
+RDKit Fingerprints: RDKit [151] provides topological fingerprints that encode the presence of various
+substructures within a molecule, facilitating substructure searches and similarity comparisons. In this work,
+we configured the RDKit fingerprints with a bit vector size of 2048 bits, a minimum path length of 1 bond, a
+maximum path length of 6 bonds, and 2 bits set per hash function.
+Atom Pair Fingerprints: These fingerprints capture information about all pairs of atoms in a molecule,
+encoding their atom types and the topological distance between them, valuable for understanding molecular
+geometry and is often used in similarity assessments [153]. A bit vector size of 2048 and 4 bits per entry were
+used in this work.
+Topological Torsion Fingerprints: Focusing on sequences of four connected atoms, these fingerprints capture
+information about their types and connectivity, which are particularly useful for characterizing conformational
+aspects of molecules [154]. A bit vector size of 2048 and a target size (the number of atoms in the torsion) of
+4 were used in this work.
+Graph-Based Descriptors: Utilizing RDKit [151], we extracted graph-based descriptors that represent
+molecular structures as graphs, with atoms as nodes and bonds as edges. This approach allows for the capture
+of complex structural information, facilitating the application of graph-based ML models. We defined nine
+categories for node features, namely (1) atomic number, (2) degree of the atom, (3) chirality, (4) formal
+charge, (5) total number of Hs (explicit and implicit) on the atom, (6) number of radical electrons, (7)
+hybridization, (8) aromaticity, and (9) is in a ring or not. Three categories for edge features are defined,
+namely (1) bond type, (2) is conjugated or not , and (3) stereo configuration. Each polymer is treated as an
+undirected graph G = (X; E; A), where X is the node feature matrix, E is the edge feature matrix, and A is
+the adjacency matrix.
+4.2
+Machine Learning Models
+We employed several ML models to predict polymer properties considering prediction accuracy, uncertainty
+estimation, and interpretability:
+Quantile Random Forests (QRF): It extends the traditional random forest algorithm to estimate conditional
+quantiles, offering a non-parametric method to model the conditional distribution of a response variable, which
+is particularly advantageous for quantifying uncertainty in predictions [116]. The QRF model was implemented
+through the quantile-forest Python package [155] with number of trees in the forest (n_estimators) set
+to 100 and the function to measure the quality of a split as "squared_error". We computed prediction
+intervals by estimating quantiles ranging from 0.05 to 0.95, with the standard deviation approximated as half
+the difference between the upper (0.95) and lower (0.05) quantiles.
+Multilayer Perceptrons with Dropout (MLP-D): MLP-D is a feedforward neural network architecture incor-
+porating Monte Carlo (MC) Dropout for uncertainty estimation [53]. MC Dropout involves applying dropout
+during both training and inference, enabling the model to generate a distribution of predictions for each input,
+which facilitates the quantification of predictive uncertainty. In our implementation, the model architecture
+consisted of two hidden layers with 512 and 128 neurons, respectively, each followed by an MC Dropout
+layer with a dropout rate of 0.2. The ReLU activation function was used in the hidden layers to introduce
+16
+
+non-linearity, while the output layer consisted of a single neuron for regression tasks. During training, the
+model was optimized using the Adam optimizer with a learning rate of 0.001 and the mean squared error
+loss function. The model was trained for 100 epochs, with a batch size of 32 and 10% randomly sampled
+training data reserved for validation. For uncertainty estimation, we conducted 100 independent stochastic
+forward passes during inference, with dropout active. The mean of these predictions was used as the final
+output, while the 5th and 95th percentiles were computed to represent the uncertainty interval. The standard
+deviation of the predictions was estimated as half the difference between the 95th and 5th percentiles. The
+MLP-D model was implemented in TensorFlow [156] using the Keras API [157].
+Graph Neural Networks (GNNs): We implemented vanilla GNN architectures for molecular property prediction
+using the torch-molecule. It is a package we are actively developing to facilitate molecular discovery through
+deep learning approaches, featuring a user-friendly, sklearn-style interface. This package currently supports a
+few prediction models, and we plan to incorporate more generative models in the near future. We implement
+two variants including Graph Isomorphism Networks (GIN) [117] and Graph Convolutional Networks (GCN)
+[118]. These models were trained with a batch size of 512 for 500 epochs. Hyperparameter optimization was
+systematically carried out through Optuna [158]. Key hyperparameters include the type of GNN (GIN or
+GCN), the normalization layer (batch, layer, or size normalization), the number of GNN layers (ranging from
+2 to 5), the embedding dimension (between 256 and 512), the learning rate (from 1 × 10−4 to 1 × 10−2), and
+the dropout ratio (from 0.05 to 0.5).
+Graph Rationalization with Environment-based Augmentations (GREA): We employed the torch-molecule
+library to implement the GREA model [12], which was trained with a batch size of 512 for 500 epochs.
+Hyperparameter optimization was systematically conducted using Optuna [158]. Key hyperparameters include
+the type of base encoders (GIN or GCN) for both the rationale encoder and graph encoder, the normalization
+layer (batch, layer, or size normalization), the number of GNN layers for the graph encoder (ranging from 2
+to 5; Note: the number of layers in the rationale encoder was fixed as 2), the embedding dimension (between
+256 and 512), the learning rate (from 1 × 10−4 to 1 × 10−2), the dropout ratio (from 0.05 to 0.5), and the
+rationale subgraph size control parameter γ (from 0.25 to 0.75). The variance of each prediction is calculated
+from different rationale-environment combinations in a batch and the predicted uncertainty is derived by
+scaling the square root of the variance by a confidence multiplier (1.96 for a 95% confidence level).
+GPT-4o-mini for ICL Inference: To explore the capability of LLMs in polymer property prediction, we
+employed GPT-4o-mini [131] in zero-shot and few-shot ICL settings. Unlike traditional ML models, which
+require explicit training on structured datasets, LLMs leverage pre-trained knowledge and adapt to the task
+via contextual examples provided at inference time. In this work, GPT-4o-mini was prompted to predict
+polymer properties based on the SMILES representation of each test polymer. The model was evaluated
+under four different ICL conditions:
+• Zero-shot (0-ICL): No examples provided, relying entirely on the LLM’s prior knowledge.
+• Few-shot (5-ICL, 10-ICL, 20-ICL): Randomly sampled training examples (5, 10, or 20 per test
+instance) were included in the prompt to guide the model.
+The prompts were structured to ensure a standardized response format, instructing the LLM to output only
+the predicted numerical value. For few-shot settings, example SMILES-property pairs were dynamically
+sampled from the training data for each test instance. The LLM predictions were extracted, parsed, and
+evaluated for accuracy.
+4.3
+Interpretability
+To elucidate the decision-making processes of our predictive models, we employed distinct interpretability
+techniques tailored to both non-graph-based and graph-based architectures.
+Non-Graph-Based Models: For MLP-D and QRF, we utilized SHAP [69] to interpret model predictions.
+SHAP assigns each feature an importance value for a particular prediction, grounded in cooperative game
+theory principles [159]. Specifically, we applied the KernelExplainer, a model-agnostic approach suitable
+for any predictive model [69]. This explainer approximates SHAP values by treating the model as a black
+box and perturbing input features to observe changes in the output. To enhance computational efficiency, we
+employed a K-means clustering algorithm on the training data to select 10 representative samples as the
+background dataset. The SHAP values derived from this method offer insights into contributions from those
+interpretable fingerprints, thereby enhancing the transparency and trustworthiness of our non-graph-based
+models from both local and global point of view.
+17
+
+Graph-Based Model: For GREA, we utilized employed the model-intrinsic rationalization technique developed
+specifically for this framework to interpret predictions [12]. In graph-based learning, a rationale refers to
+a subgraph that significantly influences the model’s output. The GREA framework efficiently identifies
+such rationales by performing rationale-environment separation and enhanced representation learning in
+latent spaces. This method not only improves the overall learning of representations but also sharpens the
+identification of rationales. We highlighted the nodes with rationale score (node importance) ranking in
+the top 20% of the graph as the rationale, designating these as key influencers for each polymer’s property
+predictions.
+5
+Data and code availability
+All data and code used in this study are available at https://github.com/Jiaxin-Xu/POINT2.git.
+6
+Conflicts of interest
+The authors declare no conflicts of interest.
+Acknowledgments
+This work was supported in part by National Science Foundation (2102592, 2332270).
+References
+[1] Dorel Feldman. Polymer history. Designed monomers and polymers, 11(1):1–15, 2008.
+[2] Sebastian Koltzenburg, Michael Maskos, and Oskar Nuyken. Polymer chemistry. Springer Nature, 2023.
+[3] Amar K Mohanty, Feng Wu, Rosica Mincheva, Minna Hakkarainen, Jean-Marie Raquez, Deborah F
+Mielewski, Ramani Narayan, Anil N Netravali, and Manjusri Misra. Sustainable polymers. Nature
+Reviews Methods Primers, 2(1):46, 2022.
+[4] Harry R Allcock. Rational design and synthesis of new polymeric material. Science, 255(5048):1106–1112,
+1992.
+[5] Costas D Maranas. Optimal computer-aided molecular design: A polymer design case study. Industrial
+& engineering chemistry research, 35(10):3403–3414, 1996.
+[6] Rafiqul Gani. Group contribution-based property estimation methods: advances and perspectives.
+Current Opinion in Chemical Engineering, 23:184–196, 2019.
+[7] Lihua Chen, Ghanshyam Pilania, Rohit Batra, Tran Doan Huan, Chiho Kim, Christopher Kuenneth,
+and Rampi Ramprasad. Polymer informatics: Current status and critical next steps. Materials Science
+and Engineering: R: Reports, 144:100595, 2021.
+[8] Kan Hatakeyama-Sato. Recent advances and challenges in experiment-oriented polymer informatics.
+Polymer Journal, 55(2):117–131, 2023.
+[9] Huan Tran, Rishi Gurnani, Chiho Kim, Ghanshyam Pilania, Ha-Kyung Kwon, Ryan P Lively, and
+Rampi Ramprasad. Design of functional and sustainable polymers assisted by artificial intelligence.
+Nature Reviews Materials, pages 1–21, 2024.
+[10] Jiaxin Xu, Agboola Suleiman, Gang Liu, Renzheng Zhang, Meng Jiang, Ruilan Guo, and Tengfei
+Luo. Transcend the boundaries: Machine learning for designing polymeric membrane materials for gas
+separation. Chemical Physics Reviews, 5(4), 2024.
+[11] Ruimin Ma, Hanfeng Zhang, Jiaxin Xu, Luning Sun, Yoshihiro Hayashi, Ryo Yoshida, Junichiro
+Shiomi, Jian-xun Wang, and Tengfei Luo. Machine learning-assisted exploration of thermally conductive
+polymers based on high-throughput molecular dynamics simulations. Materials Today Physics, 28:100850,
+2022.
+[12] Gang Liu, Tong Zhao, Jiaxin Xu, Tengfei Luo, and Meng Jiang. Graph rationalization with environment-
+based augmentations. In Proceedings of the 28th ACM SIGKDD Conference on Knowledge Discovery
+and Data Mining, pages 1069–1078, 2022.
+18
+
+[13] Huan Doan Tran, Chiho Kim, Lihua Chen, Anand Chandrasekaran, Rohit Batra, Shruti Venkatram,
+Deepak Kamal, Jordan P Lightstone, Rishi Gurnani, Pranav Shetty, et al. Machine-learning predictions
+of polymer properties with polymer genome. Journal of Applied Physics, 128(17), 2020.
+[14] Jiaxin Xu, Agboola Suleiman, Gang Liu, Michael Perez, Renzheng Zhang, Meng Jiang, Ruilan Guo,
+and Tengfei Luo. Superior polymeric gas separation membrane designed by explainable graph machine
+learning. arXiv preprint arXiv:2404.10903, 2024.
+[15] Matteo Aldeghi and Connor W Coley. A graph representation of molecular ensembles for polymer
+property prediction. Chemical Science, 13(35):10486–10498, 2022.
+[16] Jiaxin Xu and Tengfei Luo. Unlocking enhanced thermal conductivity in polymer blends through active
+learning. npj Computational Materials, 10(1):74, 2024.
+[17] Jaehong Park, Youngseon Shim, Franklin Lee, Aravind Rammohan, Sushmit Goyal, Munbo Shim,
+Changwook Jeong, and Dae Sin Kim. Prediction and interpretation of polymer properties using the
+graph convolutional network. ACS Polymers Au, 2(4):213–222, 2022.
+[18] Lei Tao, Jinlong He, Tom Arbaugh, Jeffrey R McCutcheon, and Ying Li. Machine learning prediction
+on the fractional free volume of polymer membranes. Journal of Membrane Science, 665:121131, 2023.
+[19] Jason Yang, Lei Tao, Jinlong He, Jeffrey R McCutcheon, and Ying Li. Machine learning enables
+interpretable discovery of innovative polymers for gas separation membranes.
+Science Advances,
+8(29):eabn9545, 2022.
+[20] Hironao Yamada, Chang Liu, Stephen Wu, Yukinori Koyama, Shenghong Ju, Junichiro Shiomi, Junko
+Morikawa, and Ryo Yoshida. Predicting materials properties with little data using shotgun transfer
+learning. ACS central science, 5(10):1717–1730, 2019.
+[21] Stephen Wu, Yukiko Kondo, Masa-aki Kakimoto, Bin Yang, Hironao Yamada, Isao Kuwajima, Guillaume
+Lambard, Kenta Hongo, Yibin Xu, Junichiro Shiomi, et al. Machine-learning-assisted discovery of
+polymers with high thermal conductivity using a molecular design algorithm. Npj Computational
+Materials, 5(1):66, 2019.
+[22] Zhenqin Wu, Bharath Ramsundar, Evan N Feinberg, Joseph Gomes, Caleb Geniesse, Aneesh S Pappu,
+Karl Leswing, and Vijay Pande. Moleculenet: a benchmark for molecular machine learning. Chemical
+science, 9(2):513–530, 2018.
+[23] Daniil Polykovskiy, Alexander Zhebrak, Benjamin Sanchez-Lengeling, Sergey Golovanov, Oktai Tatanov,
+Stanislav Belyaev, Rauf Kurbanov, Aleksey Artamonov, Vladimir Aladinskiy, Mark Veselov, et al.
+Molecular sets (moses): a benchmarking platform for molecular generation models.
+Frontiers in
+pharmacology, 11:565644, 2020.
+[24] Anna Gaulton, Louisa J Bellis, A Patricia Bento, Jon Chambers, Mark Davies, Anne Hersey, Yvonne
+Light, Shaun McGlinchey, David Michalovich, Bissan Al-Lazikani, et al. Chembl: a large-scale bioactivity
+database for drug discovery. Nucleic acids research, 40(D1):D1100–D1107, 2012.
+[25] Anna Gaulton, Anne Hersey, Michał Nowotka, A Patricia Bento, Jon Chambers, David Mendez,
+Prudence Mutowo, Francis Atkinson, Louisa J Bellis, Elena Cibri´an-Uhalte, et al. The chembl database
+in 2017. Nucleic acids research, 45(D1):D945–D954, 2017.
+[26] Alex Wang. Glue: A multi-task benchmark and analysis platform for natural language understanding.
+arXiv preprint arXiv:1804.07461, 2018.
+[27] Alex Wang, Yada Pruksachatkun, Nikita Nangia, Amanpreet Singh, Julian Michael, Felix Hill, Omer
+Levy, and Samuel Bowman. Superglue: A stickier benchmark for general-purpose language understanding
+systems. Advances in neural information processing systems, 32, 2019.
+[28] P Rajpurkar.
+Squad:
+100,000+ questions for machine comprehension of text.
+arXiv preprint
+arXiv:1606.05250, 2016.
+[29] Samuel R Bowman, Gabor Angeli, Christopher Potts, and Christopher D Manning. A large annotated
+corpus for learning natural language inference. arXiv preprint arXiv:1508.05326, 2015.
+[30] Jia Deng, Wei Dong, Richard Socher, Li-Jia Li, Kai Li, and Li Fei-Fei. Imagenet: A large-scale
+hierarchical image database. In 2009 IEEE conference on computer vision and pattern recognition,
+pages 248–255. Ieee, 2009.
+[31] Tsung-Yi Lin, Michael Maire, Serge Belongie, James Hays, Pietro Perona, Deva Ramanan, Piotr Doll´ar,
+and C Lawrence Zitnick. Microsoft coco: Common objects in context. In Computer Vision–ECCV
+2014: 13th European Conference, Zurich, Switzerland, September 6-12, 2014, Proceedings, Part V 13,
+pages 740–755. Springer, 2014.
+19
+
+[32] Alex Krizhevsky, Geoffrey Hinton, et al. Learning multiple layers of features from tiny images. 2009.
+[33] Wayne Xin Zhao, Kun Zhou, Junyi Li, Tianyi Tang, Xiaolei Wang, Yupeng Hou, Yingqian Min,
+Beichen Zhang, Junjie Zhang, Zican Dong, et al. A survey of large language models. arXiv preprint
+arXiv:2303.18223, 1(2), 2023.
+[34] Yupeng Chang, Xu Wang, Jindong Wang, Yuan Wu, Linyi Yang, Kaijie Zhu, Hao Chen, Xiaoyuan
+Yi, Cunxiang Wang, Yidong Wang, et al. A survey on evaluation of large language models. ACM
+transactions on intelligent systems and technology, 15(3):1–45, 2024.
+[35] Arun James Thirunavukarasu, Darren Shu Jeng Ting, Kabilan Elangovan, Laura Gutierrez, Ting Fang
+Tan, and Daniel Shu Wei Ting. Large language models in medicine. Nature medicine, 29(8):1930–1940,
+2023.
+[36] Cayque Monteiro Castro Nascimento and Andr´e Silva Pimentel. Do large language models understand
+chemistry? a conversation with chatgpt. Journal of Chemical Information and Modeling, 63(6):1649–
+1655, 2023.
+[37] Kevin Maik Jablonka, Philippe Schwaller, Andres Ortega-Guerrero, and Berend Smit. Leveraging large
+language models for predictive chemistry. Nature Machine Intelligence, 6(2):161–169, 2024.
+[38] Taicheng Guo, Bozhao Nan, Zhenwen Liang, Zhichun Guo, Nitesh Chawla, Olaf Wiest, Xiangliang
+Zhang, et al. What can large language models do in chemistry? a comprehensive benchmark on eight
+tasks. Advances in Neural Information Processing Systems, 36:59662–59688, 2023.
+[39] Andres M. Bran, Sam Cox, Oliver Schilter, Carlo Baldassari, Andrew D White, and Philippe Schwaller.
+Augmenting large language models with chemistry tools. Nature Machine Intelligence, 6(5):525–535,
+2024.
+[40] Christian Soize. Uncertainty quantification. Springer, 2017.
+[41] Moloud Abdar, Farhad Pourpanah, Sadiq Hussain, Dana Rezazadegan, Li Liu, Mohammad
+Ghavamzadeh, Paul Fieguth, Xiaochun Cao, Abbas Khosravi, U Rajendra Acharya, et al. A review
+of uncertainty quantification in deep learning: Techniques, applications and challenges. Information
+fusion, 76:243–297, 2021.
+[42] Timothy John Sullivan. Introduction to uncertainty quantification, volume 63. Springer, 2015.
+[43] Anurag Jha, Anand Chandrasekaran, Chiho Kim, and Rampi Ramprasad. Impact of dataset uncertainties
+on machine learning model predictions: the example of polymer glass transition temperatures. Modelling
+and Simulation in Materials Science and Engineering, 27(2):024002, 2019.
+[44] Paul N Patrone, Andrew Dienstfrey, Andrea R Browning, Samuel Tucker, and Stephen Christensen.
+Uncertainty quantification in molecular dynamics studies of the glass transition temperature. Polymer,
+87:246–259, 2016.
+[45] Hao Tang, Tianle Yue, and Ying Li. Uncertainty quantification in machine learning for glass transition
+temperature prediction of polymers. 2024.
+[46] Carl Edward Rasmussen. Gaussian processes in machine learning. In Summer school on machine
+learning, pages 63–71. Springer, 2003.
+[47] David JC MacKay et al. Introduction to gaussian processes. NATO ASI series F computer and systems
+sciences, 168:133–166, 1998.
+[48] Laurent Valentin Jospin, Hamid Laga, Farid Boussaid, Wray Buntine, and Mohammed Bennamoun.
+Hands-on bayesian neural networks—a tutorial for deep learning users. IEEE Computational Intelligence
+Magazine, 17(2):29–48, 2022.
+[49] Ethan Goan and Clinton Fookes. Bayesian neural networks: An introduction and survey. Case Studies
+in Applied Bayesian Data Science: CIRM Jean-Morlet Chair, Fall 2018, pages 45–87, 2020.
+[50] Pavel Izmailov, Sharad Vikram, Matthew D Hoffman, and Andrew Gordon Gordon Wilson. What are
+bayesian neural network posteriors really like? In International conference on machine learning, pages
+4629–4640. PMLR, 2021.
+[51] Leo Breiman. Random forests. Machine learning, 45:5–32, 2001.
+[52] Lucas Mentch and Giles Hooker. Quantifying uncertainty in random forests via confidence intervals
+and hypothesis tests. Journal of Machine Learning Research, 17(26):1–41, 2016.
+20
+
+[53] Yarin Gal and Zoubin Ghahramani.
+Dropout as a bayesian approximation: Representing model
+uncertainty in deep learning. In international conference on machine learning, pages 1050–1059. PMLR,
+2016.
+[54] Yarin Gal, Jiri Hron, and Alex Kendall. Concrete dropout. Advances in neural information processing
+systems, 30, 2017.
+[55] Burr Settles. Active learning literature survey. 2009.
+[56] Burr Settles. From theories to queries: Active learning in practice. In Active learning and experimental
+design workshop in conjunction with AISTATS 2010, pages 1–18. JMLR Workshop and Conference
+Proceedings, 2011.
+[57] Martin Pelikan and Martin Pelikan. Bayesian optimization algorithm. Hierarchical Bayesian optimization
+algorithm: toward a new generation of evolutionary algorithms, pages 31–48, 2005.
+[58] Bobak Shahriari, Kevin Swersky, Ziyu Wang, Ryan P Adams, and Nando De Freitas. Taking the human
+out of the loop: A review of bayesian optimization. Proceedings of the IEEE, 104(1):148–175, 2015.
+[59] Marco A Wiering and Martijn Van Otterlo.
+Reinforcement learning.
+Adaptation, learning, and
+optimization, 12(3):729, 2012.
+[60] Kai Arulkumaran, Marc Peter Deisenroth, Miles Brundage, and Anil Anthony Bharath. Deep reinforce-
+ment learning: A brief survey. IEEE Signal Processing Magazine, 34(6):26–38, 2017.
+[61] Diogo V Carvalho, Eduardo M Pereira, and Jaime S Cardoso. Machine learning interpretability: A
+survey on methods and metrics. Electronics, 8(8):832, 2019.
+[62] Leilani H Gilpin, David Bau, Ben Z Yuan, Ayesha Bajwa, Michael Specter, and Lalana Kagal. Explaining
+explanations: An overview of interpretability of machine learning. In 2018 IEEE 5th International
+Conference on data science and advanced analytics (DSAA), pages 80–89. IEEE, 2018.
+[63] Richard Dybowski. Interpretable machine learning as a tool for scientific discovery in chemistry. New
+Journal of Chemistry, 44(48):20914–20920, 2020.
+[64] Nour Makke and Sanjay Chawla. Symbolic regression: A pathway to interpretability towards automated
+scientific discovery. In Proceedings of the 30th ACM SIGKDD Conference on Knowledge Discovery and
+Data Mining, pages 6588–6596, 2024.
+[65] Ribana Roscher, Bastian Bohn, Marco F. Duarte, and Jochen Garcke. Explainable machine learning
+for scientific insights and discoveries. IEEE Access, 8:42200–42216, 2020.
+[66] Agrim Babbar, Sriram Ragunathan, Debirupa Mitra, Arnab Dutta, and Tarak K Patra. Explainability
+and extrapolation of machine learning models for predicting the glass transition temperature of polymers.
+Journal of Polymer Science, 62(6):1175–1186, 2024.
+[67] Lei Tao, Jinlong He, Nuwayo Eric Munyaneza, Vikas Varshney, Wei Chen, Guoliang Liu, and Ying Li.
+Discovery of multi-functional polyimides through high-throughput screening using explainable machine
+learning. Chemical Engineering Journal, 465:142949, 2023.
+[68] Marco Tulio Ribeiro, Sameer Singh, and Carlos Guestrin. " why should i trust you?" explaining the
+predictions of any classifier. In Proceedings of the 22nd ACM SIGKDD international conference on
+knowledge discovery and data mining, pages 1135–1144, 2016.
+[69] M Scott, Lee Su-In, et al. A unified approach to interpreting model predictions. Advances in neural
+information processing systems, 30:4765–4774, 2017.
+[70] Scott M Lundberg, Gabriel Erion, Hugh Chen, Alex DeGrave, Jordan M Prutkin, Bala Nair, Ronit Katz,
+Jonathan Himmelfarb, Nisha Bansal, and Su-In Lee. From local explanations to global understanding
+with explainable ai for trees. Nature machine intelligence, 2(1):56–67, 2020.
+[71] Vin´ıcius G Costa and Carlos E Pedreira. Recent advances in decision trees: An updated survey.
+Artificial Intelligence Review, 56(5):4765–4800, 2023.
+[72] A Vaswani. Attention is all you need. Advances in Neural Information Processing Systems, 2017.
+[73] Zhaoyang Niu, Guoqiang Zhong, and Hui Yu. A review on the attention mechanism of deep learning.
+Neurocomputing, 452:48–62, 2021.
+[74] Dzmitry Bahdanau. Neural machine translation by jointly learning to align and translate. arXiv
+preprint arXiv:1409.0473, 2014.
+[75] Kelvin Xu. Show, attend and tell: Neural image caption generation with visual attention. arXiv
+preprint arXiv:1502.03044, 2015.
+21
+
+[76] Sarah Wiegreffe and Yuval Pinter. Attention is not not explanation. arXiv preprint arXiv:1908.04626,
+2019.
+[77] Sai Gurrapu, Ajay Kulkarni, Lifu Huang, Ismini Lourentzou, and Feras A Batarseh. Rationalization for
+explainable nlp: a survey. Frontiers in Artificial Intelligence, 6:1225093, 2023.
+[78] Felix Wong, Erica J Zheng, Jacqueline A Valeri, Nina M Donghia, Melis N Anahtar, Satotaka Omori,
+Alicia Li, Andres Cubillos-Ruiz, Aarti Krishnan, Wengong Jin, et al. Discovery of a structural class of
+antibiotics with explainable deep learning. Nature, 626(7997):177–185, 2024.
+[79] Ying-Xin Wu, Xiang Wang, An Zhang, Xiangnan He, and Tat-Seng Chua. Discovering invariant
+rationales for graph neural networks. arXiv preprint arXiv:2201.12872, 2022.
+[80] George Odian. Principles of polymerization. John Wiley & Sons, 2004.
+[81] Wallace H Carothers. Polymerization. Chemical Reviews, 8(3):353–426, 1931.
+[82] Elias James Corey. The logic of chemical synthesis. Рипол Классик, 1991.
+[83] EJ Corey. Robert robinson lecture. retrosynthetic thinking—essentials and examples. Chemical society
+reviews, 17:111–133, 1988.
+[84] Yijia Sun and Nikolaos V Sahinidis. Computer-aided retrosynthetic design: fundamentals, tools, and
+outlook. Current Opinion in Chemical Engineering, 35:100721, 2022.
+[85] Gang Liu, Michael Sun, Wojciech Matusik, Meng Jiang, and Jie Chen. Multimodal large language
+models for inverse molecular design with retrosynthetic planning. arXiv preprint arXiv:2410.04223,
+2024.
+[86] Shuan Chen, Juhwan Noh, Jidon Jang, Seongmin Kim, Geun Ho Gu, and Yousung Jung. Reaction
+templates: Bridging synthesis knowledge and artificial intelligence. Accounts of Chemical Research,
+57(14):1964–1972, 2024.
+[87] Javier L Baylon, Nicholas A Cilfone, Jeffrey R Gulcher, and Thomas W Chittenden. Enhancing
+retrosynthetic reaction prediction with deep learning using multiscale reaction classification. Journal of
+chemical information and modeling, 59(2):673–688, 2019.
+[88] Marwin HS Segler and Mark P Waller. Neural-symbolic machine learning for retrosynthesis and reaction
+prediction. Chemistry–A European Journal, 23(25):5966–5971, 2017.
+[89] Connor W Coley, Luke Rogers, William H Green, and Klavs F Jensen. Computer-assisted retrosynthesis
+based on molecular similarity. ACS central science, 3(12):1237–1245, 2017.
+[90] Hanjun Dai, Chengtao Li, Connor Coley, Bo Dai, and Le Song.
+Retrosynthesis prediction with
+conditional graph logic network. Advances in Neural Information Processing Systems, 32, 2019.
+[91] Shuan Chen and Yousung Jung. Deep retrosynthetic reaction prediction using local reactivity and
+global attention. JACS Au, 1(10):1612–1620, 2021.
+[92] Kangjie Lin, Youjun Xu, Jianfeng Pei, and Luhua Lai. Automatic retrosynthetic route planning using
+template-free models. Chemical science, 11(12):3355–3364, 2020.
+[93] Bowen Liu, Bharath Ramsundar, Prasad Kawthekar, Jade Shi, Joseph Gomes, Quang Luu Nguyen,
+Stephen Ho, Jack Sloane, Paul Wender, and Vijay Pande. Retrosynthetic reaction prediction using
+neural sequence-to-sequence models. ACS central science, 3(10):1103–1113, 2017.
+[94] Shuangjia Zheng, Jiahua Rao, Zhongyue Zhang, Jun Xu, and Yuedong Yang. Predicting retrosynthetic
+reactions using self-corrected transformer neural networks. Journal of chemical information and modeling,
+60(1):47–55, 2019.
+[95] Igor V Tetko, Pavel Karpov, Ruud Van Deursen, and Guillaume Godin. State-of-the-art augmented nlp
+transformer models for direct and single-step retrosynthesis. Nature communications, 11(1):5575, 2020.
+[96] Zipeng Zhong, Jie Song, Zunlei Feng, Tiantao Liu, Lingxiang Jia, Shaolun Yao, Min Wu, Tingjun Hou,
+and Mingli Song. Root-aligned smiles: a tight representation for chemical reaction prediction. Chemical
+Science, 13(31):9023–9034, 2022.
+[97] Zhengkai Tu and Connor W Coley. Permutation invariant graph-to-sequence model for template-free
+retrosynthesis and reaction prediction. Journal of chemical information and modeling, 62(15):3503–3513,
+2022.
+[98] Yue Wan, Chang-Yu Hsieh, Ben Liao, and Shengyu Zhang. Retroformer: Pushing the limits of end-to-
+end retrosynthesis transformer. In International Conference on Machine Learning, pages 22475–22490.
+PMLR, 2022.
+22
+
+[99] Jiahan Liu, Chaochao Yan, Yang Yu, Chan Lu, Junzhou Huang, Le Ou-Yang, and Peilin Zhao. Mars:
+a motif-based autoregressive model for retrosynthesis prediction. Bioinformatics, 40(3):btae115, 2024.
+[100] Weihe Zhong, Ziduo Yang, and Calvin Yu-Chian Chen. Retrosynthesis prediction using an end-to-end
+graph generative architecture for molecular graph editing. Nature Communications, 14(1):3009, 2023.
+[101] Peter Ertl and Ansgar Schuffenhauer. Estimation of synthetic accessibility score of drug-like molecules
+based on molecular complexity and fragment contributions. Journal of cheminformatics, 1:1–11, 2009.
+[102] Connor W Coley, Luke Rogers, William H Green, and Klavs F Jensen. Scscore: synthetic complexity
+learned from a reaction corpus. Journal of chemical information and modeling, 58(2):252–261, 2018.
+[103] Milan Vorˇsil´ak, Michal Kol´aˇr, Ivan ˇCmelo, and Daniel Svozil. Syba: Bayesian estimation of synthetic
+accessibility of organic compounds. Journal of cheminformatics, 12:1–13, 2020.
+[104] Jiahui Yu, Jike Wang, Hong Zhao, Junbo Gao, Yu Kang, Dongsheng Cao, Zhe Wang, and Tingjun Hou.
+Organic compound synthetic accessibility prediction based on the graph attention mechanism. Journal
+of chemical information and modeling, 62(12):2973–2986, 2022.
+[105] Guang Chen, Zhiqiang Shen, Akshay Iyer, Umar Farooq Ghumman, Shan Tang, Jinbo Bi, Wei Chen,
+and Ying Li. Machine-learning-assisted de novo design of organic molecules and polymers: opportunities
+and challenges. Polymers, 12(1):163, 2020.
+[106] Kianoosh Sattari, Yunchao Xie, and Jian Lin. Data-driven algorithms for inverse design of polymers.
+Soft Matter, 17(33):7607–7622, 2021.
+[107] Rohit Batra, Hanjun Dai, Tran Doan Huan, Lihua Chen, Chiho Kim, Will R Gutekunst, Le Song,
+and Rampi Ramprasad. Polymers for extreme conditions designed using syntax-directed variational
+autoencoders. Chemistry of Materials, 32(24):10489–10500, 2020.
+[108] Ruimin Ma and Tengfei Luo. Pi1m: a benchmark database for polymer informatics. Journal of Chemical
+Information and Modeling, 60(10):4684–4690, 2020.
+[109] Seonghwan Kim, Charles M Schroeder, and Nicholas E Jackson.
+Open macromolecular genome:
+Generative design of synthetically accessible polymers. ACS Polymers Au, 3(4):318–330, 2023.
+[110] Rishi Gurnani, Deepak Kamal, Huan Tran, Harikrishna Sahu, Kenny Scharm, Usman Ashraf, and
+Rampi Ramprasad. Polyg2g: A novel machine learning algorithm applied to the generative design of
+polymer dielectrics. Chemistry of Materials, 33(17):7008–7016, 2021.
+[111] Haoke Qiu and Zhao-Yan Sun. On-demand reverse design of polymers with polytao. npj Computational
+Materials, 10(1):273, 2024.
+[112] Di-Fan Liu, Yong-Xin Zhang, Wen-Zhuo Dong, Qi-Kun Feng, Shao-Long Zhong, and Zhi-Min Dang.
+High-temperature polymer dielectrics designed using an invertible molecular graph generative model.
+Journal of Chemical Information and Modeling, 63(24):7669–7675, 2023.
+[113] Xiang Huang, CY Zhao, Hong Wang, and Shenghong Ju. Ai-assisted inverse design of sequence-ordered
+high intrinsic thermal conductivity polymers. Materials Today Physics, 44:101438, 2024.
+[114] Zhenze Yang, Weike Ye, Xiangyun Lei, Daniel Schweigert, Ha-Kyung Kwon, and Arash Khajeh. De novo
+design of polymer electrolytes using gpt-based and diffusion-based generative models. npj Computational
+Materials, 10(1):296, 2024.
+[115] Lihua Chen, Joseph Kern, Jordan P Lightstone, and Rampi Ramprasad.
+Data-assisted polymer
+retrosynthesis planning. Applied Physics Reviews, 8(3), 2021.
+[116] Nicolai Meinshausen and Greg Ridgeway. Quantile regression forests. Journal of machine learning
+research, 7(6), 2006.
+[117] Keyulu Xu, Weihua Hu, Jure Leskovec, and Stefanie Jegelka. How powerful are graph neural networks?
+arXiv preprint arXiv:1810.00826, 2018.
+[118] Thomas N Kipf and Max Welling. Semi-supervised classification with graph convolutional networks.
+arXiv preprint arXiv:1609.02907, 2016.
+[119] Qingxiu Dong, Lei Li, Damai Dai, Ce Zheng, Jingyuan Ma, Rui Li, Heming Xia, Jingjing Xu, Zhiyong
+Wu, Tianyu Liu, et al. A survey on in-context learning. arXiv preprint arXiv:2301.00234, 2022.
+[120] A. W. Thornton, B. D. Freeman, and L. M. Robeson.
+Polymer gas separation membrane
+database.
+Accessed:
+January 5, 2025, 2012.
+https://research.csiro.au/virtualscreening/
+membrane-database-polymer-gas-separation-membranes/.
+23
+
+[121] Lei Tao, Vikas Varshney, and Ying Li. Benchmarking machine learning models for polymer informatics:
+an example of glass transition temperature. Journal of Chemical Information and Modeling, 61(11):5395–
+5413, 2021.
+[122] Md Jamal Uddin and Jitang Fan. Interpretable machine learning framework to predict the glass
+transition temperature of polymers. Polymers, 16(8):1049, 2024.
+[123] Lei Tao, Guang Chen, and Ying Li. Machine learning discovery of high-temperature polymers. Patterns,
+2(4), 2021.
+[124] Chiho Kim, Anand Chandrasekaran, Tran Doan Huan, Deya Das, and Rampi Ramprasad. Polymer
+genome: a data-powered polymer informatics platform for property predictions. The Journal of Physical
+Chemistry C, 122(31):17575–17585, 2018.
+[125] Jozef Bicerano. Prediction of polymer properties. cRc Press, 2002.
+[126] George Wypych. Handbook of polymers. Elsevier, 2022.
+[127] Dirk Willem Van Krevelen and Klaas Te Nijenhuis. Properties of polymers: their correlation with
+chemical structure; their numerical estimation and prediction from additive group contributions. Elsevier,
+2009.
+[128] James E Mark. Polymer data handbook. (No Title), 2009.
+[129] DW Van Krevelen and PJ Hoftyzer. Prediction of polymer densities. Journal of Applied Polymer
+Science, 13(5):871–881, 1969.
+[130] David F Sanders, Zachary P Smith, Ruilan Guo, Lloyd M Robeson, James E McGrath, Donald R Paul,
+and Benny D Freeman. Energy-efficient polymeric gas separation membranes for a sustainable future:
+A review. Polymer, 54(18):4729–4761, 2013.
+[131] Aaron Hurst, Adam Lerer, Adam P Goucher, Adam Perelman, Aditya Ramesh, Aidan Clark, AJ Ostrow,
+Akila Welihinda, Alan Hayes, Alec Radford, et al. Gpt-4o system card. arXiv preprint arXiv:2410.21276,
+2024.
+[132] Lior Hirschfeld, Kyle Swanson, Kevin Yang, Regina Barzilay, and Connor W Coley. Uncertainty
+quantification using neural networks for molecular property prediction. Journal of Chemical Information
+and Modeling, 60(8):3770–3780, 2020.
+[133] Wanqiang Liu. Prediction of glass transition temperatures of aromatic heterocyclic polyimides using an
+ann model. Polymer Engineering & Science, 50(8):1547–1557, 2010.
+[134] Xinliang Yu and Xianwei Huang. A quantitative relationship between t gs and chain segment structures
+of polystyrenes. Pol´ımeros, 27(1):68–74, 2017.
+[135] James G. Speight. Chapter 14 - monomers, polymers, and plastics. In James G. Speight, editor,
+Handbook of Industrial Hydrocarbon Processes, pages 499–537. Gulf Professional Publishing, Boston,
+2011.
+[136] Anshuman Shrivastava. 2 - polymerization. In Anshuman Shrivastava, editor, Introduction to Plastics
+Engineering, Plastics Design Library, pages 17–48. William Andrew Publishing, 2018.
+[137] Keigo Aoi and Masahiko Okada. Polymerization of oxazolines. Progress in polymer science, 21(1):151–
+208, 1996.
+[138] Broja Mohan Mandal. Fundamentals of polymerization. World Scientific, 2012.
+[139] Der-Jang Liaw, Kung-Li Wang, Ying-Chi Huang, Kueir-Rarn Lee, Juin-Yih Lai, and Chang-Sik Ha.
+Advanced polyimide materials: Syntheses, physical properties and applications. Progress in Polymer
+Science, 37(7):907–974, 2012.
+[140] CE Sroog. Polyimides. Progress in Polymer Science, 16(4):561–694, 1991.
+[141] Jian Lin and David C Sherrington. Recent developments in the synthesis, thermostability and liquid
+crystal properties of aromatic polyamides. Polymer Synthesis, pages 177–219, 2005.
+[142] David Weininger. Smiles, a chemical language and information system. 1. introduction to methodology
+and encoding rules. Journal of chemical information and computer sciences, 28(1):31–36, 1988.
+[143] Sunghwan Kim, Jie Chen, Tiejun Cheng, Asta Gindulyte, Jia He, Siqian He, Qingliang Li, Benjamin A
+Shoemaker, Paul A Thiessen, Bo Yu, et al. Pubchem 2019 update: improved access to chemical data.
+Nucleic acids research, 47(D1):D1102–D1109, 2019.
+24
+
+[144] Inc. Daylight Chemical Information Systems. Smarts - a language for describing molecular patterns,
+1995. Accessed: 2025-01-13.
+[145] Hongli Zhang, Tiezhu Shi, and Aijie Ma. Recent advances in design and preparation of polymer-based
+thermal management material. Polymers, 13(16):2797, 2021.
+[146] MA Vadivelu, C Ramesh Kumar, and Girish M Joshi. Polymer composites for thermal management: a
+review. Composite Interfaces, 23(9):847–872, 2016.
+[147] David Rogers and Mathew Hahn. Extended-connectivity fingerprints. Journal of chemical information
+and modeling, 50(5):742–754, 2010.
+[148] Robert C Glen, Andreas Bender, Catrin H Arnby, Lars Carlsson, Scott Boyer, and James Smith.
+Circular fingerprints: flexible molecular descriptors with applications from physical chemistry to adme.
+IDrugs, 9(3):199, 2006.
+[149] Shifa Zhong and Xiaohong Guan. Count-based morgan fingerprint: a more efficient and interpretable
+molecular representation in developing machine learning-based predictive regression models for water
+contaminants’ activities and properties. Environmental Science & Technology, 57(46):18193–18202,
+2023.
+[150] Lagnajit Pattanaik and Connor W Coley. Molecular representation: going long on fingerprints. Chem,
+6(6):1204–1207, 2020.
+[151] Greg Landrum. Rdkit documentation. Release, 1(1-79):4, 2013.
+[152] Joseph L Durant, Burton A Leland, Douglas R Henry, and James G Nourse. Reoptimization of mdl
+keys for use in drug discovery. Journal of chemical information and computer sciences, 42(6):1273–1280,
+2002.
+[153] Raymond E Carhart, Dennis H Smith, and RENGACHARI Venkataraghavan. Atom pairs as molecular
+features in structure-activity studies: definition and applications. Journal of Chemical Information and
+Computer Sciences, 25(2):64–73, 1985.
+[154] Ramaswamy Nilakantan, Norman Bauman, J Scott Dixon, and R Venkataraghavan. Topological torsion:
+a new molecular descriptor for sar applications. comparison with other descriptors. Journal of Chemical
+Information and Computer Sciences, 27(2):82–85, 1987.
+[155] Reid A Johnson. quantile-forest: A python package for quantile regression forests. Journal of Open
+Source Software, 9(93):5976, 2024.
+[156] Mart´ın Abadi, Paul Barham, Jianmin Chen, Zhifeng Chen, Andy Davis, Jeffrey Dean, Matthieu Devin,
+Sanjay Ghemawat, Geoffrey Irving, Michael Isard, et al. {TensorFlow}: a system for {Large-Scale}
+machine learning. In 12th USENIX symposium on operating systems design and implementation (OSDI
+16), pages 265–283, 2016.
+[157] Fran¸cois Chollet et al. Keras. https://github.com/fchollet/keras, 2015.
+[158] Takuya Akiba, Shotaro Sano, Toshihiko Yanase, Takeru Ohta, and Masanori Koyama. Optuna: A
+next-generation hyperparameter optimization framework. In Proceedings of the 25th ACM SIGKDD
+international conference on knowledge discovery & data mining, pages 2623–2631, 2019.
+[159] Lloyd S Shapley. A value for n-person games. Contribution to the Theory of Games, 2, 1953.
+A
+Additional Results
+25
+
+(a)
+(b)
+(c)
+(d)
+(f)
+(g)
+(h)
+(i)
+(j)
+(e)
+Figure A.6: T-SNE plot of the input space comparison between training and testing data for properties: (a)
+Tg, (b) Tm, (c) TC, (d) FFV, (e) ρ, (f) P(O2), (g) P(N2), (h) P(H2), (i) P(CH4), and (j) P(CO2).
+(a)
+(b)
+(c)
+(d)
+(f)
+(g)
+(h)
+(i)
+(j)
+(e)
+Figure A.7: Label distribution of training and testing data for properties: (a) Tg, (b) Tm, (c) TC, (d) FFV,
+(e) ρ, (f) P(O2), (g) P(N2), (h) P(H2), (i) P(CH4), and (j) P(CO2).
+Table A.7: Summary of average RMSE values for different polymer fingerprints (across QRF and MLP-D)
+and graph representation (across GNN and GREA) on the test datasets. Best fingerprint (except graph) for
+each task is in bold.
+Fingerprint
+Tg
+Tm
+TC
+FFV
+ρ
+P(O2)
+P(N2)
+P(H2)
+P(CH4)
+P(CO2)
+Morgan
+37.82
+59.63
+0.0515
+0.0155
+0.1120
+0.6690
+0.5335
+0.4570
+0.5980
+0.6680
+MACCS
+41.98
+61.11
+0.0570
+0.0145
+0.1025
+0.7275
+0.6140
+0.4000
+0.7555
+0.7135
+RDKit
+38.71
+59.50
+0.0565
+0.0150
+0.1220
+0.7275
+0.5390
+0.4890
+0.5995
+0.7780
+TT
+39.32
+62.82
+0.0490
+0.0165
+0.1540
+0.7470
+0.5300
+0.5015
+0.5725
+0.8015
+AP
+39.30
+60.55
+0.0505
+0.0150
+0.1155
+0.6785
+0.5145
+0.4755
+0.6005
+0.7010
+Graph
+36.67
+56.29
+0.0715
+0.0220
+0.1470
+0.5870
+0.4995
+0.4580
+0.5085
+0.626
+26
+
+(a)
+(b)
+(c)
+(d)
+(f)
+(g)
+(h)
+(i)
+(j)
+Ground truth
+Prediction
+Ground truth
+Ground truth
+Prediction
+Ground truth
+Ground truth
+(e)
+Figure A.8: Prediction parity plots of the best model on test dataset of properties: (a) Tg (GNN), (b) Tm
+(GNN), (c) TC (MLP-D-Morgan), (d) FFV (MLP-D-MACCS), (e) ρ (QRF-MACCS), (f) P(O2) (GREA), (g)
+P(N2) (GNN), (h) P(H2) (MLP-D-MACCS), (i) P(CH4) (GNN), and (j) P(CO2) (GNN). X-axis represents
+the ground truth and y-axis represents the prediction. All values are in units of the corresponding label unit
+in Table 1.
+(a)
+(b)
+(c)
+(d)
+(f)
+(g)
+Sorted Samples
+Sorted Samples
+Sorted Samples
+Cumulative Value
+Cumulative Value
+(h)
+(i)
+(j)
+(e)
+Sorted Samples
+Sorted Samples
+Figure A.9: Sparsification plots of the best model on test dataset (in terms of ρs) of properties: (a) Tg
+(MLP-D-TT), (b) Tm (QRF-TT), (c) TC (QRF-Morgan), (d) FFV (QRF-TT), (e) ρ (QRF-TT), (f) P(O2)
+(QRF-TT), (g) P(N2) (QRF-TT), (h) P(H2) (QRF-AP), (i) P(CH4) (QRF-AP), and (j) P(CO2) (QRF-
+Morgan). X-axis represents test data sample IDs, ranked in descending order of predicted uncertainty (i.e.,
+from lowest to highest predicted uncertainty) and y-axis represents the the cumulative value of prediction
+error (blue solid line) and prediction uncertainty (standard deviation, orange dashed line), which is in units
+of the corresponding label unit in Table 1.
+27

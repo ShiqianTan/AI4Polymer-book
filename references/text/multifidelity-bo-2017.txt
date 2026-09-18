@@ -1,0 +1,1966 @@
+arXiv:1703.06240v1  [stat.ML]  18 Mar 2017
+Multi-ﬁdelity Bayesian Optimisation with Continuous Approximations
+Kirthevasan Kandasamy 1 Gautam Dasarathy 2 Jeff Schneider 1 Barnab´as P´oczos 1
+Abstract
+Bandit methods for black-box optimisation, such
+as Bayesian optimisation, are used in a variety
+of applications including hyper-parameter tuning
+and experiment design. Recently, multi-ﬁdelity
+methods have garnered considerable attention
+since function evaluations have become increas-
+ingly expensive in such applications.
+Multi-
+ﬁdelity methods use cheap approximations to the
+function of interest to speed up the overall opti-
+misation process. However, most multi-ﬁdelity
+methods assume only a ﬁnite number of approxi-
+mations. In many practical applications however,
+a continuous spectrum of approximations might
+be available. For instance, when tuning an expen-
+sive neural network, one might choose to approx-
+imate the cross validation performance using less
+data N and/or few training iterations T . Here,
+the approximations are best viewed as arising out
+of a continuous two dimensional space (N, T ).
+In this work, we develop a Bayesian optimisa-
+tion method, BOCA, for this setting. We char-
+acterise its theoretical properties and show that it
+achieves better regret than than strategies which
+ignore the approximations. BOCA outperforms
+several other baselines in synthetic and real ex-
+periments.
+1. Introduction
+Many tasks in scientiﬁc and engineering applications can
+be framed as bandit optimisation problems, where we need
+to sequentially evaluate a noisy black-box function f :
+X →R with the goal of ﬁnding its optimum. Some appli-
+cations include hyper-parameter tuning in machine learn-
+ing (Hutter et al., 2011; Snoek et al., 2012), optimal policy
+search (Lizotte et al., 2007; Martinez-Cantin et al., 2007)
+and scientiﬁc experiments (Gonzalez et al., 2014; Parkin-
+son et al., 2006). Typically, in such applications, each func-
+1Carnegie Mellon University, Pittsburgh PA, USA 2Rice Uni-
+versity, Houston TX, USA. Correspondence to: Kirthevasan Kan-
+dasamy <kandasamy@cmu.edu>.
+Under review.
+tion evaluation is expensive and historically, the bandit lit-
+erature has focused on developing methods for ﬁnding the
+optimum while keeping the number of evaluations to f at a
+minimum.
+However, with increasingly expensive function evaluations,
+conventional methods have become infeasible as a signiﬁ-
+cant cost needs to be expended before we can learn any-
+thing about f. As a result, multi-ﬁdelity optimisation meth-
+ods have recently gained attention (Cutler et al., 2014; Kan-
+dasamy et al., 2016a; Li et al., 2016). As the name sug-
+gests, these methods assume that we have access to lower
+ﬁdelity approximations to f which can be evaluated instead
+of f. The lower the ﬁdelity, the cheaper the evaluation,
+but it provides less accurate information about f. For ex-
+ample, when optimising the conﬁguration of an expensive
+real world robot, its performance can be approximated us-
+ing cheaper computer simulations. The goal is to use the
+cheap approximations to guide search for the optimum of
+f, and reduce the overall cost of optimisation. However,
+most multi-ﬁdelity work assume only a ﬁnite number of
+approximations. In this paper, we study multi-ﬁdelity opti-
+misation when there is access to a continuous spectrum of
+approximations.
+To motivate this, consider tuning a classiﬁcation algorithm
+over a space of hyper-parameters X by maximising a val-
+idation set accuracy. The algorithm is to be trained using
+N• data points via an iterative algorithm for T• iterations.
+However, we wish to use fewer training points N < N•
+and/or fewer iterations T < T• to approximate the val-
+idation accuracy. We can view validation accuracy as a
+function g : [1, N•] × [1, T•] × X →R where evaluating
+g(N, T, x) requires training the algorithm with N points
+for T iterations with the hyper-parameters x. If the train-
+ing complexity of the algorithm is quadratic in data size
+and linear in the number of iterations, then the cost of this
+evaluation is λ(N, T ) = O(N 2T ). Our goal is to ﬁnd the
+optimum when N = N•, and T = T•, i.e. we wish to
+maximise f(x) = g(N•, T•, x).
+In this setting, while N, T are technically discrete choices,
+they are more naturally viewed as coming from a contin-
+uous 2 dimensional ﬁdelity space, [1, N•] × [1, T•]. One
+might hope that cheaper queries to g(N, T, ·) with N, T
+less than N•, T• can be used to learn about g(N•, T•, ·) and
+
+Bayesian Optimisation with Continuous Approximations
+consequently optimise it using less overall cost. Indeed,
+this is the case with many machine learning algorithms
+where cross validation performance tends to vary smoothly
+with data set size and number of iterations. Therefore, one
+may use cheap low ﬁdelity experiments with small (N, T )
+to discard bad hyper-parameters and deploy expensive high
+ﬁdelity experiments with large (N, T ) only in a small but
+promising region. The main theoretical result of this paper
+(Theorem 1) shows that our proposed algorithm, BOCA,
+exhibits precisely this behaviour.
+Continuous approximations also arise in simulation stud-
+ies: where simulations can be carried out at varying lev-
+els of granularity, on-line advertising: where an ad can be
+controlled by continuous parameters such as display time
+or target audience, and several other experiment design
+tasks. In fact, in many multi-ﬁdelity papers, the ﬁnite ap-
+proximations were obtained by discretising a continuous
+space (Huang et al., 2006; Kandasamy et al., 2016a). Here,
+we study a Bayesian Optimisation technique that is directly
+designed for continuous ﬁdelity spaces and is potentially
+applicable to more general spaces. Our main contribu-
+tions are,
+1. A novel setting and model for multi-ﬁdelity optimisa-
+tion with continuous approximations using Gaussian
+process (GP) assumptions. We develop a novel algo-
+rithm, BOCA, for this setting.
+2. A theoretical analysis characterising the behaviour
+and regret bound for BOCA.
+3. An empirical study which demonstrates that BOCA
+outperforms alternatives, both multi-ﬁdelity and oth-
+erwise, on a series of synthetic problems and real ex-
+amples in hyper-parameter tuning and astrophysics.
+Related Work
+Bayesian optimisation (BO), refers to a suite of techniques
+for bandit optimisation which use a prior belief distribution
+for f. While there are several techniques for BO (de Fre-
+itas et al., 2012; Hern´andez-Lobato et al., 2014; Jones et al.,
+1998; Mockus, 1994; Thompson, 1933), our work will
+build on the Gaussian process upper conﬁdence bound (GP-
+UCB) algorithm of Srinivas et al. (2010). GP-UCB models
+f as a GP and uses upper conﬁdence bound (UCB) (Auer,
+2003) techniques to determine the next point for evaluation.
+BO techniques have been used in developing multi-ﬁdelity
+optimisation methods in various applications such as hyper-
+parameter tuning and industrial design (Forrester et al.,
+2007; Huang et al., 2006; Klein et al., 2015; Poloczek et al.,
+2016; Swersky et al., 2013). However, these methods are
+either problem speciﬁc and/or only use a ﬁnite number of
+ﬁdelities. Further, none of them come with theoretical un-
+derpinnings. Recent work has studied multi-ﬁdelity meth-
+ods for speciﬁc problems such as hyper-parameter tuning,
+active learning and reinforcement learning (Agarwal et al.,
+2011; Cutler et al., 2014; Li et al., 2016; Sabharwal et al.,
+2015; Zhang & Chaudhuri, 2015). While some of the above
+tasks can be framed as optimisation problems, the meth-
+ods themselves are speciﬁc to the problem considered. Our
+method is more general as it applies to any bandit optimisa-
+tion task.
+Perhaps the closest work to us is that of Kandasamy et al.
+(2016a;b) who developed MF-GP-UCB assuming a ﬁnite
+number of approximations to f. While this line of work
+was the ﬁrst to provide theoretical guarantees for multi-
+ﬁdelity optimisation, it has two important shortcomings.
+First, they make strong assumptions, particularly a uniform
+bound on the difference between the expensive function
+and an approximation. This does not allow for instances
+where an approximation might be good at certain regions
+but not at the other.
+In contrast, our probabilistic treat-
+ment between ﬁdelities is is robust to such cases. Second,
+their model does not allow sharing information between ﬁ-
+delities; each approximation is treated independently. Not
+only is this wasteful as lower ﬁdelities can provide useful
+information about higher ﬁdelities, it also means that the
+algorithm might perform poorly if the ﬁdelities are not de-
+signed properly. We demonstrate this with an experiment
+in Section 4. On the other hand, our model allows shar-
+ing information across the ﬁdelity space in a natural way.
+In addition, we can also handle continuous approximations
+whereas their method is strictly for a ﬁnite number of ap-
+proximations. That said, BOCA inherits a key intuition
+from MF-GP-UCB, which is to choose a ﬁdelity only if we
+have sufﬁciently reduced the uncertainty at all lower ﬁdeli-
+ties. Besides this, there are considerable differences in the
+mechanics of the algorithm and proof techniques. As we
+proceed, we will draw further comparisons to Kandasamy
+et al. (2016a).
+2. Preliminaries
+2.1. Some Background Material
+Gaussian processes: A GP over a space X is a random
+process from X to R. GPs are typically used as a prior for
+functions in Bayesian nonparametrics. It is characterised
+by a mean function µ : X →R and a covariance function
+(or kernel) κ : X 2 →R. If f ∼GP(µ, κ), then f(x) is
+distributed normally N(µ(x), κ(x, x)) for all x ∈X. Sup-
+pose that we are given n observations Dn = {(xi, yi)}n
+i=1
+from this GP, where xi ∈X, yi = f(xi) + ǫi ∈R and
+ǫi ∼N(0, η2). Then the posterior process f|Dn is also a
+GP with mean µn and covariance κn given by
+µn(x) = k⊤(K + η2I)−1Y,
+(1)
+κn(x, x′) = κ(x, x′) −k⊤(K + η2I)−1k′,
+where Y ∈Rn is a vector with Yi = yi, and k, k′ ∈Rn
+are such that ki = κ(x, xi), k′
+i = κ(x′, xi). The matrix
+
+Bayesian Optimisation with Continuous Approximations
+0
+h = 0.05
+h = 0.15
+h = 0.5
+Figure 1. Samples drawn from a GP with 0 mean and SE kernel
+with bandwidths h = 0.01, h = 0.15, 0.5. Samples tend to be
+smoother across the domain for large bandwidths.
+K ∈Rn×n is given by Ki,j = κ(xi, xj). We refer the
+reader to chapter 2 of Rasmussen & Williams (2006) for
+more on the basics of GPs and their use in regression.
+Radial kernels: The prior covariance functions of GPs
+are typically taken to be radial kernels; some examples
+are the squared exponential (SE) and Mat´ern kernels. Us-
+ing a radial kernel means that the prior covariance can be
+written as κ(x, x′) = κ0φ(∥x −x′∥) and depends only on
+the distance between x and x′. Here, the scale parameter
+κ0 captures the magnitude f could deviate from µ. The
+function φ : R+ →R+ is a decreasing function with
+∥φ∥∞= φ(0) = 1. In this paper, we will use the SE kernel
+in a running example to convey the intuitions in our meth-
+ods. For the SE kernel, φ(r) = φh(r) = exp(−r2/(2h2)),
+where h ∈R+, called the bandwidth of the kernel, controls
+the smoothness of the GP. When h is large, the samples
+drawn from the GP tend to be smoother as illustrated in
+Fig. 1. We will reference this observation frequently in the
+text.
+GP-UCB: The Gaussian Process Upper Conﬁdence Bound
+(GP-UCB) algorithm of Srinivas et al. (2010) is a method
+for bandit optimisation, which, like many other BO meth-
+ods, models f as a sample from a Gaussian process. At
+time t, the next point xt for evaluating f is chosen via the
+following procedure. First, we construct an upper conﬁ-
+dence bound ϕt(x) = µt−1(x) + β1/2
+t
+σt−1(x) for the GP.
+µt−1 is the posterior mean of the GP conditioned on the
+previous t −1 evaluations and σt−1 is the posterior stan-
+dard deviation. Following other UCB algorithms (Auer,
+2003), the next point is chosen by maximising ϕt, i.e.
+xt = argmaxx∈X ϕt(x). The µt−1 term encourages an ex-
+ploitative strategy – in that we want to query regions where
+we already believe f is high – and σt−1 encourages an ex-
+ploratory strategy – in that we want to query where we are
+uncertain about f so that we do not miss regions which
+have not been queried yet. βt, which is typically increas-
+ing with t, controls the trade-off between exploration and
+exploitation. We have provided a brief review of GP-UCB
+in Appendix A.1.
+x⋆
+X
+g(z, x)
+f(x)
+z•
+Z
+Figure 2. g : Z × X →R is a function deﬁned on the prod-
+uct space of the ﬁdelity space Z and domain X .
+The pur-
+ple line is f(x) = g(z•, x).
+We wish to ﬁnd the maximiser
+x⋆∈argmaxx∈X f(x). The multi-ﬁdelity framework is attrac-
+tive when g is smooth across Z as illustrated in the ﬁgure.
+2.2. Problem Set Up
+Our goal in bandit optimisation is to maximise a function
+f : X →R, over a domain X. When we evaluate f
+at x ∈X we observe y = f(x) + ǫ where E[ǫ] = 0.
+Let x⋆∈argmaxx∈X f(x) be a maximiser of f and
+f⋆= f(x⋆) be the maximum value. An algorithm for ban-
+dit optimisation is a sequence of points {xt}t≥0, where at
+time t, the algorithm chooses to evaluate f at xt based on
+previous queries and observations {(xi, yi)}t−1
+i=1. After n
+queries to f, its goal is to achieve small simple regret Sn,
+as deﬁned below.
+Sn =
+min
+t=1,...,n f⋆−f(xt).
+(2)
+Continuous Approximations: In this work, we will let f
+be a slice of a function g that lies in a larger space. Pre-
+cisely, we will assume the existence of a ﬁdelity space Z
+and a function g : Z×X →R deﬁned on the product space
+of the ﬁdelity space and domain. The function f which we
+wish to maximise is related to g via f(·) = g(z•, ·), where
+z• ∈Z. For instance, in the hyper-parameter tuning exam-
+ple from Section 1, Z = [1, N•]×[1, T•] and z• = [N•, T•].
+Our goal is to ﬁnd a maximiser x⋆∈argmaxx f(x) =
+argmaxx g(z•, x). We have illustrated this setup in Fig. 2.
+In the rest of the manuscript, the term “ﬁdelities” will refer
+to points z in the ﬁdelity space Z.
+The multi-ﬁdelity framework is attractive when the follow-
+ing two conditions are true about the problem.
+1. There exist ﬁdelities z ∈Z where evaluating g is
+cheaper than evaluating at z•. To this end, we will as-
+sociate a known cost function λ : Z →R+. In the
+hyper-parameter tuning example, λ(z) = λ(N, T ) =
+O(N 2T ). It is helpful to think of z• as being the most
+expensive ﬁdelity, i.e. maximiser of λ, and that λ(z) de-
+creases as we move away from z•. However, this notion
+is strictly not necessary for our algorithm or results.
+
+Bayesian Optimisation with Continuous Approximations
+2. The cheap g(z, ·) evaluation gives us information about
+g(z•, ·). This is true if g is smooth across the ﬁdelity
+space as illustrated in Fig. 2.
+As we will describe
+shortly, this smoothness can be achieved by modelling g
+as a GP with an appropriate kernel for the ﬁdelity space
+Z.
+In the above setup, a multi-ﬁdelity algorithm is a sequence
+of query-ﬁdelity pairs {(zt, xt)}t≥0 where, at time t, the
+algorithm chooses zt ∈Z and xt ∈X, and observes yt =
+g(zt, xt) + ǫ where E[ǫ] = 0. The choice of (zt, xt) can of
+course depend on the previous ﬁdelity-query-observation
+triples {(zi, xi, yi)}t−1
+i=1.
+Multi-ﬁdelity Simple Regret: We provide bounds on the
+simple regret S(Λ) of a multi-ﬁdelity optimisation method
+after it has spent capital Λ of a resource. Following Srinivas
+et al. (2010), we will aim to provide any capital bounds,
+meaning that an algorithm would be expected to do well for
+all values of (sufﬁciently large) Λ. Say we have made N
+queries to g within capital Λ, i.e. N is the random quantity
+such that N = max{n ≥1 : Pn
+t=1 λ(zt) ≤Λ}. While the
+cheap evaluations at z̸ = z• are useful in guiding search for
+the optimum of g(z•, ·), there is no reward for optimising
+a cheaper g(z, ·). Accordingly, we deﬁne the simple regret
+after capital Λ as,
+S(Λ) =
+
+
+
+
+
+min
+t∈{1,...,N}
+s.t zt=z•
+f⋆−f(xt)
+if we have queried at z•,
++ ∞
+otherwise.
+This deﬁnition reduces to the single ﬁdelity deﬁnition (2)
+when we only query g at z•. It is also similar to the deﬁni-
+tion in Kandasamy et al. (2016a), but unlike them, we do
+not impose additional boundedness constraints on f or g.
+Before we proceed, we note that it is customary in the ban-
+dit literature to analyse cumulative regret. However, the
+deﬁnition of cumulative regret depends on the application
+at hand (Kandasamy et al., 2016b) and the results in this
+paper can be extended to to many sensible notions of cu-
+mulative regret. However, both to simplify exposition and
+since our focus in this paper is optimisation, we stick to
+simple regret.
+Assumptions: As we will be primarily focusing on con-
+tinuous and compact domains and ﬁdelity spaces, going
+forward we will assume, without any loss of generality,
+that X
+= [0, 1]d and Z = [0, 1]p.
+We discuss non-
+continuous settings brieﬂy at the end of Section 3. In keep-
+ing with similar work in the Bayesian optimisation litera-
+ture, we will assume g ∼GP(0, κ) and upon querying at
+(z, x) we observe y = g(z, x) + ǫ where ǫ ∼N(0, η2).
+κ : (Z × X)2 →R is the prior covariance deﬁned on the
+product space. In this work, we will study exclusively κ of
+the following form,
+κ([z, x], [z′, x′]) = κ0 φZ(∥z −z′∥) φX (∥x −x′∥).
+(3)
+Here, κ0 ∈R+ is the scale parameter and φZ, φX are
+radial kernels deﬁned on Z, X respectively. The ﬁdelity
+space kernel φZ is an important component in this work. It
+controls the smoothness of g across the ﬁdelity space and
+hence determines how much information the lower ﬁdeli-
+ties provide about g(z•, ·). For example, suppose that φZ
+was a SE kernel. A favourable setting for a multi-ﬁdelity
+method would be for φZ to have a large bandwidth hZ as
+that would imply that g is very smooth across Z. We will
+see that hZ determines the behaviour and theoretical guar-
+antees of BOCA in a natural way when φZ is the SE kernel.
+To formalise this notion, we will deﬁne the following func-
+tion ξ : Z →[0, 1].
+ξ(z) =
+p
+1 −φZ(∥z −z•∥)2
+(4)
+One interpretation of ξ(z) is that it measures the gap in in-
+formation about g(z•, ·) when we query at z̸ = z•. That is,
+it is the price we have to pay, in information, for querying
+at a cheap ﬁdelity. Observe that ξ increases when we move
+away from z• in the ﬁdelity space. For the SE kernel, it
+can be shown1 ξ(z) ≈∥z−z•∥
+hZ
+. For large hZ, g is smoother
+across Z and we can expect the lower ﬁdelities to be more
+informative about f; as expected the information gap ξ is
+small for large hZ. If hZ is small and g is not smooth, the
+gap ξ is large and lower ﬁdelities are not as informative.
+Before we present our algorithm for the above setup, we
+will introduce notation for the posterior GPs for g and f.
+Let Dn = {(zi, xi, yi)}n
+t=1 be n ﬁdelity, query, observation
+values from the GP g, where yi was observed when evalu-
+ating g(zi, xi). We will denote the posterior mean and stan-
+dard deviation of g conditioned on Dn by νn and τn respec-
+tively (νn, τn can be computed from (1) by replacing x ←
+[z, x]). Therefore g(z, x)|Dn ∼N(νn(z, x), τ 2
+n(z, x)) for
+all (z, x) ∈Z × X. We will further denote
+µn(·) = νn(z•, ·),
+σn(·) = τn(z•, ·),
+(5)
+to be the posterior mean and standard deviation of
+g(z•, ·) = f(·). It follows that f|Dn is also a GP and satis-
+ﬁes f(x)|Dn ∼N(µn(x), σ2
+n(x)) for all x ∈X.
+3. BOCA: Bayesian Optimisation with
+Continuous Approximations
+BOCA is a sequential strategy to select a domain point
+xt ∈X and ﬁdelity zt ∈Z at time t based on previous
+observations. At time t, we will ﬁrst construct an upper
+conﬁdence bound ϕt for the function f we wish to opti-
+mise. It takes the form,
+ϕt(x) = µt−1(x) + β1/2
+t
+σt−1(x).
+(6)
+1Strictly, ξ(z) ≤∥z −z•∥/hZ, but the inequality is tighter
+for larger hZ. In any case, ξ is strictly decreasing with hZ.
+
+Bayesian Optimisation with Continuous Approximations
+Recall from (5) that µt−1 and σt−1 are the posterior mean
+and standard deviation of f using the observations from
+the previous t −1 time steps at all ﬁdelities, i.e. the en-
+tire Z × X space. We will specify βt in theorems 1, 8.
+Following other UCB algorithms, our next point xt in
+the domain X for evaluating g is a maximiser of ϕt, i.e.
+xt ∈argmaxx∈X ϕt(x).
+Next, we need to determine the ﬁdelity zt ∈Z to query g.
+For this we will ﬁrst select a subset Zt(xt) of Z as follows,
+Zt(xt) =
+n
+z ∈Z : λ(z) < λ(z•),
+τt−1(z, xt) > γ(z),
+ξ(z) > β−1/2
+t
+ξ(√p)
+o
+,
+(7)
+where
+γ(z) = √κ0 ξ(z)
+ λ(z)
+λ(z•)
+q
+.
+Here, ξ is the information gap function in (4) and τt−1 is
+the posterior standard deviation of g, and p, d are the di-
+mensionalities of Z, X. The exponent q depends on the
+kernel. For the SE kernel, q = 1/(p + d + 2). We ﬁlter out
+the ﬁdelities we consider at time t using three conditions as
+speciﬁed above. We elaborate on these conditions in more
+detail in Section 3.1. If Zt is not empty, we choose the
+cheapest ﬁdelity in this set, i.e. zt ∈argminz∈Zt λ(z). If
+Zt is empty, we choose zt = z•.
+We have summarised the resulting procedure below in Al-
+gorithm 1. An important advantage of BOCA is that it only
+requires specifying the GP hyper-parameters for g such as
+the kernel κ. In practice, this can be achieved by various ef-
+fective heuristics such as maximising the GP marginal like-
+lihood or cross validation which are standard in most BO
+methods. In contrast, MF-GP-UCB of Kandasamy et al.
+(2016a) requires tuning several other hyper-parameters.
+Algorithm 1 BOCA
+Input: kernel κ.
+• Set
+ν0(·) ←0, τ0(·) ←κ(·, ·)1/2,
+D0 ←∅.
+• for t = 1, 2, . . .
+1. xt ←argmaxx∈X ϕt(x).
+See (6)
+2. zt ←argminz∈Zt(xt)∪{z•} λ(z).
+See (7)
+3. yt ←Query g at (zt, xt).
+4. Dt ←Dt−1 ∪{(zt, xt, yt)}. Update posterior mean
+νt, and standard deviation τt for g conditioned on
+Dt.
+3.1. Fidelity Selection Criterion
+We will now provide an intuitive justiﬁcation for the three
+conditions in the selection criterion for zt, i.e., equation (7).
+Recall that we query z• only if Zt(xt) is empty. The ﬁrst
+condition, λ(z) < λ(z•) is fairly obvious; since we wish to
+optimise g(z•, ·) and since we are not rewarded for queries
+at other ﬁdelities, there is no reason to consider ﬁdelities
+that are more expensive than z•.
+The
+second
+condition,
+τt−1(z, xt)
+>
+γ(z)
+says
+that we will only consider ﬁdelities where the pos-
+terior variance is larger than a threshold γ(z)
+=
+√κ0ξ(z)(λ(z)/λ(z•))1/(p+d+2), which depends critically
+on two quantities, the cost function λ and the information
+gap ξ. As a ﬁrst step towards parsing this condition, ob-
+serve that a reasonable multi-ﬁdelity strategy should be
+inclined to query cheap ﬁdelities and learn about g be-
+fore querying expensive ﬁdelities. Now notice that γ(z)
+is monotonically increasing in λ(z), therefore, it becomes
+easier for a cheap z to satisfy τt−1(z, xt) > γ(z) and be
+included in Zt at time t. Moreover, since we choose zt to
+be the minimiser of λ in Zt, a cheaper ﬁdelity will always
+be chosen over expensive ones if included in Zt. Second, if
+a particular ﬁdelity z is far away from z•, it probably con-
+tains less information about g(z•, ·). Again, a reasonable
+multi-ﬁdelity strategy should be discouraged from making
+such queries. This is precisely the role of the information
+gap ξ which is increasing with ∥z −z•∥. As z moves away
+from z•, γ(z) increases and it becomes harder to satisfy
+τt−1(z, xt) > γ(z). Therefore, such a z is less likely to be
+included in Zt(xt) and be considered for evaluation. Our
+analysis reveals that setting γ as in (7) is a reasonable trade
+off between cost and information in the approximations
+available to us; cheaper ﬁdelities cost less, but provide less
+accurate information about the function f we wish to opti-
+mise. It is worth noting that the second condition is similar
+in spirit to Kandasamy et al. (2016a) who proceed from a
+lower to higher ﬁdelity only when the lower ﬁdelity vari-
+ance is smaller than a threshold. However, while they treat
+the threshold as a hyper-parameter, we are able to explicitly
+specify theoretically motivated values.
+The third condition in (7) is ξ(z) > ξ(√p)/β1/2
+t
+. Since ξ
+is increasing as we move away from z•, it says we should
+exclude ﬁdelities inside a (small) neighbourhood of z•. Re-
+call that if Zt is empty, BOCA will choose z• by default.
+But when it is not empty, we want to prevent situations
+where we get arbitrarily close to z• but not actually query
+at z•. Such pathologies can occur when we are dealing with
+a continuum of ﬁdelities and this condition forces BOCA to
+pick z• instead of querying very close to it. Observe that
+since βt is increasing with t, this neighborhood is shrinking
+with time and therefore the algorithm will eventually have
+the opportunity to evaluate ﬁdelities close to z•.
+3.2. Theoretical Results
+We now present our main theoretical contributions. In order
+to simplify the exposition and convey the gist of our results,
+we will only present a simpliﬁed version of our theorems.
+
+Bayesian Optimisation with Continuous Approximations
+We will suppress constants, polylog terms, and other tech-
+nical details that arise due to a covering argument in our
+proofs. A rigorous treatment is available in Appendix B.
+Maximum Information Gain: Up until this point, we
+have not discussed much about the kernel φX of the do-
+main X. Since we are optimising f over X, it is natural
+to expect that this will appear in the bounds. Srinivas et al.
+(2010) showed that the statistical difﬁculty of GP bandits
+is determined by the Maximum Information Gain (MIG)
+which measures the maximum information a subset of ob-
+servations have about f. We denote it by Ψn(A) where A is
+a subset of X and n is the number of queries to f. We refer
+the reader to Appendix B for a formal deﬁnition of MIG .
+For the current exposition however, it sufﬁces to know that
+Ψn(A) depends on the domain kernel φX , the number of
+times n we have queried f, and the volume vol(A) of the
+set A ⊂X. The latter dependence on vol(A) will be most
+important to us. For instance, when we use an SE kernel for
+φX , we have Ψn(A) ∝vol(A) log(n)d+1 (Seeger et al.,
+2008). Srinivas et al. (2010) showed that the simple regret
+S(Λ) for GP-UCB after capital Λ can be bounded by,
+Simple Regret for GP-UCB:
+S(Λ) ≲
+s
+ΨnΛ(X)
+nΛ
+,
+(8)
+where nΛ = ⌊Λ/λ(z•)⌋.
+In our analysis of BOCA we show that most queries to g at
+ﬁdelity z• will be conﬁned to a small subset of the domain
+X which contains the optimum x⋆. More precisely, after
+capital Λ, for any α ∈(0, 1), we show that there exists
+ρ > 0 such that the number of queries outside the following
+set Xρ is less than nα
+Λ.
+Xρ =
+
+x ∈X : f⋆−f(x) ≤2ρ√κ0 ξ(√p)
+	
+.
+(9)
+Here, ξ is from (4) and √p is the L2 diameter of Z. While
+it is true that any optimisation algorithm would eventually
+query extensively in a neighbourhood around the optimum,
+a strong result of the above form is not always possible.
+For instance, in the case of GP-UCB , the best achievable
+bound on the number of queries in any set that does not con-
+tain x⋆is n1/2
+Λ . The fact that the above set Xρ exists relies
+crucially on the multi-ﬁdelity assumptions and the fact that
+our algorithm leverages information from lower ﬁdelities
+when querying at z•. As ξ is small when g is smooth across
+Z, the set Xρ will be small when the approximations are
+highly informative about g(z•, ·). To see this more clearly,
+consider again the case where φZ is a SE kernel, where we
+have Xρ ≈{x ∈X : f⋆−f(x) ≤2ρ√p/hZ}. When
+hZ is large and g is smooth across Z, Xρ is small as the
+right side of the inequality is smaller. As BOCA conﬁnes
+most of its evaluations to this small set containing x⋆, we
+will be able to achieve much better regret than GP-UCB.
+When hZ is small and g is not smooth across Z, the set Xρ
+becomes large and the advantage of multi-ﬁdelity optimisa-
+tion diminishes.
+We now provide an informal statement of our main result
+below. ≲, ≍will denote inequality and equality ignoring
+constant and polylog terms.
+Theorem 1 (Informal, Regret of BOCA). Let g ∼GP(0, κ)
+where κ satisﬁes (3). Choose βt ≍d log(t/δ). Then, for
+sufﬁciently large Λ and for all α ∈(0, 1), there exists ρ
+depending on α such that the following bound holds w.h.p.
+S(Λ) ≲
+s
+ΨnΛ(Xρ)
+nΛ
++
+s
+Ψnα
+Λ(X)
+n2−α
+Λ
+In the above bound, the latter term vanishes fast due
+to the n−(1−α/2)
+Λ
+dependence.
+When comparing this
+with (8), we see that we outperform GP-UCB by a factor
+of
+p
+ΨnΛ(Xρ)/ΨnΛ(X) ≍
+p
+vol(Xρ)/vol(X) asymptoti-
+cally. If g is smooth across the ﬁdelity space, Xρ is small
+and the gains over GP-UCB are signiﬁcant. If g becomes
+less smooth across Z, the bound decays gracefully, but we
+are never worse than GP-UCB up to constant factors.
+Theorem 1 also has similarities to the bounds of Kan-
+dasamy et al. (2016a) who also demonstrate better regret
+than GP-UCB by showing that it is dominated by queries
+inside a set X ′ which contains the optimum.
+However,
+their bounds depend critically on certain threshold hyper-
+parameters which determine the volume of X ′ among other
+terms in their regret. The authors of that paper note that
+their bounds will suffer if these hyper-parameters are not
+chosen appropriately, but do not provide theoretically jus-
+tiﬁed methods to make this choice. In contrast, many of
+the design choices for BOCA fall out naturally of our mod-
+eling assumptions. Beyond this analogue, our results are
+not comparable to Kandasamy et al. (2016a) as the assump-
+tions are different.
+Extensions: While we have focused on continuous Z due
+to their wide ranging practical applications, many of the
+ideas here can be extended to other settings. If Z is a dis-
+crete subset of [0, 1]p our work extends straightforwardly.
+We reiterate that this will not be the same as the ﬁnite ﬁ-
+delity MF-GP-UCB algorithm as the assumptions are sig-
+niﬁcantly different. In particular, Kandasamy et al. (2016a)
+are not able to effectively share information across ﬁdeli-
+ties as we do. We also believe that Algorithm 1 can be
+extended to arbitrary ﬁdelity spaces Z given that a kernel
+can be deﬁned on Z. Our results can also be extended to
+discrete domains X and various kernels for φX by adopting
+techniques from Srinivas et al. (2010). As with most non-
+parametric models, BOCA scales poorly with dimension
+due to the dependence on Ψn. For this reason, we also con-
+ﬁne our experiments to small p, d. This could be addressed
+by assuming additional structure on f, g (Djolonga et al.,
+
+Bayesian Optimisation with Continuous Approximations
+2013; Kandasamy et al., 2015).
+4. Experiments
+We compare BOCA to the following four baselines: (i) GP-
+UCB, (ii) the GP-EI criterion in BO (Jones et al., 1998), (iii)
+MF-GP-UCB (Kandasamy et al., 2016a) and (iv) MF-SKO,
+the multi-ﬁdelity sequential kriging optimisation method
+from Huang et al. (2006). All methods are based on GPs
+and we use the SE kernel for both the ﬁdelity space and
+domain. The ﬁrst two are not multi-ﬁdelity methods, while
+the last two are ﬁnite multi-ﬁdelity methods2. We have de-
+scribed the implementation details for all methods in Ap-
+pendix C.1.
+4.1. Synthetic Experiments
+The results for the ﬁrst set of synthetic experiments are
+given in Fig. 3. The title of each ﬁgure states the func-
+tion used, and the dimensionalities p, d of the ﬁdelity space
+and domain. In all cases, the ﬁdelity space was taken to be
+Z = [0, 1]p with z• = 1p = [1, . . . , 1] ∈Rp being the
+most expensive ﬁdelity. For MF-GP-UCB and MF-SKO,
+we used 3 ﬁdelities (2 approximations) where the approxi-
+mations were obtained at z = 0.3331p and z = 0.6671p
+points in the ﬁdelity space. To reﬂect the setting in our the-
+ory, we add Gaussian noise to the function value when ob-
+serving g at any (z, x). This makes the problem more chal-
+lenging than standard global optimisation problems where
+function evaluations are not noisy. The functions g, the
+cost functions λ and the noise variances η2 are given in
+Appendix C.2.
+The ﬁrst two ﬁgures in Fig. 3 are simple sanity checks. In
+both cases, Z = [0, 1] and X = [0, 1] and the functions
+were sampled from GPs. The GP was made known to all
+methods, i.e. the methods used the true GP in picking the
+next point. In the ﬁrst ﬁgure, we used an SE kernel with
+bandwidth 0.1 for φX and 1.0 for φZ. The large ﬁdelity
+bandwidth causes g to be smooth across Z and BOCA out-
+performs other baselines in this setting. The curve starts
+mid-way in the ﬁgure as BOCA is yet to query at z• up
+until that point. The second ﬁgure uses the same set up
+as the ﬁrst except we used an SE kernel with bandwidth
+0.01 for φZ. Even though g is highly unsmooth across Z,
+BOCA does not perform poorly. This corroborates a claim
+that we made earlier that BOCA can naturally adapt to the
+smoothness of the approximations. The other multi-ﬁdelity
+methods seem to suffer in this setting.
+In the remaining experiments, we use some standard bench-
+2To our knowledge, the only other work that applies to contin-
+uous approximations is Klein et al. (2015) which was developed
+speciﬁcally for hyper-parameter tuning. Further, their implemen-
+tation is not made available and is not straightforward to imple-
+ment.
+marks for global optimisation. We modify them to obtain g
+and add noise to the observations. As the kernel and other
+GP hyper-parameters are unknown, we learn them by max-
+imising the marginal likelihood every 25 iterations. This
+is a common heuristic used in the BO literature. We out-
+perform all methods on all problems except in the case
+of the Borehole function where MF-GP-UCB does better.
+The last synthetic experiment is the Branin function given
+in Fig. 4(a). We used the same set up as above, but use
+10 ﬁdelities for MF-GP-UCB and MF-SKO where the kth
+ﬁdelity is obtained at z =
+k
+101p in the ﬁdelity space. No-
+tice that the performance of ﬁnite ﬁdelity methods deteri-
+orate. In particular, as MF-GP-UCB does not share infor-
+mation across ﬁdelities, the approximations need to be de-
+signed carefully for the algorithm to work well. Our more
+natural modelling assumptions prevent such pitfalls. We
+next present two real examples in astrophysics and hyper-
+parameter tuning. We do not add noise to the observations,
+but treat it as optimisation tasks, where the goal is to max-
+imise the function.
+4.2. Astrophysical Maximum Likelihood Inference
+We use data on TypeIa supernova for maximum likelihood
+inference on 3 cosmological parameters, the Hubble con-
+stant H0 ∈(60, 80), the dark matter fraction ΩM ∈(0, 1)
+and dark energy fraction ΩΛ ∈(0, 1), hence d = 3. The
+likelihood is given by the Robertson-Walker metric, the
+computation of which requires a one dimensional numer-
+ical integration for each point in the dataset. Unlike typ-
+ical maximum likelihood problems, here the likelihood is
+only accessible via point evaluations.
+We use the dataset
+from Davis et al (2007) which has data on 192 supernovae.
+We construct a p = 2 dimensional multi-ﬁdelity problem
+where we can choose between data set size N ∈[50, 192]
+and perform the integration on grids of size G ∈[102, 106]
+via the trapezoidal rule. As the cost function for ﬁdelity se-
+lection, we used λ(N, G) = NG as the computation time is
+linear in both parameters. Our goal is to maximise the aver-
+age log likelihood at z• = [192, 106]. For the ﬁnite ﬁdelity
+methods we use three ﬁdelities with the approximations
+available at z = [97, 2.15 × 103] and z = [145, 4.64 × 104]
+(which correspond to 0.3331p and 0.6671p after rescaling
+as in Section 4.1). The results are given in Fig. 4(b) where
+we plot the maximum average log likelihood against wall
+clock time as that is the cost in this experiment. The plot
+includes the time taken by each method to tune the GPs and
+determine the next points/ﬁdelities for evaluation.
+4.3. Support Vector Classiﬁcation with 20 news groups
+We use the 20 news groups dataset (Joachims, 1996) in a
+text classiﬁcation task. We obtain the bag of words repre-
+sentation for each document, convert them to tf-idf features
+and feed them to a support vector classiﬁer. The goal is to
+
+Bayesian Optimisation with Continuous Approximations
+Λ
+0
+20
+40
+60
+80
+100
+120
+S(Λ)
+10 -4
+10 -2
+10 0
+GP,
+p = 1,
+d = 1
+GP-UCB
+GP-EI
+MF-GP-UCB
+MF-SKO
+BOCA
+Λ
+0
+50
+100
+150
+200
+250
+300
+S(Λ)
+10 -3
+10 -2
+10 -1
+10 0
+GP-Bad-Approx,
+p = 1,
+d = 1
+Λ
+0
+10
+20
+30
+40
+50
+S(Λ)
+10 -2
+10 -1
+CurrinExp,
+p = 1,
+d = 2
+Λ
+0
+20
+40
+60
+80
+100
+S(Λ)
+10 -2
+10 -1
+10 0
+Hartmann3,
+p = 4,
+d = 3
+Λ
+0
+50
+100
+150
+200
+S(Λ)
+10 -1
+Hartmann6,
+p = 2,
+d = 6
+Λ
+0
+50
+100
+150
+200
+S(Λ)
+10 1
+10 2
+Borehole,
+p = 1,
+d = 8
+Figure 3. Results on 6 synthetic problems where we plot the simple regret S(Λ) (lower is better) against the capital Λ. The title states
+the function used, and the ﬁdelity and domain dimesions. For the ﬁrst two ﬁgures we used capital 30λ(z•), therefore a method which
+only queries at g(z•, ·) can make at most 30 evaluations. For the third ﬁgure we used 50λ(z•), for the fourth 100λ(z•) and for the last
+200λ(z•) to reﬂect the dimensionality d of X . The curves for the multi-ﬁdelity methods start mid-way since they have not queried at z•
+up until that point. All curves were produced by averaging over 20 experiments and the error bars indicate one standard error.
+Λ
+0
+20
+40
+60
+80
+100
+120
+140
+S(Λ)
+10 0
+10 1
+Branin,
+p = 3,
+d = 2
+GP-UCB
+GP-EI
+MF-GP-UCB
+MF-SKO
+BOCA
+(a)
+Time (s)
+1000
+1500
+2000
+2500
+3000
+3500
+Avg. Log Likelihood
+0.02
+0.03
+0.04
+0.05
+0.06
+0.07
+0.08
+0.09
+0.1
+Supernova,
+p = 2,
+d = 3
+(b)
+Time (s)
+500
+1000
+1500
+2000
+Cross Validation Accuracy
+0.89
+0.895
+0.9
+0.905
+0.91
+0.915
+NewsGroup-SVM,
+p = 2,
+d = 2
+(c)
+Figure 4. (a): The synthetic benchmark with the Branin function where we used a capital of 50λ(z•). See caption under Fig. 3 for more
+details. (b), (c): Results on the supernova and news group experiments from sections 4.2 and 4.3 respectively. We have plotted the
+maximum value (higher is better) against wall clock time. (a) was averaged over 20 experiments while (b) and (c) were averaged over
+10 xperiments each. The error bars indicate one standard error.
+
+Bayesian Optimisation with Continuous Approximations
+tune the regularisation penalty and the temperature of the
+rbf kernel both in the range [10−2, 103]. Hence d = 2. The
+support vector implementation was taken from scikit-learn.
+We set this up as a 2 dimensional multi-ﬁdelity problem
+where we can choose a dataset size N ∈[5000, 15000]
+and the number of training iterations T ∈[20, 100]. Each
+evaluation takes the given dataset of size N and splits it
+up into 5 to perform 5-fold cross validation. As the cost
+function for ﬁdelity selection, we used λ(N, T ) = NT as
+the training/validation complexity is linear in both param-
+eters. Our goal is to maximise the cross validation accu-
+racy at z• = [15000, 100]. For the ﬁnite ﬁdelity methods
+we use three ﬁdelities with the approximations available at
+z = [8333, 47] and z = [11667, 73]. The results are given
+in Fig. 4(c) where we plot the average cross validation ac-
+curacy against wall clock time.
+5. Conclusion
+We studied Bayesian optimisation with continuous approx-
+imations, by treating the approximations as arising out of a
+continuous ﬁdelity space. While previous multi-ﬁdelity lit-
+erature has predominantly focused on a ﬁnite number of ap-
+proximations, BOCA applies to continuous ﬁdelity spaces
+and can potentially be extended to arbitrary spaces. We
+bound the simple regret for BOCA and demonstrate that it
+is better than methods such as GP-UCB which ignore the
+approximations and that the gains are determined by the
+smoothness of the ﬁdelity space. When compared to exist-
+ing multi-ﬁdelity methods, BOCA is able to share informa-
+tion across ﬁdelities effectively, has more natural modelling
+assumptions and has fewer hyper-parameters to tune. Em-
+pirically, we demonstrate that BOCA is competitive with
+other baselines in synthetic and real problems.
+Going forward, we wish to extend our theoretical results to
+more general settings. For instance, we believe a stronger
+bound on the regret might be possible if φZ is a ﬁnite di-
+mensional kernel. Since ﬁnite dimensional kernels are typ-
+ically not radial (Sriperumbudur et al., 2016), our analysis
+techniques will not carry over straightforwardly. Another
+line of work that we have alluded to is to study more gen-
+eral ﬁdelity spaces with an appropriately deﬁned kernel φZ.
+References
+Agarwal, Alekh, Duchi, John C, Bartlett, Peter L, and Lev-
+rard, Clement. Oracle inequalities for computationally
+budgeted model selection. In COLT, 2011.
+Auer, Peter. Using Conﬁdence Bounds for Exploitation-
+exploration Trade-offs. J. Mach. Learn. Res., 2003.
+Brochu, E., Cora, V. M., and de Freitas, N.
+A Tutorial
+on Bayesian Optimization of Expensive Cost Functions,
+with Application to Active User Modeling and Hierarchi-
+cal RL. CoRR, 2010.
+Cutler, Mark, Walsh, Thomas J., and How, Jonathan P. Re-
+inforcement Learning with Multi-Fidelity Simulators. In
+ICRA, 2014.
+Davis et al, T. M.
+Scrutinizing Exotic Cosmological
+Models Using ESSENCE Supernova Data Combined
+with Other Cosmological Probes. Astrophysical Journal,
+2007.
+de Freitas, Nando, Smola, Alex J., and Zoghi, Masrour. Ex-
+ponential Regret Bounds for Gaussian Process Bandits
+with Deterministic Observations. In ICML, 2012.
+Djolonga, J, Krause, A, and Cevher, V. High-Dimensional
+Gaussian Process Bandits. In NIPS, 2013.
+Forrester, Alexander I. J., S´obester, Andr´as, and Keane,
+Andy J. Multi-ﬁdelity optimization via surrogate mod-
+elling. Proceedings of the Royal Society A: Mathemati-
+cal, Physical and Engineering Science, 2007.
+Ghosal, Subhashis and Roy, Anindya.
+Posterior consis-
+tency of Gaussian process prior for nonparametric binary
+regression”. Annals of Statistics, 2006.
+Gonzalez, J., Longworth, J., James, D., and Lawrence, N.
+Bayesian Optimization for Synthetic Gene Design. In
+BayesOpt, 2014.
+Hern´andez-Lobato, Jos´e Miguel, Hoffman, Matthew W,
+and Ghahramani, Zoubin. Predictive Entropy Search for
+Efﬁcient Global Optimization of Black-box Functions.
+In NIPS, 2014.
+Huang, D., Allen, T.T., Notz, W.I., and Miller, R.A.
+Sequential kriging optimization using multiple-ﬁdelity
+evaluations. Structural and Multidisciplinary Optimiza-
+tion, 2006.
+Hutter, Frank, Hoos, Holger H., and Leyton-Brown, Kevin.
+Sequential Model-based Optimization for General Algo-
+rithm Conﬁguration. In LION, 2011.
+Joachims, Thorsten. A probabilistic analysis of the rocchio
+algorithm with tﬁdf for text categorization. Technical
+report, DTIC Document, 1996.
+Jones, D. R., Perttunen, C. D., and Stuckman, B. E. Lips-
+chitzian Optimization Without the Lipschitz Constant. J.
+Optim. Theory Appl., 1993.
+Jones,
+Donald R.,
+Schonlau,
+Matthias,
+and Welch,
+William J.
+Efﬁcient global optimization of expensive
+black-box functions. J. of Global Optimization, 1998.
+
+Bayesian Optimisation with Continuous Approximations
+Kandasamy, Kirthevasan, Schenider, Jeff, and P´oczos,
+Barnab´as. High Dimensional Bayesian Optimisation and
+Bandits via Additive Models. In International Confer-
+ence on Machine Learning, 2015.
+Kandasamy, Kirthevasan, Dasarathy, Gautam, Oliva, Ju-
+nier, Schenider, Jeff, and P´oczos, Barnab´as. Gaussian
+Process Bandit Optimisation with Multi-ﬁdelity Evalu-
+ations. In Advances in Neural Information Processing
+Systems, 2016a.
+Kandasamy, Kirthevasan, Dasarathy, Gautam, Schneider,
+Jeff, and Poczos, Barnabas.
+The Multi-ﬁdelity Multi-
+armed Bandit. In NIPS, 2016b.
+Klein, A., Bartels, S., Falkner, S., Hennig, P., and Hutter, F.
+Towards efﬁcient Bayesian Optimization for Big Data.
+In BayesOpt, 2015.
+Li,
+Lisha,
+Jamieson,
+Kevin,
+DeSalvo,
+Giulia,
+Ros-
+tamizadeh, Afshin, and Talwalkar, Ameet. Hyperband:
+A novel bandit-based approach to hyperparameter opti-
+mization. arXiv preprint arXiv:1603.06560, 2016.
+Lizotte, Daniel, Wang, Tao, Bowling, Michael, and Schuur-
+mans, Dale. Automatic gait optimization with gaussian
+process regression. In IJCAI, 2007.
+Martinez-Cantin, R., de Freitas, N., Doucet, A., and Castel-
+lanos, J.
+Active Policy Learning for Robot Planning
+and Exploration under Uncertainty. In Proceedings of
+Robotics: Science and Systems, 2007.
+Mockus, Jonas. Application of Bayesian approach to nu-
+merical methods of global and stochastic optimization.
+Journal of Global Optimization, 1994.
+Parkinson, D., Mukherjee, P., and Liddle, A.. R.
+A
+Bayesian model selection analysis of WMAP3. Physi-
+cal Review, 2006.
+Poloczek, Matthias, Wang, Jialei, and Frazier, Peter I.
+Multi-information source optimization. arXiv preprint
+arXiv:1603.00389, 2016.
+Rasmussen, C.E. and Williams, C.K.I. Gaussian Processes
+for Machine Learning. UPG Ltd, 2006.
+Sabharwal, A, Samulowitz, H, and Tesauro, G. Selecting
+near-optimal learners via incremental data allocation. In
+AAAI, 2015.
+Seeger, MW., Kakade, SM., and Foster, DP. Information
+Consistency of Nonparametric Gaussian Process Meth-
+ods. IEEE Transactions on Information Theory, 2008.
+Snoek, J., Larochelle, H., and Adams, R. P.
+Practical
+Bayesian Optimization of Machine Learning Algorithms.
+In NIPS, 2012.
+Srinivas, Niranjan, Krause, Andreas, Kakade, Sham, and
+Seeger, Matthias. Gaussian Process Optimization in the
+Bandit Setting: No Regret and Experimental Design. In
+ICML, 2010.
+Sriperumbudur, Bharath et al. On the optimal estimation
+of probability measures in weak and strong topologies.
+Bernoulli, 22(3):1839–1893, 2016.
+Swersky, Kevin, Snoek, Jasper, and Adams, Ryan P. Multi-
+task bayesian optimization. In NIPS, 2013.
+Thompson, W. R. On the Likelihood that one Unknown
+Probability Exceeds Another in View of the Evidence of
+Two Samples. Biometrika, 1933.
+Xiong, Shifeng, Qian, Peter Z. G., and Wu, C. F. Jeff. Se-
+quential design and analysis of high-accuracy and low-
+accuracy computer codes. Technometrics, 2013.
+Zhang, C. and Chaudhuri, K. Active Learning from Weak
+and Strong Labelers. In NIPS, 2015.
+
+Bayesian Optimisation with Continuous Approximations
+Appendix
+A. Some Ancillary Material
+A.1. Review of GP-UCB
+We present a review of the GP-UCB algorithm of Srinivas et al. (2010) which we build on in this work. Here we will
+assume f ∼GP(0, κ) where κ : X 2 →R is a radial kernel deﬁned on the domain X. The algorithm is given below.
+Algorithm 2 GP-UCB
+(Srinivas et al., 2010)
+Input: kernel κ.
+• D0 ←∅, (µ0, σ0) ←(0, κ1/2).
+• for t = 1, 2, . . .
+1. xt ←argmaxx∈X µt−1(x) + β1/2
+t
+σt−1(x)
+2. yt ←Query f at xt.
+3. Perform Bayesian posterior updates to obtain µt, σt
+See (1).
+To present the theoretical results for GP-UCB, we begin by deﬁning the Maximum Information Gain (MIG) which charac-
+terises the statistical difﬁculty of GP bandits.
+Deﬁnition 2. (Maximum Information Gain (Srinivas et al., 2010)) Let f ∼GP(0, φX ). Consider any A ⊂Rd and let
+A′ = {x1, . . . , xn} ⊂A be a ﬁnite subset. Let fA′, ǫA′ ∈Rn such that (fA′)i = f(xi) and (ǫA′)i ∼N(0, η2). Let
+yA′ = fA′ + ǫA′. Denote the Shannon Mutual Information by I. The Maximum Information Gain of A is
+Ψn(A) =
+max
+A′⊂A,|A′|=n I(yA′; fA′).
+Next, we will need the following regularity conditions on the kernel. It is satisﬁed for four times differentiable kernels such
+as the SE kernel and Mat´ern kernel when ν > 2 (Ghosal & Roy, 2006).
+Assumption 3. Let f ∼GP(0, κ), where κ : X 2 →R is a stationary kernel. The partial derivatives of f satisﬁes the
+following condition. There exist constants a, b > 0 such that,
+for all J > 0, and for all i ∈{1, . . ., d},
+P
+
+sup
+x
+∂f(x)
+∂xi
+ > J
+
+≤ae−(J/b)2.
+The following theorem is a bound on the simple regret Sn (2) for GP-UCB.
+Theorem 4. ((Srinivas et al., 2010)) Let f ∼GP(0, κ), where X = [0, 1]d, f : X →R and the kernel κ satisﬁes
+Assumption 3). At each query, we have noisy observations y = f(x)+ǫ where ǫ ∼N(0, η2). Denote C1 = 8/ log(1+η−2).
+Pick a failure probability δ ∈(0, 1) and run GP-UCB with βt = 2 log
+
+2π2t2
+3δ
+
++ 2d log
+
+t2bdr
+q
+4ad
+δ
+
+. The following
+holds with probability > 1 −δ,
+for all n ≥1,
+Sn ≤
+r
+C1βnΨn(X)
+n
++ π2
+6 .
+A.2. Some Technical Results
+Here we present some technical lemmas we will need for our analysis.
+Lemma 5 (Gaussian Concentration). Let Z ∼N(0, 1). Then P(Z > ǫ) ≤1
+2 exp(−ǫ2/2).
+Lemma 6 (Mutual Information in GP, (Srinivas et al., 2010) Lemma 5.3). Let f ∼GP(0, κ), f : X →R and we observe
+y = f(x) + ǫ where ǫ ∼N(0, η2). Let A be a ﬁnite subset of X and fA, yA be the function values and observations on
+this set respectively. Then the Shannon Mutual Information I(yA; fA) is,
+I(yA; fA) = 1
+2
+n
+X
+t=1
+log(1 + η−2σ2
+t−1(xt)).
+
+Bayesian Optimisation with Continuous Approximations
+where σ2
+t−1 is the posterior GP variance after observing the ﬁrst t −1 points.
+Our next result is a technical lemma taken from Kandasamy et al. (2016a). It will be used in controlling the posterior
+variance of our f and g GPs.
+Lemma 7 (Posterior Variance Bound (Kandasamy et al., 2016a)). Let f ∼(0, κ), f : U →R where κ(u, u′) = κ0φ(∥u −
+u′∥) and φ is a radial kernel. Upon evaluating f at u we observe y = f(u) + ǫ where ǫ ∼N(0, η2). Let u1 ∈U and
+suppose we have s observations at u1 and no observations elsewhere. Then the posterior variance κ′ (see (1)) at all u ∈U
+satisﬁes,
+κ′(u, u) ≤κ0(1 −φ2(∥u −u1∥)) +
+η2/s
+1 + η2
+κ0s
+.
+Proof: The proof is in Section C.0.1 of Kandasamy et al. (2016a) who prove this result as part of a larger proof.
+B. Analysis
+We will ﬁrst state a formal version of Theorem 1. Recall from the main text where we stated that most evaluations at z•
+are inside the following set Xρ.
+Xρ = {x ∈X : f⋆−f(x) ≤2ρ√κ0ξ(p)}.
+This is not entirely accurate as it hides a dilation that arises due to a covering argument in our proofs. Precisely, we will
+show that after n queries at any ﬁdelity, BOCA will use most of the z• evaluations in Xρ,n deﬁned below using Xρ.
+Xρ,n =
+
+x ∈X : B2
+ x,
+√
+d/nα/2d
+∩Xρ,n̸ = ∅
+	
+(10)
+Here B2(x, ǫ) is an L2 ball of radius ǫ centred at x. Xρ,n is a dilation of Xρ by
+√
+d/nα/2d. Notice that for all α > 0, as
+n →∞, Xρ,n approaches Xρ at a polynomial rate. We now state our main theorem below.
+Theorem 8. Let Z = [0, 1]p and X = [0, 1]d. Let g ∼GP(0, κ) where κ is of the form (3). Let φX satisfy Assumption 3
+with some constants a, b > 0. Pick δ ∈(0, 1) and run BOCA with
+βt = 2 log
+π2t2
+2δ
+
++ 4d log(t) + max
+
+0 , 2d log
+
+brd log
+6ad
+δ
+
+.
+Then, for all α ∈(0, 1) there exists ρ, Λ0 such that with probability at least 1 −δ we have for all Λ ≥Λ0,
+S(Λ) ≤
+s
+2C1β2nΛΨ2nΛ(Xρ,n)
+nΛ
++
+s
+2C1β2nΛΨ2nα
+Λ(X)
+n2−α
+Λ
++
+π2
+6nΛ
+.
+Here C1 = 8/ log(1 + η2) is a constant and nΛ = ⌊Λ/λ(z•)⌋. ρ satisﬁes ρ > ρ0 = max{2, 1 +
+p
+(1 + 2/α)/(1 + d)}.
+In addition to the dilation, Theorem 1 in the main text also suppresses the constants and polylog terms. The next three
+subsections are devoted to proving the above theorem. In Section B.1 we describe some discretisations for Z and X which
+we will use in our proofs. Section B.2 gives some lemmas we will need and Section B.3 gives the proof.
+B.1. Set Up & Notation
+Notation: Let U ⊂Z × X. Tn(U) will denote the number of queries by BOCA at points (z, x) ∈U within n time steps.
+When A ⊂Z and B ⊂X, we will overload notation to denote Tn(A, B) = Tn(A × B). For z ∈Z, [> z] will denote the
+ﬁdelities which are more expensive than z, i.e. [> z] = {z′ ∈Z : λ(z′) > λ(z)}.
+We will require a fairly delicate set up before we can prove Theorem 8. Let α > 0. All sets described in the rest of this
+subsection are deﬁned with respect to α. First deﬁne
+˜Hn = {(z, x) ∈Z × X : f⋆−f(x) < 2ρβ1/2
+n
+√κ0ξ(z)},
+
+Bayesian Optimisation with Continuous Approximations
+where recall from (4), ξ(z) =
+p
+1 −φ2
+Z(∥z −z•∥) is the information gap function. We next deﬁne H′
+n to be an L2 dilation
+of ˜Hn in the X space, i.e.
+H′
+n = {(z, x) ∈Z × X : B2
+ x,
+√
+d/nα/2d
+∪˜Hn̸ = ∅}.
+Finally, we deﬁne Hn to be the intersection of H′
+n with all ﬁdelities satisfying the third condition in (7). That is,
+Hn = H′
+n ∩
+n
+(z, x) ∈Z × X : ξ(z) > ξ(√p)/β1/2
+n
+o
+.
+(11)
+In our proof we will use the second condition in (7) to control the number of queries in Hn.
+To control the number of queries outside Hn we ﬁrst introduce a
+√
+d
+2n
+α
+2d -covering of the space X of size nα/2. If X = [0, 1]d,
+a sufﬁcient covering would be an equally spaced grid having n
+α
+2d points per side. Let {ai,n}n
+α
+2
+i=1 be the points in the covering.
+Ai,n ⊂X to be the points in X which are closest to ai,n in X. Therefore Fn = {Ai,n}n
+α
+2
+i=1 is a partition of X.
+Now deﬁne Qt : 2X →2Z to be the following function which maps subsets of X to subsets of Z.
+Qt(A) =
+n
+z ∈Z : ∀x ∈A,
+f⋆−f(x) ≥2ρβ1/2
+t
+√κ0ξ(z)
+o
+.
+(12)
+That is, Qt maps A ⊂X to ﬁdelities where the information gap ξ is smaller than (f⋆−f(x))/(2ρβ1/2
+t
+) for all x ∈A.
+Next we deﬁne θt : 2X →Z, to be the cheapest ﬁdelity in Qt(A) for a subset A ∈X.
+θt(A) = arginf
+z∈Qt(A)
+λ(z).
+(13)
+We will see that BOCA will not query inside an Ai,n ∈Fn at ﬁdelities larger than θt(Ai,n) too many times (see Lemma 12).
+That is, Tn([> θn(Ai,n)], Ai,n) will be small. We now deﬁne Fn as follows,
+Fn =
+[
+Ai,n⊂X \Xρ,n
+[> θn(Ai,n)] × Ai,n.
+(14)
+That is, we ﬁrst choose Ai,n’s that are completely outside Xρ,n and take their cross product with ﬁdelities more expensive
+than θt(Ai,n). By design of the above sets, and using the third condition in (7) we can bound the total number of queries
+as follows,
+n = Tn(Z, X) ≤Tn({z•}, Xρ,n) + Tn(Fn) + Tn(Hn)
+We will show that the last two terms on the right hand side are small for BOCA and consequently, the ﬁrst term will be
+large. But ﬁrst, we establish a series of technical results which will be useful in proving theorem 8.
+B.2. Some Technical Lemmas
+The ﬁrst lemma proves that the UCB ϕt in (6) upper bounds f(xt) on all the domain points {xt}t≥1 chosen for evaluation.
+Lemma 9. Let βt > 2 log(π2t2/2δ). Then, with probability > 1 −δ/3, we have
+∀t ≥1,
+|f(xt) −µt−1(xt)| ≤β1/2
+t
+σt−1(xt).
+Proof: This is a straightforward argument using Lemma 5 and the union bound. At t ≥1,
+P
+
+|f(x) −µt−1(x)| > β1/2
+t
+σt−1(x)
+
+= E
+h
+E
+h
+|f(x) −µt−1(x)| > β1/2
+t
+σt−1(x)
+ Dt−1
+ii
+= E
+h
+PZ∼N(0,1)
+
+|Z| > β1/2
+t
+i
+≤exp
+−βt
+2
+
+=
+2δ
+π2t2 .
+In the ﬁrst step we have conditioned w.r.t Dt−1 = {(zi, xi, yi)}t−1
+i=1 which allows us to use Lemma 5 as f(x)|Dt−1 ∼
+N(µt−1(x), σ2
+t−1(x)). The statement follows via a union bound over all t ≥0 and the fact that P
+t t−2 = π2/6.
+Next we show that the GP sample paths are well behaved and that ϕt(x) upper bounds f(x) on a sufﬁciently dense subset
+at each time step. For this we use the following lemma.
+
+Bayesian Optimisation with Continuous Approximations
+Lemma 10. Let βt be as given in Theorem 8. Then for all t, there exists a discretisation Gt of X of size (t2brd
+p
+6ad/δ)d
+such that the following hold.
+• Let [x] be the closest point to x ∈X in the discretisation. With probability > 1 −δ/6, we have
+∀t ≥1,
+∀x ∈X,
+|f(x) −f([x]t)| ≤1/t2.
+• With probability > 1 −δ/3, for all t ≥1 and for all a ∈Gt, |f(a) −µt−1(a)| ≤β1/2
+t
+σt−1(a).
+Proof: The ﬁrst part of the proof, which we skip here, uses the regularity condition for φX in Assumption 3 and mimics
+the argument in Lemmas 5.6, 5.7 of Srinivas et al. (2010). The second part mimics the proof of Lemma 9 and uses the fact
+that βt > 2 log(|Gt|π2t2/2δ).
+The discretisation in the above lemma is different to the coverings introduced in Section B.1. The next lemma is about the
+information gap function in (4).
+Lemma 11. Let g ∼GP(0, κ), g : Z × X →R and κ is of the form (3). Suppose we have s observations from g. Let
+z ∈Z and x ∈X. Then τt−1(z, x) < α implies σt−1(x) < α + √κ0ξ(z).
+Proof: The proof uses the observation that for radial kernels, the maximum difference between the variances at two points
+u1 and u2 occurs when all s observations are at u2 or vice versa. Now we use u1 = (z, x) and u2 = (z•, x) and apply
+Lemma 7 to obtain τ 2
+t−1(z•, x) ≤κ0(1−φZ(∥z•−z∥))2+ η2/s
+1+ η2
+sκ0
+. However, As τ 2
+t−1(z, x) =
+η2/s
+1+ η2
+sκ0
+when all observations
+are at (z, x) and noting that σ2
+t−1(x) = τ 2
+t−1(z•, x), we have σ2
+t−1(z•, x) ≤κ0(1 −φZ(∥z• −z∥))2 + τ 2
+t−1(z, x). Since
+the above situation characterised the maximum difference between σ2
+t−1(x) and τ 2
+t−1(z, x), this inequality is valid for any
+general observation set. The proof is completed using the elementary inequality a2 + b2 ≤(a + b)2 for a, b > 0.
+We are now ready to prove Theorem 8. The plan of attack is as follows. We will analyse BOCA after n time steps and
+bound the number of plays at ﬁdelities z̸ = z• and outside Xρ,n at z•. Then we will show that for sufﬁciently large Λ,
+the number of random plays N is bounded by 2nΛ with high probability. Finally we usee techniques from Srinivas et al.
+(2010), speciﬁcally the maximum information gain, to control the simple regret. However, unlike them we will obtain a
+tighter bound as we can control the regret due to the sets Xρ,n and X \ Xρ,n separately.
+B.3. Proof of Theorem 8
+Let α > 0 be given. We invoke the sets Xρ,n, Hn, Fn in equations (10), (11), (14) for the given α. The following lemma
+establishes that for any A ⊂X, we will not query inside A at ﬁdelities larger than θt(A) (13) too many times. The proof
+is given in Section B.3.1.
+Lemma 12. Let A ⊂X which does not contain the optimum. Let ρ, βt be as given in Theorem 8. Then for all u >
+max{3, (2(ρ −ρ0)η)−2/3}, we have
+P
+
+Tn([> θt(A)], A) > u
+
+≤
+δ
+π2
+1
+u1+4/α
+To bound T (Fn), we will apply Lemma 12 with u = nα/2 on all Ai,n ∈Fn satisfying Ai,n ⊂X \ Xρ,n. Since Xρ ⊂Xρ,n,
+Ai,n does not contain the optimum. As Fn is the union of such sets (14), we have for all n (larger than a constant),
+P(T (Fn) > nα) ≤
+P
+
+∃Ai,n ⊂X \ Xρ,n, Tn([> θt(Ai,n)], Ai,n) > nα/2
+≤
+X
+Ai,n∈Fn
+Ai,n⊂X \Xρ,n
+P
+
+Tn([> θt(Ai,n)], Ai,n) > nα/2
+≤|Fn| δ
+π2
+1
+nα/2+2 ≤δ
+π2
+1
+n2
+Now applying the union bound over all n, we get P(∀n ≥1, T (Fn) > nα) ≤δ/6.
+Now we will bound the number of plays in Hn using the second condition in (7). We begin with the following Lemma.
+The proof mimics the argument in Lemma 11 of Kandasamy et al. (2016a) who prove a similar result for GPs deﬁned on
+just the domain, i.e. f ∼GP(0, κ) where f : X →R.
+
+Bayesian Optimisation with Continuous Approximations
+Lemma 13. Let A ⊂Z × X and the L2 diameter of A in X be DX and that in Z be DZ. Suppose we have n evaluations
+of g of which s are in A. Then for any (z, x) ∈A, the posterior variance τ ′2 satisﬁes,
+τ ′2(z, x) ≤κ0(1 −φ2
+Z(DZ)φ2
+X (DX )) + η2
+s .
+Let λr = λmin/λ(z•) where λmin = minz∈Z λ(z). If the maximum posterior variance in a certain region is smaller than
+γ(z), then we will not query within that region by the second condition in (7). Further by the third condition, since we
+will only query at ﬁdelities satisfying ξ(z) > ξ(√p)/β1/2
+n
+, it is sufﬁcient to show that the posterior variance is bounded by
+κ0ξ(√p)2λ2q
+r /βn at time n to prove that we will not query again in that region. For this we can construct a covering of Hn
+such that 1 −φ2
+Z(DZ)φ2
+X (DX ) < 1
+2ξ(√p)2λ2q
+r /βn. For any A ⊂Z × X, the covering number, which we denote Ωn(A)
+of this construction will typically be polylogarithmic in n (See Remark 15 below). Now if there are
+2βnη2
+λ2q
+r ξ2(√p)κ0 +1 queries
+inside a ball in this covering, the posterior variance, by Lemma 13 will be smaller than κ0ξ(√p)2λ2q
+r /βn. Therefore, we
+will not query any further inside this ball. Hence, the total number of queries in Hn is Tn(Hn) ≤C2Ωn(Hn) βn
+λ2q
+r
+≤
+C3vol(Hn) polylog(n)
+poly(λr) for appropriate constants C2, C3. (Also see Remark 16).
+Next, we will argue that the number of queries for sufﬁciently large Λ, is bounded by nΛ/2 where, recall nΛ = ⌊Λ/λ(z•)⌋.
+This simply follows from the bounds we have for Tn(Fn) and Tn(Hn).
+Tn(Z \ {z•}, X) ≤Tn(Fn) + Tn(Hn) ≤nα + O(polylog(n)).
+Since the right hand side is sub-linear in n, we can ﬁnd n0 such that for all n0, n/2 is larger than the right hand side.
+Therefore for all n ≥n0, Tn({z•}, X) > n/2. Since our bounds hold with probability > 1 −δ for all n we can invert the
+above inequality to bound N, the random number of queries after capital Λ. We have N ≤2Λ/λ(z•). We only need to
+make sure that N ≥n0 which can be guaranteed if Λ > Λ0 = n0λ(z•).
+The ﬁnal step of the proof is to bound the simple regret after n time steps in BOCA. This uses techniques that are now
+standard in GP bandit optimisation, so we only provide an outline. We begin with the following Lemma.
+Lemma 14. Assume that we have queried g at n points, (zt, xt)n
+t=1 of which s points are in {z•} × A for any A ⊂X. Let
+σt−1 denote the posterior variance of f at time t, i.e. after t−1 queries. Then, P
+xt∈A,zt=z• σ2
+t−1(xt) ≤
+2
+log(1+η−2)Ψs(A).
+Here Ψs(A) is the MIG of φX after s queries to A as given in Deﬁnition 2.
+We now deﬁne the quantity Rn below. Readers familiar with the GP bandit literature might see that it is similar to the
+notion of cumulative regret, but we only consider queries at z•.
+Rn =
+n
+X
+t=1
+zt=z•
+f⋆−f(xt)
+=
+X
+zt=z•
+xt∈Xρ,n
+f⋆−f(xt)
++
+X
+zt=z•
+xt /∈Xρ,n
+f⋆−f(xt).
+(15)
+For any A ⊂X we can use Lemmas 9, 10, and 14 and the Cauchy Schwartz inequality to obtain,
+X
+zt=z•
+xt∈A
+f⋆−f(xt) ≤
+q
+C1Tn(z•, A)βnΨTn(z•,A)(A) +
+X
+zt=z•
+xt∈A
+1
+t2 .
+For the ﬁrst term in (15), we use the trivial bound Tn(z•, Xρ,n) ≤n. For the second term we use the fact that {z•} ×
+(X \ Xρ,n) ⊂Fn and hence, Tn(z•, X \ Xρ,n) ≤Tn(Fn) ≤nα. Noting that A ⊂B =⇒Ψn(A) ≤Ψn(B), we have
+Rn ≤
+p
+C1nβnΨn(Xρ,n) +
+p
+C1nαβnΨnα(X) + π2/6. Now, using the fact that N ≤2nΛ for large enough N we have,
+RN ≤
+q
+2C1nΛβ2nΛΨ2nΛ(Xρ,n) +
+q
+2αC1nα
+Λβ2nΛΨ2nα
+Λ(X) + π2
+6 .
+The theorem now follows from the fact that S(Λ) ≤
+1
+N RN by deﬁnition and that N ≥nΛ. The failure instances arise out
+of Lemmas 9, 10 and the bound on Tn(Fn), the summation of whose probabilities are bounded by δ.
+
+Bayesian Optimisation with Continuous Approximations
+Remark 15 (Construction of covering for the SE kernel).
+We demonstrate that such a construction is always possible
+using the SE kernel. Using the inequality e−x ≥1 −x for x > 0 we have,
+1 −φ2
+X (DX )φ2
+Z(DZ) < D2
+X
+h2
+X
++ D2
+Z
+h2
+Z
+where DZ, DX will be the L2 diameters of the balls in the covering. Now let h = min{hZ, hX } and choose
+DX = DZ = h
+2
+ξ(√p)
+β1/2
+n
+λq
+r,
+via which we have 1 −φ2
+Z(z)φ2
+X (x) < 1
+2ξ(√p)2λ2q
+r /βn as stated in the proof. Noting that βn ≍log(n), using standard
+results on covering numbers, we can show that the size of this covering will be log(n)
+d+p
+2 /λq(d+p)
+r
+. A similar argument is
+possible for Mat´ern kernels, but the exponent on log(n) will be worse.
+Remark 16 (Choice of q for SE kernel).
+From the arguments in our proof and Remark 15, we have that the number
+of plays in a set S ⊂(Z × X) is T (S) ≤vol(S) log(n)
+d+p+2
+2
+
+λ(z•)
+λmin
+q(p+d+2)
+. However, we chose to work work
+λmin mostly to simplify the proof. It is not hard to see that for A ⊂X and B ⊂Z if λ(z) ≈λ′ for all z ∈B, then
+Tn(B, A) ≈vol(B × A) log(n)
+d+p+2
+2
+
+λ(z•)
+λ′
+q(p+d+2)
+. As the capital spent in this region is λ′Tn(A, B), by picking
+q = 1/(p + d + 2) we ensure that the capital expended for a certain A ⊂X at all ﬁdelities is roughly the same, i.e. for
+any A, the capital density in ﬁdelities z such that λ(z) < λ(θt(A)) will be roughly the same. Kandasamy et al. (2016b)
+showed that doing so achieved a nearly minimax optimal strategy for cumulative regret in K-armed bandits. While it is
+not clear that this is the best strategy for optimisation under GP assumptions, it did reasonably well in our experiments. We
+leave it to future work to resolve this.
+B.3.1. PROOF OF LEMMA 12
+For brevity, we will denote θ = θt(A). We will invoke the discretisation Gt used in Lemma 10 via which we have
+ϕt([x⋆]t) ≥f⋆−1/t2 for all t ≥1. Let b = argmaxx∈A ϕt(x) be the maximiser of the upper conﬁdence bound ϕt in A
+at time t. Now note that, xt ∈A =⇒ϕt(b) > ϕt([x⋆]t) =⇒ϕt(b) > f⋆−1/t2. We therefore have,
+P
+ Tn([> θ], A) > u
+
+≤P
+ ∃t : u + 1 ≤t ≤n, ϕt(b) > f⋆−1/t2
+∧τt−1(b) < γ(θ))
+≤
+n
+X
+t=u+1
+P
+ µt−1(b) −f(b) > f⋆−f(b) −β1/2
+t
+σt−1(b) −1/t2
+∧τt−1(b) < γ(θ)
+
+(16)
+We now note that
+τt−1(b) < γ(θ) =⇒σt−1(b) < γ(θ) + √κ0ξ(θ) ≤2√κ0ξ(θ) ≤
+1
+β1/2
+t
+ρ
+(f⋆−f(b)).
+The ﬁrst step uses Lemma 11. The second step uses the fact that γ(θ) = √κ0ξ(θ)(λ(z)/λ(z•))1/(p+d+2) ≤√κ0ξ(θ) and
+the last step uses the deﬁnition of Qt(A) in (12) whereby we have f⋆−f(x) ≥2ρβ1/2
+t
+√κ0ξ(θ). Now we plugging this
+back into (16), we can bound each term in the summation by,
+P
+ µt−1(b) −f(b) > (ρ −1)β1/2
+t
+σt−1(b) −1/t2
+≤PZ∼N(0,1)
+
+Z > (ρ0 −1)β1/2
+t
+
+≤1
+2 exp
+(ρ0 −1)2
+2
+βt
+
+≤1
+2
+ 2δ
+π2
+(ρ0−1)2
+t−(ρ0−1)2(2+2d) ≤
+δ
+π2 t−(ρ0−1)2(2+2d).
+(17)
+In the ﬁrst step we have used the following facts, t > u ≥max{3, (2(ρ −ρ0)η)−2/3}, π2/2δ > 1 and σt−1(b) > η/
+√
+t
+to conclude,
+(ρ −ρ0)η
+p
+4 log(t)
+√
+t
+> 1
+t2
+=⇒
+(ρ −ρ0) ·
+s
+2 log
+π2t2
+2δ
+
+· η
+√
+t > 1
+t2
+=⇒
+(ρ −ρ0)β1/2
+t
+σt−1(b) > 1
+t2 .
+The second step of (17) uses Lemma 5, the third step uses the conditions on β1/2
+t
+as given in theorem 8 and the last step
+uses the fact that π2/2δ > 1. Now plug (17) back into (16). The result follows by bounding the sum by an integral and
+noting that ρ0 > 2 and ρ0 ≥1 +
+p
+(1 + 2/α)/(1 + d).
+
+Bayesian Optimisation with Continuous Approximations
+B.3.2. PROOF OF LEMMA 14
+Let As = {u1, u2, . . . , us} be the queries in {z•} × A in the order they were queried. Now, assuming that we have queried
+g only inside {z•} × A, denote by ˜σt−1(·), the posterior standard deviation after t −1 such queries. Then,
+X
+t:xt∈A,zt=z•
+σ2
+t−1(xt) ≤
+s
+X
+t=1
+˜σ2
+t−1(ut) ≤
+s
+X
+t=1
+η2 ˜σ2
+t−1(ut)
+η2
+≤
+s
+X
+t=1
+log(1 + η−2˜σ2
+t−1(ut))
+log(1 + η−2)
+≤
+2
+log(1 + η−2)I(yAs; fAs).
+Queries outside {z•} × A will only decrease the variance of the GP so we can upper bound the ﬁrst sum by the posterior
+variances of the GP with only the queries in {z•}×A. The third step uses the inequality u2/v2 ≤log(1+u2)/ log(1+v2).
+The result follows from the fact that Ψs(A) maximises the mutual information among all subsets of size s.
+C. Addendum to Experiments
+C.1. Implementation Details
+We describe some of our implementation details below.
+Domain and Fidelity space: Given a problem with arbitrary domain X and Z, we mapped them to [0, 1]d and [0, 1]p by
+appropriately linear transforming the coordinates.
+Initialisation: Following recommendations in Brochu et al. (2010) all GP methods were initialised with uniform random
+queries with Λ/10 capital, where Λ is the total capital used in the experiment. For GP-UCB and GP-EI all queries were
+initialised at z• whereas for the multi-ﬁdelity methods, the ﬁdelities were picked at random from the available ﬁdelities.
+GP Hyper-parameters: Except in the ﬁrst two experiments of Fig. 3, the GP hyper-parameters were learned after initial-
+isation by maximising the GP marginal likelihood (Rasmussen & Williams, 2006) and then updated every 25 iterations.
+We use an SE kernel for both φX and φZ and instead of using one bandwidth for the entire ﬁdelity space and domain, we
+learn a bandwidth for each dimension separately. We learn the kernel scale, bandwidths and noise variance using marginal
+likelihood. The mean of the GP is set to be the median of the observations.
+Choice of βt: βt, as speciﬁed in Theorem 8 has unknown constants and tends to be too conservative in practice (Srinivas
+et al., 2010). Following the recommendations in Kandasamy et al. (2015) we set it to be of the correct “order”; precisely,
+βt = 0.5d log(2ℓt+1). Here, ℓis the effective L1 diameter of X and is computed by scaling each dimension by the inverse
+of the bandwidth of the SE kernel for that dimension.
+Maximising ϕt: We used the DiRect algorithm (Jones et al., 1993).
+Fidelity selection: Since we only worked in low dimensional ﬁdelity spaces, the set Zt was constructed in practice by
+obtaining a ﬁnely sampled grid of Z and then ﬁltering out those which satisﬁed the 3 conditions in (7). In the second
+condition of (7), the threshold γ(z) can be multiplied up to a constant factor, i.e cγ(z) without affecting our theoretical
+results. In practice, we started with c = 1 but we updated it every 20 iterations via the following rule: if the algorithm has
+queried z• more than 75% of the time in the last 20 iterations, we decrease it to c/2 and if it queried less than 25% of the
+time we increase it to 2c. But the c value is always clipped inbetween 0.1 and 20. In practice we observed that the value for
+c usually stabilised around 1 and 8 although in some experiments it shot up to 20. Changing c this way resulted in slightly
+better performance in practice.
+C.2. Description of Synthetic Functions
+The following are the synthetic functions used in the paper.
+GP Samples: For the GP samples in the ﬁrst two experiments of Figure 3 we used an SE kernel with bandwidth 0.1 for φX .
+For φZ we used bandwidths 1 and 0.01 for the ﬁrst and second experiments respectively. The function was constructed by
+obtaining the GP function values on a 50×50 grid in the two dimensional Z×X space and then interpolating for evaluations
+in between via bivariate splines. For both experiments we used η2 = 0.05 and the cost function λ(z) = 0.2 + 6z2.
+
+Bayesian Optimisation with Continuous Approximations
+Currin exponential function: The domain is the two dimensional unit cube X = [0, 1]2 and the ﬁdelity was Z = [0, 1]
+with z• = 1. We used λ(z) = 0.1 + z2, η2 = 0.5 and,
+g(z, x) =
+
+1 −0.1(1 −z) exp
+ −1
+2x2
+ 2300x3
+1 + 1900x2
+1 + 2092x1 + 60
+100x3
+1 + 500x2
+1 + 4x1 + 20
+
+.
+Hartmann functions: We used g(z, x) = P4
+i=1(αi −α′
+i(z)) exp
+ −P3
+j=1 Aij(xj −Pij)2
+. Here A, P are given below
+for the 3 and 6 dimensional cases and α = [1.0, 1.2, 3.0, 3.2]. Then α′
+i was set as α′
+i(z) = 0.1(1 −zi) if i ≤p for
+i = 1, 2, 3, 4. We constructed the p = 4 and p = 2 Hartmann functions for the 3 and 6 dimensional cases respectively
+this way. When z = z• = 1p, this reduces to the usual Hartmann function commonly used as a benchmark in global
+optimisation.
+For the 3 dimensional case we used λ(z) = 0.05 + (1 −0.05)z3
+1z2
+2, η2 = 0.01 and,
+A =
+
+
+3
+10
+30
+0.1
+10
+35
+3
+10
+30
+0.1
+10
+35
+
+,
+P = 10−4 ×
+
+
+3689
+1170
+2673
+4699
+4387
+7470
+1091
+8732
+5547
+381
+5743
+8828
+
+.
+For the 3 dimensional case we used λ(z) = 0.05 + (1 −0.05)z3
+1z2
+2z1.5
+3 z1
+4, η2 = 0.05 and,
+A =
+
+
+10
+3
+17
+3.5
+1.7
+8
+0.05
+10
+17
+0.1
+8
+14
+3
+3.5
+1.7
+10
+17
+8
+17
+8
+0.05
+10
+0.1
+14
+
+, P = 10−4 ×
+
+
+1312
+1696
+5569
+124
+8283
+5886
+2329
+4135
+8307
+3736
+1004
+9991
+2348
+1451
+3522
+2883
+3047
+6650
+4047
+8828
+8732
+5743
+1091
+381
+
+.
+Borehole function: This function was taken from (Xiong et al., 2013). We ﬁrst let,
+f2(x) =
+2πx3(x4 −x6)
+log(x2/x1)
+
+1 +
+2x7x3
+log(x2/x1)x2
+1x8 + x3
+x5
+,
+f1(x) =
+5x3(x4 −x6)
+log(x2/x1)
+
+1.5 +
+2x7x3
+log(x2/x1)x2
+1x8 + x3
+x5
+.
+Then
+we
+deﬁne
+g(z, x)
+=
+zf2(x) + (1 −z)f1(x).
+The
+domain
+of
+the
+function
+is
+X
+=
+[0.05, 0.15; 100, 50K; 63.07K, 115.6K; 990, 1110; 63.1, 116; 700, 820; 1120, 1680; 9855, 12045] and Z
+=
+[0, 1]
+with z• = 1. We used λ(z) = 0.1 + z1.5 for the cost function and η2 = 5 for the noise variance.
+Branin function: We use the following function where X = [[−5, 10], [0, 15]]2 and Z = [0, 1]3.
+g(z, x) = a(x2 −b(z1)x2
+1 + c(z2)x1 −r)2 + s(1 −t(z))cos(x1) + s,
+where a = 1, b(z1) = 5.1/(4π2)−0.01(1−z1) c(z2) = 5/π−0.1(1−z2), r = 6, s = 10 and t(z3) = 1/(8π)+0.05(1−z3).
+At z = z• = 1p, this becomes the standard Branin function used as a benchmark in global optimisation. We used
+λ(z) = 0.05 + z3
+1z2
+2z1.5
+3
+for the cost function and η2 = 0.05 for the noise variance.

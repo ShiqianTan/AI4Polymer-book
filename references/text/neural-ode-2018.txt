@@ -1,0 +1,1726 @@
+Neural Ordinary Differential Equations
+Ricky T. Q. Chen*, Yulia Rubanova*, Jesse Bettencourt*, David Duvenaud
+University of Toronto, Vector Institute
+{rtqichen, rubanova, jessebett, duvenaud}@cs.toronto.edu
+Abstract
+We introduce a new family of deep neural network models. Instead of specifying a
+discrete sequence of hidden layers, we parameterize the derivative of the hidden
+state using a neural network. The output of the network is computed using a black-
+box differential equation solver. These continuous-depth models have constant
+memory cost, adapt their evaluation strategy to each input, and can explicitly trade
+numerical precision for speed. We demonstrate these properties in continuous-depth
+residual networks and continuous-time latent variable models. We also construct
+continuous normalizing ﬂows, a generative model that can train by maximum
+likelihood, without partitioning or ordering the data dimensions. For training, we
+show how to scalably backpropagate through any ODE solver, without access to its
+internal operations. This allows end-to-end training of ODEs within larger models.
+1
+Introduction
+Residual Network
+ODE Network
+5
+0
+5
+Input/Hidden/Output
+0
+1
+2
+3
+4
+5
+Depth
+5
+0
+5
+Input/Hidden/Output
+0
+1
+2
+3
+4
+5
+Depth
+Figure 1: Left: A Residual network deﬁnes a
+discrete sequence of ﬁnite transformations.
+Right:
+A ODE network deﬁnes a vector
+ﬁeld, which continuously transforms the state.
+Both: Circles represent evaluation locations.
+Models such as residual networks, recurrent neural
+network decoders, and normalizing ﬂows build com-
+plicated transformations by composing a sequence of
+transformations to a hidden state:
+ht+1 = ht + f(ht, θt)
+(1)
+where t ∈{0 . . . T} and ht ∈RD. These iterative
+updates can be seen as an Euler discretization of a
+continuous transformation (Lu et al., 2017; Haber
+and Ruthotto, 2017; Ruthotto and Haber, 2018).
+What happens as we add more layers and take smaller
+steps? In the limit, we parameterize the continuous
+dynamics of hidden units using an ordinary differen-
+tial equation (ODE) speciﬁed by a neural network:
+dh(t)
+dt
+= f(h(t), t, θ)
+(2)
+Starting from the input layer h(0), we can deﬁne the output layer h(T) to be the solution to this
+ODE initial value problem at some time T. This value can be computed by a black-box differential
+equation solver, which evaluates the hidden unit dynamics f wherever necessary to determine the
+solution with the desired accuracy. Figure 1 contrasts these two approaches.
+Deﬁning and evaluating models using ODE solvers has several beneﬁts:
+Memory efﬁciency
+In Section 2, we show how to compute gradients of a scalar-valued loss with
+respect to all inputs of any ODE solver, without backpropagating through the operations of the solver.
+Not storing any intermediate quantities of the forward pass allows us to train our models with constant
+memory cost as a function of depth, a major bottleneck of training deep models.
+32nd Conference on Neural Information Processing Systems (NeurIPS 2018), Montréal, Canada.
+arXiv:1806.07366v5  [cs.LG]  14 Dec 2019
+
+Adaptive computation
+Euler’s method is perhaps the simplest method for solving ODEs. There
+have since been more than 120 years of development of efﬁcient and accurate ODE solvers (Runge,
+1895; Kutta, 1901; Hairer et al., 1987). Modern ODE solvers provide guarantees about the growth
+of approximation error, monitor the level of error, and adapt their evaluation strategy on the ﬂy to
+achieve the requested level of accuracy. This allows the cost of evaluating a model to scale with
+problem complexity. After training, accuracy can be reduced for real-time or low-power applications.
+Scalable and invertible normalizing ﬂows
+An unexpected side-beneﬁt of continuous transforma-
+tions is that the change of variables formula becomes easier to compute. In Section 4, we derive
+this result and use it to construct a new class of invertible density models that avoids the single-unit
+bottleneck of normalizing ﬂows, and can be trained directly by maximum likelihood.
+Continuous time-series models
+Unlike recurrent neural networks, which require discretizing
+observation and emission intervals, continuously-deﬁned dynamics can naturally incorporate data
+which arrives at arbitrary times. In Section 5, we construct and demonstrate such a model.
+2
+Reverse-mode automatic differentiation of ODE solutions
+The main technical difﬁculty in training continuous-depth networks is performing reverse-mode
+differentiation (also known as backpropagation) through the ODE solver. Differentiating through
+the operations of the forward pass is straightforward, but incurs a high memory cost and introduces
+additional numerical error.
+We treat the ODE solver as a black box, and compute gradients using the adjoint sensitivity
+method (Pontryagin et al., 1962). This approach computes gradients by solving a second, aug-
+mented ODE backwards in time, and is applicable to all ODE solvers. This approach scales linearly
+with problem size, has low memory cost, and explicitly controls numerical error.
+Consider optimizing a scalar-valued loss function L(), whose input is the result of an ODE solver:
+L(z(t1)) = L
+
+z(t0) +
+Z t1
+t0
+f(z(t), t, θ)dt
+
+= L (ODESolve(z(t0), f, t0, t1, θ))
+(3)
+Adjoint State
+State
+Figure 2: Reverse-mode differentiation of an ODE
+solution. The adjoint sensitivity method solves
+an augmented ODE backwards in time. The aug-
+mented system contains both the original state and
+the sensitivity of the loss with respect to the state.
+If the loss depends directly on the state at multi-
+ple observation times, the adjoint state must be
+updated in the direction of the partial derivative of
+the loss with respect to each observation.
+To optimize L, we require gradients with respect
+to θ. The ﬁrst step is to determining how the
+gradient of the loss depends on the hidden state
+z(t) at each instant. This quantity is called the
+adjoint a(t) = ∂L/∂z(t). Its dynamics are given
+by another ODE, which can be thought of as the
+instantaneous analog of the chain rule:
+da(t)
+dt
+= −a(t)T ∂f(z(t), t, θ)
+∂z
+(4)
+We can compute ∂L/∂z(t0) by another call to an
+ODE solver. This solver must run backwards,
+starting from the initial value of ∂L/∂z(t1). One
+complication is that solving this ODE requires
+the knowing value of z(t) along its entire tra-
+jectory. However, we can simply recompute
+z(t) backwards in time together with the adjoint,
+starting from its ﬁnal value z(t1).
+Computing the gradients with respect to the pa-
+rameters θ requires evaluating a third integral,
+which depends on both z(t) and a(t):
+dL
+dθ = −
+Z t0
+t1
+a(t)T ∂f(z(t), t, θ)
+∂θ
+dt
+(5)
+The vector-Jacobian products a(t)T ∂f
+∂z and a(t)T ∂f
+∂θ in (4) and (5) can be efﬁciently evaluated by
+automatic differentiation, at a time cost similar to that of evaluating f. All integrals for solving z, a
+2
+
+and ∂L
+∂θ can be computed in a single call to an ODE solver, which concatenates the original state, the
+adjoint, and the other partial derivatives into a single vector. Algorithm 1 shows how to construct the
+necessary dynamics, and call an ODE solver to compute all gradients at once.
+Algorithm 1 Reverse-mode derivative of an ODE initial value problem
+Input: dynamics parameters θ, start time t0, stop time t1, ﬁnal state z(t1), loss gradient ∂L/∂z(t1)
+s0 = [z(t1),
+∂L
+∂z(t1), 0|θ|]
+▷Deﬁne initial augmented state
+def aug_dynamics([z(t), a(t), ·], t, θ):
+▷Deﬁne dynamics on augmented state
+return [f(z(t), t, θ), −a(t)T ∂f
+∂z , −a(t)T ∂f
+∂θ ]
+▷Compute vector-Jacobian products
+[z(t0),
+∂L
+∂z(t0), ∂L
+∂θ ] = ODESolve(s0, aug_dynamics, t1, t0, θ)
+▷Solve reverse-time ODE
+return
+∂L
+∂z(t0), ∂L
+∂θ
+▷Return gradients
+Most ODE solvers have the option to output the state z(t) at multiple times. When the loss depends
+on these intermediate states, the reverse-mode derivative must be broken into a sequence of separate
+solves, one between each consecutive pair of output times (Figure 2). At each observation, the adjoint
+must be adjusted in the direction of the corresponding partial derivative ∂L/∂z(ti).
+The results above extend those of Stapor et al. (2018, section 2.4.2). An extended version of
+Algorithm 1 including derivatives w.r.t. t0 and t1 can be found in Appendix C. Detailed derivations
+are provided in Appendix B. Appendix D provides Python code which computes all derivatives for
+scipy.integrate.odeint by extending the autograd automatic differentiation package. This
+code also supports all higher-order derivatives. We have since released a PyTorch (Paszke et al.,
+2017) implementation, including GPU-based implementations of several standard ODE solvers at
+github.com/rtqichen/torchdiffeq.
+3
+Replacing residual networks with ODEs for supervised learning
+In this section, we experimentally investigate the training of neural ODEs for supervised learning.
+Software
+To solve ODE initial value problems numerically, we use the implicit Adams method
+implemented in LSODE and VODE and interfaced through the scipy.integrate package. Being
+an implicit method, it has better guarantees than explicit methods such as Runge-Kutta but requires
+solving a nonlinear optimization problem at every step. This setup makes direct backpropagation
+through the integrator difﬁcult. We implement the adjoint sensitivity method in Python’s autograd
+framework (Maclaurin et al., 2015). For the experiments in this section, we evaluated the hidden
+state dynamics and their derivatives on the GPU using Tensorﬂow, which were then called from the
+Fortran ODE solvers, which were called from Python autograd code.
+Table 1: Performance on MNIST. †From LeCun
+et al. (1998).
+Test Error
+# Params
+Memory
+Time
+1-Layer MLP†
+1.60%
+0.24 M
+-
+-
+ResNet
+0.41%
+0.60 M
+O(L)
+O(L)
+RK-Net
+0.47%
+0.22 M
+O(˜L)
+O(˜L)
+ODE-Net
+0.42%
+0.22 M
+O(1)
+O(˜L)
+Model Architectures
+We experiment with a
+small residual network which downsamples the
+input twice then applies 6 standard residual
+blocks He et al. (2016b), which are replaced
+by an ODESolve module in the ODE-Net vari-
+ant. We also test a network with the same archi-
+tecture but where gradients are backpropagated
+directly through a Runge-Kutta integrator, re-
+ferred to as RK-Net. Table 1 shows test error, number of parameters, and memory cost. L denotes
+the number of layers in the ResNet, and ˜L is the number of function evaluations that the ODE solver
+requests in a single forward pass, which can be interpreted as an implicit number of layers. We ﬁnd
+that ODE-Nets and RK-Nets can achieve around the same performance as the ResNet.
+Error Control in ODE-Nets
+ODE solvers can approximately ensure that the output is within a
+given tolerance of the true solution. Changing this tolerance changes the behavior of the network.
+We ﬁrst verify that error can indeed be controlled in Figure 3a. The time spent by the forward call is
+proportional to the number of function evaluations (Figure 3b), so tuning the tolerance gives us a
+3
+
+trade-off between accuracy and computational cost. One could train with high accuracy, but switch to
+a lower accuracy at test time.
+Figure 3: Statistics of a trained ODE-Net. (NFE = number of function evaluations.)
+Figure 3c) shows a surprising result: the number of evaluations in the backward pass is roughly
+half of the forward pass. This suggests that the adjoint sensitivity method is not only more memory
+efﬁcient, but also more computationally efﬁcient than directly backpropagating through the integrator,
+because the latter approach will need to backprop through each function evaluation in the forward
+pass.
+Network Depth
+It’s not clear how to deﬁne the ‘depth‘ of an ODE solution. A related quantity is
+the number of evaluations of the hidden state dynamics required, a detail delegated to the ODE solver
+and dependent on the initial state or input. Figure 3d shows that he number of function evaluations
+increases throughout training, presumably adapting to increasing complexity of the model.
+4
+Continuous Normalizing Flows
+The discretized equation (1) also appears in normalizing ﬂows (Rezende and Mohamed, 2015) and
+the NICE framework (Dinh et al., 2014). These methods use the change of variables theorem to
+compute exact changes in probability if samples are transformed through a bijective function f:
+z1 = f(z0)
+=⇒log p(z1) = log p(z0) −log
+det ∂f
+∂z0
+
+(6)
+An example is the planar normalizing ﬂow (Rezende and Mohamed, 2015):
+z(t + 1) = z(t) + uh(wTz(t) + b),
+log p(z(t + 1)) = log p(z(t)) −log
+1 + uT ∂h
+∂z
+
+(7)
+Generally, the main bottleneck to using the change of variables formula is computing of the deter-
+minant of the Jacobian ∂f/∂z, which has a cubic cost in either the dimension of z, or the number
+of hidden units. Recent work explores the tradeoff between the expressiveness of normalizing ﬂow
+layers and computational cost (Kingma et al., 2016; Tomczak and Welling, 2016; Berg et al., 2018).
+Surprisingly, moving from a discrete set of layers to a continuous transformation simpliﬁes the
+computation of the change in normalizing constant:
+Theorem 1 (Instantaneous Change of Variables). Let z(t) be a ﬁnite continuous random variable
+with probability p(z(t)) dependent on time. Let dz
+dt = f(z(t), t) be a differential equation describing
+a continuous-in-time transformation of z(t). Assuming that f is uniformly Lipschitz continuous in z
+and continuous in t, then the change in log probability also follows a differential equation,
+∂log p(z(t))
+∂t
+= −tr
+ df
+dz(t)
+
+(8)
+Proof in Appendix A. Instead of the log determinant in (6), we now only require a trace operation.
+Also unlike standard ﬁnite ﬂows, the differential equation f does not need to be bijective, since if
+uniqueness is satisﬁed, then the entire transformation is automatically bijective.
+As an example application of the instantaneous change of variables, we can examine the continuous
+analog of the planar ﬂow, and its change in normalization constant:
+dz(t)
+dt
+= uh(wTz(t) + b),
+∂log p(z(t))
+∂t
+= −uT ∂h
+∂z(t)
+(9)
+4
+
+Given an initial distribution p(z(0)), we can sample from p(z(t)) and evaluate its density by solving
+this combined ODE.
+Using multiple hidden units with linear cost
+While det is not a linear function, the trace function
+is, which implies tr(P
+n Jn) = P
+n tr(Jn). Thus if our dynamics is given by a sum of functions then
+the differential equation for the log density is also a sum:
+dz(t)
+dt
+=
+M
+X
+n=1
+fn(z(t)),
+d log p(z(t))
+dt
+=
+M
+X
+n=1
+tr
+∂fn
+∂z
+
+(10)
+This means we can cheaply evaluate ﬂow models having many hidden units, with a cost only linear in
+the number of hidden units M. Evaluating such ‘wide’ ﬂow layers using standard normalizing ﬂows
+costs O(M 3), meaning that standard NF architectures use many layers of only a single hidden unit.
+Time-dependent dynamics
+We can specify the parameters of a ﬂow as a function of t, making the
+differential equation f(z(t), t) change with t. This is parameterization is a kind of hypernetwork (Ha
+et al., 2016). We also introduce a gating mechanism for each hidden unit, dz
+dt = P
+n σn(t)fn(z)
+where σn(t) ∈(0, 1) is a neural network that learns when the dynamic fn(z) should be applied. We
+call these models continuous normalizing ﬂows (CNF).
+4.1
+Experiments with Continuous Normalizing Flows
+We ﬁrst compare continuous and discrete planar ﬂows at learning to sample from a known distribution.
+We show that a planar CNF with M hidden units can be at least as expressive as a planar NF with
+K = M layers, and sometimes much more expressive.
+Density matching
+We conﬁgure the CNF as described above, and train for 10,000 iterations
+using Adam (Kingma and Ba, 2014). In contrast, the NF is trained for 500,000 iterations using
+RMSprop (Hinton et al., 2012), as suggested by Rezende and Mohamed (2015). For this task, we
+minimize KL (q(x)∥p(x)) as the loss function where q is the ﬂow model and the target density p(·)
+can be evaluated. Figure 4 shows that CNF generally achieves lower loss.
+Maximum Likelihood Training
+A useful property of continuous-time normalizing ﬂows is that
+we can compute the reverse transformation for about the same cost as the forward pass, which cannot
+be said for normalizing ﬂows. This lets us train the ﬂow on a density estimation task by performing
+maximum likelihood estimation, which maximizes Ep(x)[log q(x)] where q(·) is computed using
+the appropriate change of variables theorem, then afterwards reverse the CNF to generate random
+samples from q(x).
+For this task, we use 64 hidden units for CNF, and 64 stacked one-hidden-unit layers for NF. Figure 5
+shows the learned dynamics. Instead of showing the initial Gaussian distribution, we display the
+K=2
+K=8
+K=32
+M=2
+M=8
+M=32
+1
+10
+20
+30
+CNF
+NF
+2
+10
+20
+30
+CNF
+NF
+3
+(a) Target
+(b) NF
+(c) CNF
+10
+20
+30
+CNF
+NF
+(d) Loss vs. K/M
+Figure 4: Comparison of normalizing ﬂows versus continuous normalizing ﬂows. The model capacity
+of normalizing ﬂows is determined by their depth (K), while continuous normalizing ﬂows can also
+increase capacity by increasing width (M), making them easier to train.
+5
+
+Density
+5%
+20%
+40%
+60%
+80%
+100%
+Samples
+NF
+Target
+(a) Two Circles
+Density
+5%
+20%
+40%
+60%
+80%
+100%
+Samples
+NF
+Target
+(b) Two Moons
+Figure 5: Visualizing the transformation from noise to data. Continuous-time normalizing ﬂows
+are reversible, so we can train on a density estimation task and still be able to sample from the learned
+density efﬁciently.
+transformed distribution after a small amount of time which shows the locations of the initial planar
+ﬂows. Interestingly, to ﬁt the Two Circles distribution, the CNF rotates the planar ﬂows so that
+the particles can be evenly spread into circles. While the CNF transformations are smooth and
+interpretable, we ﬁnd that NF transformations are very unintuitive and this model has difﬁculty ﬁtting
+the two moons dataset in Figure 5b.
+5
+A generative latent function time-series model
+Applying neural networks to irregularly-sampled data such as medical records, network trafﬁc, or
+neural spiking data is difﬁcult. Typically, observations are put into bins of ﬁxed duration, and the
+latent dynamics are discretized in the same way. This leads to difﬁculties with missing data and ill-
+deﬁned latent variables. Missing data can be addressed using generative time-series models (Álvarez
+and Lawrence, 2011; Futoma et al., 2017; Mei and Eisner, 2017; Soleimani et al., 2017a) or data
+imputation (Che et al., 2018). Another approach concatenates time-stamp information to the input of
+an RNN (Choi et al., 2016; Lipton et al., 2016; Du et al., 2016; Li, 2017).
+We present a continuous-time, generative approach to modeling time series. Our model represents
+each time series by a latent trajectory. Each trajectory is determined from a local initial state, zt0, and
+a global set of latent dynamics shared across all time series. Given observation times t0, t1, . . . , tN
+and an initial state zt0, an ODE solver produces zt1, . . . , ztN , which describe the latent state at each
+observation.We deﬁne this generative model formally through a sampling procedure:
+zt0 ∼p(zt0)
+(11)
+zt1, zt2, . . . , ztN = ODESolve(zt0, f, θf, t0, . . . , tN)
+(12)
+each
+xti ∼p(x|zti, θx)
+(13)
+Function f is a time-invariant function that takes the value z at the current time step and outputs the
+gradient: ∂z(t)/∂t = f(z(t), θf). We parametrize this function using a neural net. Because f is time-
+µ
+σ
+zt0
+zt1
+RNN encoder
+Latent space
+Data space
+~
+q(zt0|xt0...xtN)
+ht0
+ht1
+htN
+ODE Solve(zt0, f, ✓f, t0, ..., tM)
+ztM
+…
+ztN
+ztN+1
+Observed
+Unobserved
+x(t)
+t0
+t1
+tN
+Time
+tN+1
+tM
+Prediction
+Extrapolation
+t0
+t1
+tN
+tN+1
+tM
+ˆx(t)
+Figure 6: Computation graph of the latent ODE model.
+6
+
+invariant, given any latent state z(t), the entire latent trajectory is uniquely deﬁned. Extrapolating
+this latent trajectory lets us make predictions arbitrarily far forwards or backwards in time.
+Training and Prediction
+We can train this latent-variable model as a variational autoen-
+coder (Kingma and Welling, 2014; Rezende et al., 2014), with sequence-valued observations. Our
+recognition net is an RNN, which consumes the data sequentially backwards in time, and out-
+puts qφ(z0|x1, x2, . . . , xN). A detailed algorithm can be found in Appendix E. Using ODEs as a
+generative model allows us to make predictions for arbitrary time points t1...tM on a continuous
+timeline.
+λ(t)
+t
+Figure 7: Fitting a latent ODE dy-
+namics model with a Poisson pro-
+cess likelihood. Dots show event
+times. The line is the learned inten-
+sity λ(t) of the Poisson process.
+Poisson Process likelihoods
+The fact that an observation oc-
+curred often tells us something about the latent state. For ex-
+ample, a patient may be more likely to take a medical test if
+they are sick. The rate of events can be parameterized by a
+function of the latent state: p(event at time t| z(t)) = λ(z(t)).
+Given this rate function, the likelihood of a set of indepen-
+dent observation times in the interval [tstart, tend] is given by an
+inhomogeneous Poisson process (Palm, 1943):
+log p(t1 . . . tN| tstart, tend) =
+N
+X
+i=1
+log λ(z(ti)) −
+Z tend
+tstart
+λ(z(t))dt
+We can parameterize λ(·) using another neural network. Con-
+veniently, we can evaluate both the latent trajectory and the
+Poisson process likelihood together in a single call to an ODE solver. Figure 7 shows the event rate
+learned by such a model on a toy dataset.
+(a) Recurrent Neural Network
+(b) Latent Neural Ordinary Differential Equation
+Ground Truth
+Observation
+Prediction
+Extrapolation
+(c) Latent Trajectories
+Figure 8: (a): Reconstruction and extrapolation
+of spirals with irregular time points by a recurrent
+neural network. (b): Reconstructions and extrapo-
+lations by a latent neural ODE. Blue curve shows
+model prediction. Red shows extrapolation. (c) A
+projection of inferred 4-dimensional latent ODE
+trajectories onto their ﬁrst two dimensions. Color
+indicates the direction of the corresponding trajec-
+tory. The model has learned latent dynamics which
+distinguishes the two directions.
+A Poisson process likelihood on observation
+times can be combined with a data likelihood to
+jointly model all observations and the times at
+which they were made.
+5.1
+Time-series Latent ODE Experiments
+We investigate the ability of the latent ODE
+model to ﬁt and extrapolate time series. The
+recognition network is an RNN with 25 hidden
+units. We use a 4-dimensional latent space. We
+parameterize the dynamics function f with a
+one-hidden-layer network with 20 hidden units.
+The decoder computing p(xti|zti) is another
+neural network with one hidden layer with 20
+hidden units. Our baseline was a recurrent neu-
+ral net with 25 hidden units trained to minimize
+negative Gaussian log-likelihood. We trained a
+second version of this RNN whose inputs were
+concatenated with the time difference to the next
+observation to aid RNN with irregular observa-
+tions.
+Bi-directional spiral dataset
+We generated
+a dataset of 1000 2-dimensional spirals, each
+starting at a different point, sampled at 100
+equally-spaced timesteps. The dataset contains
+two types of spirals: half are clockwise while
+the other half counter-clockwise. To make the
+task more realistic, we add gaussian noise to the
+observations.
+7
+
+Figure 9: Data-space trajectories decoded from varying one dimension of zt0. Color indicates
+progression through time, starting at purple and ending at red. Note that the trajectories on the left
+are counter-clockwise, while the trajectories on the right are clockwise.
+Time series with irregular time points
+To generate irregular timestamps, we randomly sample
+points from each trajectory without replacement (n = {30, 50, 100}). We report predictive root-
+mean-squared error (RMSE) on 100 time points extending beyond those that were used for training.
+Table 2 shows that the latent ODE has substantially lower predictive RMSE.
+Table 2: Predictive RMSE on test set
+# Observations
+30/100
+50/100
+100/100
+RNN
+0.3937
+0.3202
+0.1813
+Latent ODE
+0.1642
+0.1502
+0.1346
+Figure 8 shows examples of spiral reconstruc-
+tions with 30 sub-sampled points. Reconstruc-
+tions from the latent ODE were obtained by sam-
+pling from the posterior over latent trajectories
+and decoding it to data-space. Examples with
+varying number of time points are shown in Ap-
+pendix F. We observed that reconstructions and extrapolations are consistent with the ground truth
+regardless of number of observed points and despite the noise.
+Latent space interpolation
+Figure 8c shows latent trajectories projected onto the ﬁrst two dimen-
+sions of the latent space. The trajectories form two separate clusters of trajectories, one decoding to
+clockwise spirals, the other to counter-clockwise. Figure 9 shows that the latent trajectories change
+smoothly as a function of the initial point z(t0), switching from a clockwise to a counter-clockwise
+spiral.
+6
+Scope and Limitations
+Minibatching
+The use of mini-batches is less straightforward than for standard neural networks.
+One can still batch together evaluations through the ODE solver by concatenating the states of each
+batch element together, creating a combined ODE with dimension D × K. In some cases, controlling
+error on all batch elements together might require evaluating the combined system K times more
+often than if each system was solved individually. However, in practice the number of evaluations did
+not increase substantially when using minibatches.
+Uniqueness
+When do continuous dynamics have a unique solution? Picard’s existence theo-
+rem (Coddington and Levinson, 1955) states that the solution to an initial value problem exists and is
+unique if the differential equation is uniformly Lipschitz continuous in z and continuous in t. This
+theorem holds for our model if the neural network has ﬁnite weights and uses Lipshitz nonlinearities,
+such as tanh or relu.
+Setting tolerances
+Our framework allows the user to trade off speed for precision, but requires
+the user to choose an error tolerance on both the forward and reverse passes during training. For
+sequence modeling, the default value of 1.5e-8 was used. In the classiﬁcation and density estimation
+experiments, we were able to reduce the tolerance to 1e-3 and 1e-5, respectively, without degrading
+performance.
+Reconstructing forward trajectories
+Reconstructing the state trajectory by running the dynamics
+backwards can introduce extra numerical error if the reconstructed trajectory diverges from the
+original. This problem can be addressed by checkpointing: storing intermediate values of z on the
+forward pass, and reconstructing the exact forward trajectory by re-integrating from those points. We
+did not ﬁnd this to be a practical problem, and we informally checked that reversing many layers of
+continuous normalizing ﬂows with default tolerances recovered the initial states.
+8
+
+7
+Related Work
+The use of the adjoint method for training continuous-time neural networks was previously pro-
+posed (LeCun et al., 1988; Pearlmutter, 1995), though was not demonstrated practically. The
+interpretation of residual networks He et al. (2016a) as approximate ODE solvers spurred research
+into exploiting reversibility and approximate computation in ResNets (Chang et al., 2017; Lu et al.,
+2017). We demonstrate these same properties in more generality by directly using an ODE solver.
+Adaptive computation
+One can adapt computation time by training secondary neural networks
+to choose the number of evaluations of recurrent or residual networks (Graves, 2016; Jernite et al.,
+2016; Figurnov et al., 2017; Chang et al., 2018). However, this introduces overhead both at training
+and test time, and extra parameters that need to be ﬁt. In contrast, ODE solvers offer well-studied,
+computationally cheap, and generalizable rules for adapting the amount of computation.
+Constant memory backprop through reversibility
+Recent work developed reversible versions
+of residual networks (Gomez et al., 2017; Haber and Ruthotto, 2017; Chang et al., 2017), which gives
+the same constant memory advantage as our approach. However, these methods require restricted
+architectures, which partition the hidden units. Our approach does not have these restrictions.
+Learning differential equations
+Much recent work has proposed learning differential equations
+from data. One can train feed-forward or recurrent neural networks to approximate a differential
+equation (Raissi and Karniadakis, 2018; Raissi et al., 2018a; Long et al., 2017), with applica-
+tions such as ﬂuid simulation (Wiewel et al., 2018). There is also signiﬁcant work on connecting
+Gaussian Processes (GPs) and ODE solvers (Schober et al., 2014). GPs have been adapted to ﬁt
+differential equations (Raissi et al., 2018b) and can naturally model continuous-time effects and
+interventions (Soleimani et al., 2017b; Schulam and Saria, 2017). Ryder et al. (2018) use stochastic
+variational inference to recover the solution of a given stochastic differential equation.
+Differentiating through ODE solvers
+The dolfin library (Farrell et al., 2013) implements adjoint
+computation for general ODE and PDE solutions, but only by backpropagating through the individual
+operations of the forward solver. The Stan library (Carpenter et al., 2015) implements gradient
+estimation through ODE solutions using forward sensitivity analysis. However, forward sensitivity
+analysis is quadratic-time in the number of variables, whereas the adjoint sensitivity analysis is
+linear (Carpenter et al., 2015; Zhang and Sandu, 2014). Melicher et al. (2017) used the adjoint
+method to train bespoke latent dynamic models.
+In contrast, by providing a generic vector-Jacobian product, we allow an ODE solver to be trained
+end-to-end with any other differentiable model components. While use of vector-Jacobian products
+for solving the adjoint method has been explored in optimal control (Andersson, 2013; Andersson
+et al., In Press, 2018), we highlight the potential of a general integration of black-box ODE solvers
+into automatic differentiation (Baydin et al., 2018) for deep learning and generative modeling.
+8
+Conclusion
+We investigated the use of black-box ODE solvers as a model component, developing new models
+for time-series modeling, supervised learning, and density estimation. These models are evaluated
+adaptively, and allow explicit control of the tradeoff between computation speed and accuracy.
+Finally, we derived an instantaneous version of the change of variables formula, and developed
+continuous-time normalizing ﬂows, which can scale to large layer sizes.
+9
+Acknowledgements
+We thank Wenyi Wang and Geoff Roeder for help with proofs, and Daniel Duckworth, Ethan Fetaya,
+Hossein Soleimani, Eldad Haber, Ken Caluwaerts, Daniel Flam-Shepherd, and Harry Braviner for
+feedback. We thank Chris Rackauckas, Dougal Maclaurin, and Matthew James Johnson for helpful
+discussions. We also thank Yuval Frommer for pointing out an unsupported claim about parameter
+efﬁciency.
+9
+
+References
+Mauricio A Álvarez and Neil D Lawrence. Computationally efﬁcient convolved multiple output
+Gaussian processes. Journal of Machine Learning Research, 12(May):1459–1500, 2011.
+Brandon Amos and J Zico Kolter. OptNet: Differentiable optimization as a layer in neural networks.
+In International Conference on Machine Learning, pages 136–145, 2017.
+Joel Andersson. A general-purpose software framework for dynamic optimization. PhD thesis, 2013.
+Joel A E Andersson, Joris Gillis, Greg Horn, James B Rawlings, and Moritz Diehl. CasADi – A
+software framework for nonlinear optimization and optimal control. Mathematical Programming
+Computation, In Press, 2018.
+Atilim Gunes Baydin, Barak A Pearlmutter, Alexey Andreyevich Radul, and Jeffrey Mark Siskind.
+Automatic differentiation in machine learning: a survey. Journal of machine learning research, 18
+(153):1–153, 2018.
+Rianne van den Berg, Leonard Hasenclever, Jakub M Tomczak, and Max Welling.
+Sylvester
+normalizing ﬂows for variational inference. arXiv preprint arXiv:1803.05649, 2018.
+Bob Carpenter, Matthew D Hoffman, Marcus Brubaker, Daniel Lee, Peter Li, and Michael Betan-
+court. The Stan math library: Reverse-mode automatic differentiation in c++. arXiv preprint
+arXiv:1509.07164, 2015.
+Bo Chang, Lili Meng, Eldad Haber, Lars Ruthotto, David Begert, and Elliot Holtham. Reversible
+architectures for arbitrarily deep residual neural networks. arXiv preprint arXiv:1709.03698, 2017.
+Bo Chang, Lili Meng, Eldad Haber, Frederick Tung, and David Begert. Multi-level residual networks
+from dynamical systems view. In International Conference on Learning Representations, 2018.
+URL https://openreview.net/forum?id=SyJS-OgR-.
+Zhengping Che, Sanjay Purushotham, Kyunghyun Cho, David Sontag, and Yan Liu. Recurrent neural
+networks for multivariate time series with missing values. Scientiﬁc Reports, 8(1):6085, 2018.
+URL https://doi.org/10.1038/s41598-018-24271-9.
+Edward Choi, Mohammad Taha Bahadori, Andy Schuetz, Walter F. Stewart, and Jimeng Sun.
+Doctor AI: Predicting clinical events via recurrent neural networks. In Proceedings of the 1st
+Machine Learning for Healthcare Conference, volume 56 of Proceedings of Machine Learning
+Research, pages 301–318. PMLR, 18–19 Aug 2016. URL http://proceedings.mlr.press/
+v56/Choi16.html.
+Earl A Coddington and Norman Levinson. Theory of ordinary differential equations. Tata McGraw-
+Hill Education, 1955.
+Laurent Dinh, David Krueger, and Yoshua Bengio. NICE: Non-linear independent components
+estimation. arXiv preprint arXiv:1410.8516, 2014.
+Nan Du, Hanjun Dai, Rakshit Trivedi, Utkarsh Upadhyay, Manuel Gomez-Rodriguez, and Le Song.
+Recurrent marked temporal point processes: Embedding event history to vector. In International
+Conference on Knowledge Discovery and Data Mining, pages 1555–1564. ACM, 2016.
+Patrick Farrell, David Ham, Simon Funke, and Marie Rognes. Automated derivation of the adjoint of
+high-level transient ﬁnite element programs. SIAM Journal on Scientiﬁc Computing, 2013.
+Michael Figurnov, Maxwell D Collins, Yukun Zhu, Li Zhang, Jonathan Huang, Dmitry Vetrov, and
+Ruslan Salakhutdinov. Spatially adaptive computation time for residual networks. arXiv preprint,
+2017.
+J. Futoma, S. Hariharan, and K. Heller. Learning to Detect Sepsis with a Multitask Gaussian Process
+RNN Classiﬁer. ArXiv e-prints, 2017.
+Aidan N Gomez, Mengye Ren, Raquel Urtasun, and Roger B Grosse. The reversible residual network:
+Backpropagation without storing activations. In Advances in Neural Information Processing
+Systems, pages 2211–2221, 2017.
+10
+
+Alex Graves.
+Adaptive computation time for recurrent neural networks.
+arXiv preprint
+arXiv:1603.08983, 2016.
+David Ha, Andrew Dai, and Quoc V Le. Hypernetworks. arXiv preprint arXiv:1609.09106, 2016.
+Eldad Haber and Lars Ruthotto. Stable architectures for deep neural networks. Inverse Problems, 34
+(1):014004, 2017.
+E. Hairer, S.P. Nørsett, and G. Wanner. Solving Ordinary Differential Equations I – Nonstiff Problems.
+Springer, 1987.
+Kaiming He, Xiangyu Zhang, Shaoqing Ren, and Jian Sun. Deep residual learning for image
+recognition. In Proceedings of the IEEE conference on computer vision and pattern recognition,
+pages 770–778, 2016a.
+Kaiming He, Xiangyu Zhang, Shaoqing Ren, and Jian Sun. Identity mappings in deep residual
+networks. In European conference on computer vision, pages 630–645. Springer, 2016b.
+Geoffrey Hinton, Nitish Srivastava, and Kevin Swersky. Neural networks for machine learning lecture
+6a overview of mini-batch gradient descent, 2012.
+Yacine Jernite, Edouard Grave, Armand Joulin, and Tomas Mikolov. Variable computation in
+recurrent neural networks. arXiv preprint arXiv:1611.06188, 2016.
+Diederik P Kingma and Jimmy Ba. Adam: A method for stochastic optimization. arXiv preprint
+arXiv:1412.6980, 2014.
+Diederik P. Kingma and Max Welling. Auto-encoding variational Bayes. International Conference
+on Learning Representations, 2014.
+Diederik P Kingma, Tim Salimans, Rafal Jozefowicz, Xi Chen, Ilya Sutskever, and Max Welling.
+Improved variational inference with inverse autoregressive ﬂow. In Advances in Neural Information
+Processing Systems, pages 4743–4751, 2016.
+W. Kutta. Beitrag zur näherungsweisen Integration totaler Differentialgleichungen. Zeitschrift für
+Mathematik und Physik, 46:435–453, 1901.
+Yann LeCun, D Touresky, G Hinton, and T Sejnowski. A theoretical framework for back-propagation.
+In Proceedings of the 1988 connectionist models summer school, volume 1, pages 21–28. CMU,
+Pittsburgh, Pa: Morgan Kaufmann, 1988.
+Yann LeCun, Léon Bottou, Yoshua Bengio, and Patrick Haffner. Gradient-based learning applied to
+document recognition. Proceedings of the IEEE, 86(11):2278–2324, 1998.
+Yang Li. Time-dependent representation for neural event sequence prediction. arXiv preprint
+arXiv:1708.00065, 2017.
+Zachary C Lipton, David Kale, and Randall Wetzel. Directly modeling missing data in sequences with
+RNNs: Improved classiﬁcation of clinical time series. In Proceedings of the 1st Machine Learning
+for Healthcare Conference, volume 56 of Proceedings of Machine Learning Research, pages 253–
+270. PMLR, 18–19 Aug 2016. URL http://proceedings.mlr.press/v56/Lipton16.html.
+Z. Long, Y. Lu, X. Ma, and B. Dong. PDE-Net: Learning PDEs from Data. ArXiv e-prints, 2017.
+Yiping Lu, Aoxiao Zhong, Quanzheng Li, and Bin Dong. Beyond ﬁnite layer neural networks:
+Bridging deep architectures and numerical differential equations. arXiv preprint arXiv:1710.10121,
+2017.
+Dougal Maclaurin, David Duvenaud, and Ryan P Adams. Autograd: Reverse-mode differentiation of
+native Python. In ICML workshop on Automatic Machine Learning, 2015.
+Hongyuan Mei and Jason M Eisner. The neural Hawkes process: A neurally self-modulating
+multivariate point process. In Advances in Neural Information Processing Systems, pages 6757–
+6767, 2017.
+11
+
+Valdemar Melicher, Tom Haber, and Wim Vanroose. Fast derivatives of likelihood functionals for
+ODE based models using adjoint-state method. Computational Statistics, 32(4):1621–1643, 2017.
+Conny Palm. Intensitätsschwankungen im fernsprechverker. Ericsson Technics, 1943.
+Adam Paszke, Sam Gross, Soumith Chintala, Gregory Chanan, Edward Yang, Zachary DeVito,
+Zeming Lin, Alban Desmaison, Luca Antiga, and Adam Lerer. Automatic differentiation in
+pytorch. 2017.
+Barak A Pearlmutter. Gradient calculations for dynamic recurrent neural networks: A survey. IEEE
+Transactions on Neural networks, 6(5):1212–1228, 1995.
+Lev Semenovich Pontryagin, EF Mishchenko, VG Boltyanskii, and RV Gamkrelidze. The mathemat-
+ical theory of optimal processes. 1962.
+M. Raissi and G. E. Karniadakis. Hidden physics models: Machine learning of nonlinear partial
+differential equations. Journal of Computational Physics, pages 125–141, 2018.
+Maziar Raissi, Paris Perdikaris, and George Em Karniadakis. Multistep neural networks for data-
+driven discovery of nonlinear dynamical systems. arXiv preprint arXiv:1801.01236, 2018a.
+Maziar Raissi, Paris Perdikaris, and George Em Karniadakis. Numerical Gaussian processes for
+time-dependent and nonlinear partial differential equations. SIAM Journal on Scientiﬁc Computing,
+40(1):A172–A198, 2018b.
+Danilo J Rezende, Shakir Mohamed, and Daan Wierstra. Stochastic backpropagation and approximate
+inference in deep generative models. In Proceedings of the 31st International Conference on
+Machine Learning, pages 1278–1286, 2014.
+Danilo Jimenez Rezende and Shakir Mohamed. Variational inference with normalizing ﬂows. arXiv
+preprint arXiv:1505.05770, 2015.
+C. Runge. Über die numerische Auﬂösung von Differentialgleichungen. Mathematische Annalen, 46:
+167–178, 1895.
+Lars Ruthotto and Eldad Haber. Deep neural networks motivated by partial differential equations.
+arXiv preprint arXiv:1804.04272, 2018.
+T. Ryder, A. Golightly, A. S. McGough, and D. Prangle. Black-box Variational Inference for
+Stochastic Differential Equations. ArXiv e-prints, 2018.
+Michael Schober, David Duvenaud, and Philipp Hennig. Probabilistic ODE solvers with Runge-Kutta
+means. In Advances in Neural Information Processing Systems 25, 2014.
+Peter Schulam and Suchi Saria. What-if reasoning with counterfactual Gaussian processes. arXiv
+preprint arXiv:1703.10651, 2017.
+Hossein Soleimani, James Hensman, and Suchi Saria. Scalable joint models for reliable uncertainty-
+aware event prediction. IEEE transactions on pattern analysis and machine intelligence, 2017a.
+Hossein Soleimani, Adarsh Subbaswamy, and Suchi Saria. Treatment-response models for coun-
+terfactual reasoning with continuous-time, continuous-valued interventions.
+arXiv preprint
+arXiv:1704.02038, 2017b.
+Jos Stam. Stable ﬂuids. In Proceedings of the 26th annual conference on Computer graphics and
+interactive techniques, pages 121–128. ACM Press/Addison-Wesley Publishing Co., 1999.
+Paul Stapor, Fabian Froehlich, and Jan Hasenauer. Optimization and uncertainty analysis of ODE
+models using second order adjoint sensitivity analysis. bioRxiv, page 272005, 2018.
+Jakub M Tomczak and Max Welling. Improving variational auto-encoders using Householder ﬂow.
+arXiv preprint arXiv:1611.09630, 2016.
+Steffen Wiewel, Moritz Becher, and Nils Thuerey. Latent-space physics: Towards learning the
+temporal evolution of ﬂuid ﬂow. arXiv preprint arXiv:1802.10123, 2018.
+Hong Zhang and Adrian Sandu. Fatode: a library for forward, adjoint, and tangent linear integration
+of ODEs. SIAM Journal on Scientiﬁc Computing, 36(5):C504–C523, 2014.
+12
+
+Appendix A
+Proof of the Instantaneous Change of Variables Theorem
+Theorem (Instantaneous Change of Variables). Let z(t) be a ﬁnite continuous random variable with probability
+p(z(t)) dependent on time. Let dz
+dt = f(z(t), t) be a differential equation describing a continuous-in-time
+transformation of z(t). Assuming that f is uniformly Lipschitz continuous in z and continuous in t, then the
+change in log probability also follows a differential equation:
+∂log p(z(t))
+∂t
+= −tr
+ df
+dz(t)
+
+Proof. To prove this theorem, we take the inﬁnitesimal limit of ﬁnite changes of log p(z(t)) through time. First
+we denote the transformation of z over an ε change in time as
+z(t + ε) = Tε(z(t))
+(14)
+We assume that f is Lipschitz continuous in z(t) and continuous in t, so every initial value problem has a unique
+solution by Picard’s existence theorem. We also assume z(t) is bounded. These conditions imply that f, Tε, and
+∂
+∂zTε are all bounded. In the following, we use these conditions to exchange limits and products.
+We can write the differential equation ∂log p(z(t))
+∂t
+using the discrete change of variables formula, and the
+deﬁnition of the derivative:
+∂log p(z(t))
+∂t
+= lim
+ε→0+
+log p(z(t)) −log
+det ∂
+∂zTε(z(t))
+ −log p(z(t))
+ε
+(15)
+= −lim
+ε→0+
+log
+det ∂
+∂zTε(z(t))
+
+ε
+(16)
+= −lim
+ε→0+
+∂
+∂ε log
+det ∂
+∂zTε(z(t))
+
+∂
+∂εε
+(by L’Hôpital’s rule)
+(17)
+= −lim
+ε→0+
+∂
+∂ε
+det ∂
+∂zTε(z(t))
+
+det ∂
+∂zTε(z(t))
+
+ ∂log(z)
+∂z
+
+z=1
+= 1
+
+(18)
+= −
+
+lim
+ε→0+
+∂
+∂ε
+det ∂
+∂zTε(z(t))
+
+
+|
+{z
+}
+bounded
+ 
+lim
+ε→0+
+1
+det ∂
+∂zTε(z(t))
+
+!
+|
+{z
+}
+=1
+(19)
+= −lim
+ε→0+
+∂
+∂ε
+det ∂
+∂zTε(z(t))
+
+(20)
+The derivative of the determinant can be expressed using Jacobi’s formula, which gives
+∂log p(z(t))
+∂t
+= −lim
+ε→0+ tr
+
+adj
+ ∂
+∂zTε(z(t))
+ ∂
+∂ε
+∂
+∂zTε(z(t))
+
+(21)
+= −tr
+
+
+
+
+
+
+lim
+ε→0+ adj
+ ∂
+∂zTε(z(t))
+
+|
+{z
+}
+=I
+
+lim
+ε→0+
+∂
+∂ε
+∂
+∂zTε(z(t))
+
+
+
+
+
+
+(22)
+= −tr
+
+lim
+ε→0+
+∂
+∂ε
+∂
+∂zTε(z(t))
+
+(23)
+Substituting Tε with its Taylor series expansion and taking the limit, we complete the proof.
+∂log p(z(t))
+∂t
+= −tr
+
+lim
+ε→0+
+∂
+∂ε
+∂
+∂z
+ z + εf(z(t), t) + O(ε2) + O(ε3) + . . .
+
+(24)
+= −tr
+
+lim
+ε→0+
+∂
+∂ε
+
+I + ∂
+∂zεf(z(t), t) + O(ε2) + O(ε3) + . . .
+
+(25)
+= −tr
+
+lim
+ε→0+
+ ∂
+∂zf(z(t), t) + O(ε) + O(ε2) + . . .
+
+(26)
+= −tr
+ ∂
+∂zf(z(t), t)
+
+(27)
+13
+
+A.1
+Special Cases
+Planar CNF.
+Let f(z) = uh(wz + b), then ∂f
+∂z = u ∂h
+∂z
+T. Since the trace of an outer product is the inner
+product, we have
+∂log p(z)
+∂t
+= −tr
+
+u∂h
+∂z
+T
+= −uT ∂h
+∂z
+(28)
+This is the parameterization we use in all of our experiments.
+Hamiltonian CNF.
+The continuous analog of NICE (Dinh et al., 2014) is a Hamiltonian ﬂow, which splits
+the data into two equal partitions and is a volume-preserving transformation, implying that ∂log p(z)
+∂t
+= 0. We
+can verify this. Let
+
+dz1:d
+dt
+dzd+1:D
+dt
+
+=
+
+f(zd+1:D)
+g(z1:d)
+
+(29)
+Then because the Jacobian is all zeros on its diagonal, the trace is zero. This is a volume-preserving ﬂow.
+A.2
+Connection to Fokker-Planck and Liouville PDEs
+The Fokker-Planck equation is a well-known partial differential equation (PDE) that describes the probability
+density function of a stochastic differential equation as it changes with time. We relate the instantaneous change
+of variables to the special case of Fokker-Planck with zero diffusion, the Liouville equation.
+As with the instantaneous change of variables, let z(t) ∈RD evolve through time following dz(t)
+dt
+= f(z(t), t).
+Then Liouville equation describes the change in density of z–a ﬁxed point in space–as a PDE,
+∂p(z, t)
+∂t
+= −
+D
+X
+i=1
+∂
+∂zi [fi(z, t)p(z, t)]
+(30)
+However, (30) cannot be easily used as it requires the partial derivatives of p(z,t)
+∂z , which is typically approximated
+using ﬁnite difference. This type of PDE has its own literature on efﬁcient and accurate simulation (Stam, 1999).
+Instead of evaluating p(·, t) at a ﬁxed point, if we follow the trajectory of a particle z(t), we obtain
+∂p(z(t), t)
+∂t
+=
+∂p(z(t), t)
+∂z(t)
+∂z(t)
+∂t
+|
+{z
+}
+partial derivative from ﬁrst argument, z(t)
++
+∂p(z(t), t)
+∂t
+|
+{z
+}
+partial derivative from second argument, t
+=
+
+D
+X
+i=1
+∂p(z(t), t)
+∂zi(t)
+∂zi(t)
+∂t
+−
+D
+X
+i=1
+∂fi(z(t), t)
+∂zi
+p(z(t), t) −
+
+D
+X
+i=1
+fi(z(t), t)∂p(z(t), t)
+∂zi(t)
+= −
+D
+X
+i=1
+∂fi(z(t), t)
+∂zi
+p(z(t), t)
+(31)
+We arrive at the instantaneous change of variables by taking the log,
+∂log p(z(t), t)
+∂t
+=
+1
+p(z(t), t)
+∂p(z(t), t)
+∂t
+= −
+D
+X
+i=1
+∂fi(z(t), t)
+∂zi
+(32)
+While still a PDE, (32) can be combined with z(t) to form an ODE of size D + 1,
+d
+dt
+
+z(t)
+log p(z(t), t)
+
+=
+
+f(z(t), t)
+−PD
+i=1
+∂fi(z(t),t)
+∂t
+
+(33)
+Compared to the Fokker-Planck and Liouville equations, the instantaneous change of variables is of more
+practical impact as it can be numerically solved much more easily, requiring an extra state of D for following
+the trajectory of z(t). Whereas an approach based on ﬁnite difference approximation of the Liouville equation
+would require a grid size that is exponential in D.
+Appendix B
+A Modern Proof of the Adjoint Method
+We present an alternative proof to the adjoint method (Pontryagin et al., 1962) that is short and easy to follow.
+14
+
+B.1
+Continuous Backpropagation
+Let z(t) follow the differential equation dz(t)
+dt
+= f(z(t), t, θ), where θ are the parameters. We will prove that if
+we deﬁne an adjoint state
+a(t) =
+dL
+dz(t)
+(34)
+then it follows the differential equation
+da(t)
+dt
+= −a(t)∂f(z(t), t, θ)
+∂z(t)
+(35)
+For ease of notation, we denote vectors as row vectors, whereas the main text uses column vectors.
+The adjoint state is the gradient with respect to the hidden state at a speciﬁed time t. In standard neural networks,
+the gradient of a hidden layer ht depends on the gradient from the next layer ht+1 by chain rule
+dL
+dht =
+dL
+dht+1
+dht+1
+dht .
+(36)
+With a continuous hidden state, we can write the transformation after an ε change in time as
+z(t + ε) =
+Z t+ε
+t
+f(z(t), t, θ)dt + z(t) = Tε(z(t), t)
+(37)
+and chain rule can also be applied
+dL
+∂z(t) =
+dL
+dz(t + ε)
+dz(t + ε)
+dz(t)
+or
+a(t) = a(t + ε)∂Tε(z(t), t)
+∂z(t)
+(38)
+The proof of (35) follows from the deﬁnition of derivative:
+da(t)
+dt
+= lim
+ε→0+
+a(t + ε) −a(t)
+ε
+(39)
+= lim
+ε→0+
+a(t + ε) −a(t + ε)
+∂
+∂z(t)Tε(z(t))
+ε
+(by Eq 38)
+(40)
+= lim
+ε→0+
+a(t + ε) −a(t + ε)
+∂
+∂z(t)
+ z(t) + εf(z(t), t, θ) + O(ε2)
+
+ε
+(Taylor series around z(t))
+(41)
+= lim
+ε→0+
+a(t + ε) −a(t + ε)
+
+I + ε ∂f(z(t),t,θ)
+∂z(t)
++ O(ε2)
+
+ε
+(42)
+= lim
+ε→0+
+−εa(t + ε) ∂f(z(t),t,θ)
+∂z(t)
++ O(ε2)
+ε
+(43)
+= lim
+ε→0+ −a(t + ε)∂f(z(t), t, θ)
+∂z(t)
++ O(ε)
+(44)
+= −a(t)∂f(z(t), t, θ)
+∂z(t)
+(45)
+We pointed out the similarity between adjoint method and backpropagation (eq. 38). Similarly to backpropaga-
+tion, ODE for the adjoint state needs to be solved backwards in time. We specify the constraint on the last time
+point, which is simply the gradient of the loss wrt the last time point, and can obtain the gradients with respect to
+the hidden state at any time, including the initial value.
+a(tN) =
+dL
+dz(tN)
+|
+{z
+}
+initial condition of adjoint diffeq.
+a(t0) = a(tN) +
+Z t0
+tN
+da(t)
+dt
+dt = a(tN) −
+Z t0
+tN
+a(t)T ∂f(z(t), t, θ)
+∂z(t)
+|
+{z
+}
+gradient wrt. initial value
+(46)
+Here we assumed that loss function L depends only on the last time point tN. If function L depends also on
+intermediate time points t1, t2, . . . , tN−1, etc., we can repeat the adjoint step for each of the intervals [tN−1, tN],
+[tN−2, tN−1] in the backward order and sum up the obtained gradients.
+B.2
+Gradients wrt. θ and t
+We can generalize (35) to obtain gradients with respect to θ–a constant wrt. t–and and the initial and end times,
+t0 and tN. We view θ and t as states with constant differential equations and write
+∂θ(t)
+∂t
+= 0
+dt(t)
+dt
+= 1
+(47)
+15
+
+We can then combine these with z to form an augmented state1 with corresponding differential equation and
+adjoint state,
+d
+dt
+
+
+z
+θ
+t
+
+(t) = faug([z, θ, t]) :=
+
+
+f([z, θ, t])
+0
+1
+
+, aaug :=
+
+
+a
+aθ
+at
+
+, aθ(t) :=
+dL
+dθ(t), at(t) :=
+dL
+dt(t)
+(48)
+Note this formulates the augmented ODE as an autonomous (time-invariant) ODE, but the derivations in the
+previous section still hold as this is a special case of a time-variant ODE. The Jacobian of f has the form
+∂faug
+∂[z, θ, t] =
+
+
+∂f
+∂z
+∂f
+∂θ
+∂f
+∂t
+0
+0
+0
+0
+0
+0
+
+(t)
+(49)
+where each 0 is a matrix of zeros with the appropriate dimensions. We plug this into (35) to obtain
+daaug(t)
+dt
+= −
+a(t)
+aθ(t)
+at(t) ∂faug
+∂[z, θ, t](t) = −
+
+a ∂f
+∂z
+a ∂f
+∂θ
+a ∂f
+∂t
+
+(t)
+(50)
+The ﬁrst element is the adjoint differential equation (35), as expected. The second element can be used to obtain
+the total gradient with respect to the parameters, by integrating over the full interval and setting aθ(tN) = 0.
+dL
+dθ = aθ(t0) = −
+Z t0
+tN
+a(t)∂f(z(t), t, θ)
+∂θ
+dt
+(51)
+Finally, we also get gradients with respect to t0 and tN, the start and end of the integration interval.
+dL
+dtN = a(tN)f(z(tN), tN, θ)
+dL
+dt0 = at(t0) = at(tN) −
+Z t0
+tN
+a(t)∂f(z(t), t, θ)
+∂t
+dt
+(52)
+Between (35), (46), (51), and (52) we have gradients for all possible inputs to an initial value problem solver.
+Appendix C
+Full Adjoint sensitivities algorithm
+This more detailed version of Algorithm 1 includes gradients with respect to the start and end times of integration.
+Algorithm 2 Complete reverse-mode derivative of an ODE initial value problem
+Input: dynamics parameters θ, start time t0, stop time t1, ﬁnal state z(t1), loss gradient ∂L/∂z(t1)
+∂L
+∂t1 =
+∂L
+∂z(t1)
+Tf(z(t1), t1, θ)
+▷Compute gradient w.r.t. t1
+s0 = [z(t1),
+∂L
+∂z(t1), 0|θ|, −∂L
+∂t1 ]
+▷Deﬁne initial augmented state
+def aug_dynamics([z(t), a(t), ·, ·], t, θ):
+▷Deﬁne dynamics on augmented state
+return [f(z(t), t, θ), −a(t)T ∂f
+∂z , −a(t)T ∂f
+∂θ , −a(t)T ∂f
+∂t ] ▷Compute vector-Jacobian products
+[z(t0),
+∂L
+∂z(t0), ∂L
+∂θ , ∂L
+∂t0 ] = ODESolve(s0, aug_dynamics, t1, t0, θ)
+▷Solve reverse-time ODE
+return
+∂L
+∂z(t0), ∂L
+∂θ , ∂L
+∂t0 , ∂L
+∂t1
+▷Return all gradients
+1Note that we’ve overloaded t to be both a part of the state and the (dummy) independent variable. The
+distinction is clear given context, so we keep t as the independent variable for consistency with the rest of the
+text.
+16
+
+Appendix D
+Autograd Implementation
+import
+scipy . i n t e g r a t e
+import
+autograd . numpy as np
+from
+autograd . extend
+import
+p r i m i t i v e ,
+defvjp_argnums
+from
+autograd
+import
+make_vjp
+from
+autograd . misc
+import
+f l a t t e n
+from
+autograd . b u i l t i n s
+import
+t u p l e
+o d e i n t = p r i m i t i v e ( scipy . i n t e g r a t e . o d e i n t )
+def
+g r a d _ o d e i n t _ a l l ( yt ,
+func ,
+y0 ,
+t ,
+func_args ,
+∗∗kwargs ) :
+# Extended
+from " S c a l a b l e
+I n f e r e n c e
+of
+Ordinary
+D i f f e r e n t i a l
+# Equation
+Models
+of
+Biochemical
+P r o c e s s e s " ,
+Sec .
+2 . 4 . 2
+# Fabian
+Froehlich ,
+Caro l i n
+Loos ,
+Jan
+Hasenauer ,
+2017
+#
+h t t p s : / / a r x i v . org / pdf /1711.08079. pdf
+T , D = np . shape ( yt )
+f l a t _ a r g s ,
+u n f l a t t e n
+=
+f l a t t e n ( func_args )
+def
+f l a t _ f u n c ( y ,
+t ,
+f l a t _ a r g s ) :
+r e t u r n
+func ( y ,
+t ,
+∗u n f l a t t e n ( f l a t _ a r g s ) )
+def
+unpack ( x ) :
+#
+y ,
+vjp_y ,
+vjp_t ,
+v j p _ a r g s
+r e t u r n
+x [ 0 :D] ,
+x [D:2 ∗D] ,
+x [2 ∗D] ,
+x [2 ∗D + 1 : ]
+def
+augmented_dynamics ( augmented_state ,
+t ,
+f l a t _ a r g s ) :
+# Orginal
+system
+augmented
+with
+vjp_y ,
+v j p _ t
+and
+v j p _ a r g s .
+y ,
+vjp_y ,
+_ ,
+_ = unpack ( augmented_state )
+v j p _ a l l ,
+dy_dt = make_vjp ( f l a t _ f u n c ,
+argnum =(0 ,
+1 ,
+2 ) ) ( y ,
+t ,
+f l a t _ a r g s )
+vjp_y ,
+vjp_t ,
+vj p _a r g s = v j p _ a l l (−vjp_y )
+r e t u r n
+np . hstack ( ( dy_dt ,
+vjp_y ,
+vjp_t ,
+v j p _ a r g s ) )
+def
+v j p _ a l l ( g ,∗∗kwargs ) :
+vjp_y = g[−1,
+: ]
+vjp_t0 = 0
+t i m e _ v j p _ l i s t = [ ]
+v jp _ ar g s = np . zeros ( np . s i z e ( f l a t _ a r g s ) )
+f o r
+i
+in
+range (T −1 ,
+0 ,
+−1):
+# Compute
+e f f e c t
+of
+moving
+c u r r e n t
+time .
+v j p _ c u r _ t = np . dot ( func ( yt [ i ,
+: ] ,
+t [ i ] , ∗func_args ) ,
+g [ i ,
+: ] )
+t i m e _ v j p _ l i s t . append ( v j p _ c u r _ t )
+vjp_t0 = vjp_t0 −v j p _ c u r _ t
+# Run augmented
+system
+backwards
+to
+the
+p r e v i o u s
+o b s e r v a t i o n .
+aug_y0 = np . hstack ( ( yt [ i ,
+: ] ,
+vjp_y ,
+vjp_t0 ,
+v j p _ a r g s ) )
+aug_ans = o d e i n t ( augmented_dynamics ,
+aug_y0 ,
+np . a r r a y ( [ t [ i ] ,
+t [ i −1 ] ] ) ,
+t u p l e ( ( f l a t _ a r g s , ) ) ,
+∗∗kwargs )
+_ ,
+vjp_y ,
+vjp_t0 ,
+v j p _ a r g s = unpack ( aug_ans [ 1 ] )
+# Add g r a d i e n t
+from
+c u r r e n t
+ou tput .
+vjp_y = vjp_y + g [ i −1 ,
+: ]
+t i m e _ v j p _ l i s t . append ( vjp _t0 )
+vjp_times = np . hstack ( t i m e _ v j p _ l i s t ) [: : −1 ]
+r e t u r n
+None ,
+vjp_y ,
+vjp_times ,
+u n f l a t t e n ( v j p _ a r g s )
+r e t u r n
+v j p _ a l l
+17
+
+def
+grad_argnums_wrapper ( a l l _ v j p _ b u i l d e r ) :
+# A g e n e r i c
+autograd
+h e l p e r
+f u n c t i o n .
+Takes a
+f u n c t i o n
+t h a t
+#
+b u i l d s
+vjps
+f o r
+a l l
+arguments ,
+and wraps
+i t
+to
+r e t u r n
+only
+r e q u i r e d
+vjps .
+def
+b u i l d _ s e l e c t e d _ v j p s ( argnums ,
+ans ,
+combined_args ,
+kwargs ) :
+vjp_func = a l l _ v j p _ b u i l d e r ( ans ,
+∗combined_args ,
+∗∗kwargs )
+def
+chosen_vjps ( g ) :
+# Return
+whichever
+vjps
+were
+asked
+f o r .
+a l l _ v j p s
+= vjp_func ( g )
+r e t u r n
+[ a l l _ v j p s [ argnum ]
+f o r
+argnum
+in
+argnums ]
+r e t u r n
+chosen_vjps
+r e t u r n
+b u i l d _ s e l e c t e d _ v j p s
+defvjp_argnums ( odeint ,
+grad_argnums_wrapper ( g r a d _ o d e i n t _ a l l ) )
+Appendix E
+Algorithm for training the latent ODE model
+To obtain the latent representation zt0, we traverse the sequence using RNN and obtain parameters of distribution
+q(zt0|{xti, ti}i, θenc). The algorithm follows a standard VAE algorithm with an RNN variational posterior and
+an ODESolve model:
+1. Run an RNN encoder through the time series and infer the parameters for a posterior over zt0:
+q(zt0|{xti, ti}i, φ) = N(zt0|µzt0 , σz0),
+(53)
+where µz0, σz0 comes from hidden state of RNN({xti, ti}i, φ)
+2. Sample zt0 ∼q(zt0|{xti, ti}i)
+3. Obtain zt1, zt2, . . . , ztM by solving ODE ODESolve(zt0, f, θf, t0, . . . , tM), where f is the function
+deﬁning the gradient dz/dt as a function of z
+4. Maximize ELBO = PM
+i=1 log p(xti|zti, θx) + log p(zt0) −log q(zt0|{xti, ti}i, φ),
+where p(zt0) = N(0, 1)
+Appendix F
+Extra Figures
+(a) 30 time points
+(b) 50 time points
+(c) 100 time points
+Ground Truth
+Observation
+Prediction
+Extrapolation
+Figure 10: Spiral reconstructions using a latent ODE with a variable number of noisy observations.
+18

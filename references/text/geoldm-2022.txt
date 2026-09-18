@@ -1,0 +1,1962 @@
+Equivariant Diffusion for Molecule Generation in 3D
+Emiel Hoogeboom * 1 Victor Garcia Satorras * 1 Cl´ement Vignac * 2 Max Welling 1
+Abstract
+This work introduces a diffusion model for
+molecule generation in 3D that is equivariant to
+Euclidean transformations. Our E(3) Equivariant
+Diffusion Model (EDM) learns to denoise a dif-
+fusion process with an equivariant network that
+jointly operates on both continuous (atom coordi-
+nates) and categorical features (atom types). In ad-
+dition, we provide a probabilistic analysis which
+admits likelihood computation of molecules using
+our model. Experimentally, the proposed method
+signiﬁcantly outperforms previous 3D molecular
+generative methods regarding the quality of gen-
+erated samples and efﬁciency at training time.
+1. Introduction
+Modern deep learning methods are starting to make an im-
+portant impact on molecular sciences. Behind the success
+of Alphafold in protein folding prediction (Jumper et al.,
+2021), an increasing body of literature develops deep learn-
+ing models to analyze or synthesize (in silico) molecules
+(Simonovsky & Komodakis, 2018; Gebauer et al., 2019;
+Klicpera et al., 2020; Simm et al., 2021).
+Molecules live in the physical 3D space, and as such are sub-
+ject to geometric symmetries such as translations, rotations,
+and possibly reﬂections. These symmetries are referred to
+as the Euclidean group in 3 dimensions, E(3). Leveraging
+these symmetries in molecular data is important for good
+generalization and has been extensively studied (Thomas
+et al., 2018; Fuchs et al., 2020; Finzi et al., 2020).
+Although developed for discriminative tasks, E(n) equivari-
+ant layers can also be used for molecule generation in 3D.
+In particular, they have been integrated into autoregressive
+models (Gebauer et al., 2018; 2019) which artiﬁcially in-
+*Equal contribution
+1UvA-Bosch Delta Lab, University of
+Amsterdam, Netherlands 2EPFL, Lausanne, Switzerland. Cor-
+respondence to: Emiel Hoogeboom <e.hoogeboom@uva.nl>,
+Victor Garcia Satorras <v.garciasatorras@uva.nl>, Cl´ement Vi-
+gnac <clement.vignac@epﬂ.ch>.
+Proceedings of the 39 th International Conference on Machine
+Learning, Baltimore, Maryland, USA, PMLR 162, 2022. Copy-
+right 2022 by the author(s).
+denoise
+diffuse
+denoise
+diffuse
+Figure 1. Overview of the EDM. To generate a molecule, a normal
+distributed set of points is denoised into a molecule consisting
+of atom coordinates x in 3D and atom types h. As the model is
+rotation equivariant, the likelihood is preserved when a molecule
+is rotated by R.
+troduce an order in the atoms and are known to be difﬁcult
+to scale during sampling (Xu et al., 2021b). Alternatively,
+continuous-time normalizing ﬂows such as K¨ohler et al.
+(2020) or E-NF (Satorras et al., 2021a) are expensive to
+train since they have to integrate a differential equation,
+leading to limited performance and scalability.
+In this work, we introduce E(3) Equivariant Diffusion Mod-
+els (EDMs). EDMs learn to denoise a diffusion process that
+operates on both continuous coordinates and categorical
+atom types. To the best of our knowledge, it is the ﬁrst dif-
+fusion model that directly generates molecules in 3D space.
+Our method does not require a particular atom ordering (in
+contrast to autoregressive models) and can be trained much
+more efﬁciently than normalizing ﬂows. To give an exam-
+ple, EDMs generate up to 16 times more stable molecules
+than E-NFs when trained on QM9, while requiring half of
+the training time. This favourable scaling behaviour allows
+EDMs to be trained on larger drug-like datasets such as
+GEOM-Drugs (Axelrod & Gomez-Bombarelli, 2020).
+Our contributions can be summarized as follows. We intro-
+arXiv:2203.17003v2  [cs.LG]  16 Jun 2022
+
+Equivariant Diffusion for Molecule Generation in 3D
+duce an equivariant denoising diffusion model that operates
+on atom coordinates and categorical features. We add a
+probabilistic analysis which allows likelihood computation
+and this analysis is consistent with continuous and categori-
+cal features. We show that our method outperforms previous
+molecule generation models in log-likelihood and molecule
+stability.
+2. Background
+2.1. Diffusion Models
+Diffusion models learn distributions by modelling the re-
+verse of a diffusion process: a denoising process. Given a
+data point x, a diffusion process that adds noise to zt for
+t = 0, . . . , T is deﬁned by the multivariate normal distribu-
+tion:
+q(zt|x) = N(zt|αtxt, σ2
+t I),
+(1)
+where αt ∈R+ controls how much signal is retained and
+σt ∈R+ controls how much noise is added. In general, αt is
+modelled by a function that smoothly transitions from α0 ≈
+1 towards αT ≈0. A special case of noising process is the
+variance preserving process (Sohl-Dickstein et al., 2015; Ho
+et al., 2020) for which αt =
+p
+1 −σ2
+t . Following Kingma
+et al. (2021), we deﬁne the signal to noise ratio SNR(t) =
+α2
+t/σ2
+t , which simpliﬁes notations. This diffusion process
+is Markov and can be equivalently written with transition
+distributions as:
+q(zt|zs) = N(zt|αt|szs, σ2
+t|sI),
+(2)
+for any t > s with αt|s = αt/αs and σ2
+t|s = σ2
+t −α2
+t|sσ2
+s.
+The entire noising process is then written as:
+q(z0, z1, . . . , zT |x) = q(z0|x)
+YT
+t=1 q(zt|zt−1).
+(3)
+The posterior of the transitions conditioned on x gives the
+inverse of the noising process, the true denoising process. It
+is also normal and given by:
+q(zs|x, zt) = N(zs|µt→s(x, zt), σ2
+t→sI),
+(4)
+where the deﬁnitions for µt→s(x, zt) and σt→s can be ana-
+lytically obtained as
+µt→s(x, zt) = αt|sσ2
+s
+σ2
+t
+zt +
+αsσ2
+t|s
+σ2
+t
+x
+and
+σt→s = σt|sσs
+σt
+.
+The Generative Denoising Process
+In contrast to other
+generative models, in diffusion models, the generative pro-
+cess is deﬁned with respect to the true denoising process.
+The variable x, which is unknown to the generative process,
+is replaced by an approximation ˆx = φ(zt, t) given by a
+neural network φ. Then the generative transition distribution
+p(zs|zt) is chosen to be q(zs|ˆx(zt, t), zt). Similarly to Eq.
+4, it can be expressed using the approximation ˆx as:
+p(zs|zt) = N(zs|µt→s(ˆx, zt), σ2
+t→sI).
+(5)
+With the choice s = t −1, a variational lower bound on the
+log-likelihood of x given the generative model is given by:
+log p(x) ≥L0 + Lbase +
+XT
+t=1 Lt,
+(6)
+where L0 = log p(x|z0) models the likelihood of the data
+given z0, Lbase = −KL(q(zT |x)|p(zT )) models the dis-
+tance between a standard normal distribution and the ﬁnal
+latent variable q(zT |x), and
+Lt = −KL(q(zs|x, zt)|p(zs|zt))
+for t = 1, . . . , T.
+While in this formulation the neural network directly pre-
+dicts ˆx, Ho et al. (2020) found that optimization is easier
+when predicting the Gaussian noise instead. Intuitively, the
+network is trying to predict which part of the observation zt
+is noise originating from the diffusion process, and which
+part corresponds to the underlying data point x. Speciﬁ-
+cally, if zt = αtx + σtϵ, then the neural network φ outputs
+ˆϵ = φ(zt, t), so that:
+ˆx = (1/αt) zt −(σt/αt) ˆϵ
+(7)
+As shown in (Kingma et al., 2021), with this parametrization
+Lt simpliﬁes to:
+Lt = Eϵ∼N (0,I)
+h1
+2(1 −SNR(t −1)/SNR(t))||ϵ −ˆϵ||2i
+(8)
+In practice the term Lbase is close to zero when the noising
+schedule is deﬁned in such a way that αT ≈0. Furthermore,
+if α0 ≈1 and x is discrete, then L0 is close to zero as well.
+2.2. Equivariance
+A function f is said to be equivariant to the action of a group
+G if Tg(f(x)) = f(Sg(x)) for all g ∈G, where Sg, Tg
+are linear representations related to the group element g
+(Serre, 1977). In this work, we consider the Euclidean group
+E(3) generated by translations, rotations and reﬂections, for
+which Sg and Tg can be represented by a translation t and an
+orthogonal matrix R that rotates or reﬂects coordinates. f is
+then equivariant to a rotation or reﬂection R if transforming
+its input results in an equivalent transformation of its output,
+or Rf(x) = f(Rx).
+Equivariant Distributions and Diffusion
+In our setting,
+a conditional distribution p(y|x) is equivariant to the action
+of rotations and reﬂections when
+p(y|x) = p(Ry|Rx)
+for all orthogonal R.
+(9)
+
+Equivariant Diffusion for Molecule Generation in 3D
+Figure 2. Overview of the Equivariant Diffusion Model. To generate molecules, coordinates x and features h are generated by denoising
+variables zt starting from standard normal noise zT . This is achieved by sampling from the distributions p(zt−1|zt) iteratively. To train
+the model, noise is added to a datapoint x, h using q(zt|x, h) for the step t of interest, which the network then learns to denoise.
+A distribution is invariant to R transformations if
+p(y) = p(Ry)
+for all orthogonal R.
+(10)
+K¨ohler et al. (2020) showed that an invariant distribution
+composed with an equivariant invertible function results
+in an invariant distribution. Furthermore, Xu et al. (2022)
+proved that if x ∼p(x) is invariant to a group and the
+transition probabilities of a Markov chain y ∼p(y|x) are
+equivariant, then the marginal distribution of y at any time
+step is invariant to group transformations as well. This is
+helpful as it means that if p(zT ) is invariant and the neural
+network used to parametrize p(zt−1|zt) is equivariant, then
+the marginal distribution p(x) of the denoising model will
+be an invariant distribution as desired.
+Points and Features in E(3)
+In this paper, we consider
+point clouds x = (x1, . . . , xM) ∈RM×3 with correspond-
+ing features h = (h1, . . . , hM) ∈RM×nf. The features h
+are invariant to group transformations, and the positions
+are affected by rotations, reﬂections and translations as
+Rx + t = (Rx1 + t, . . . , RxM + t) where R is an or-
+thogonal matrix1. The function (zx, zh) = f(x, h) is E(3)
+equivariant if for all orthogonal R and t ∈R3 we have:
+Rzx + t, zh = f(Rx + t, h)
+(11)
+E(n) Equivariant Graph Neural Networks (EGNNs)
+(Satorras et al., 2021b) are a type of Graph Neural Net-
+work that satisﬁes the equivariance constraint (11). In this
+work, we consider interactions between all atoms, and there-
+fore assume a fully connected graph G with nodes vi ∈V.
+Each node vi is endowed with coordinates xi ∈R3 as
+well as features hi ∈Rd. In this setting, EGNN consists
+of the composition of Equivariant Convolutional Layers
+1As a matrix-multiplication the left-hand side would be written
+xRT . Formally Rx can be seen as a group action of R on x.
+xl+1, hl+1 = EGCL[xl, hl] which are deﬁned as:
+mij = φe
+ hl
+i, hl
+j, d2
+ij, aij
+
+, hl+1
+i
+= φh(hl
+i,
+X
+j̸=i
+˜eijmij),
+xl+1
+i
+= xl
+i +
+X
+j̸=i
+xl
+i −xl
+j
+dij + 1 φx
+ hl
+i, hl
+j, d2
+ij, aij
+
+,
+(12)
+where l indexes the layer, and dij = ∥xl
+i −xl
+j∥2 is the
+euclidean distance between nodes (vi, vj), and aij are op-
+tional edge attributes. The difference (xl
+i −xl
+j) in Equa-
+tion 12 is normalized by dij + 1 as done in (Satorras
+et al., 2021a) for improved stability, as well as the at-
+tention mechanism which infers a soft estimation of the
+edges ˜eij = φinf(mij). All learnable components (φe,
+φh, φx and φinf) are parametrized by fully connected
+neural networks (cf. Appendix B for details). An entire
+EGNN architecture is then composed of L EGCL lay-
+ers which applies the following non-linear transformation
+ˆx, ˆh = EGNN[x0, h0]. This transformation satisﬁes the
+required equivariant property in Equation 11.
+3. EDM: E(3) Equivariant Diffusion Model
+In this section we describe EDM, an E(3) Equivariant Diffu-
+sion Model. EDM deﬁnes a noising process on both node
+positions and features, and learns the generative denois-
+ing process using an equivariant neural network. We also
+determine the equations for log-likelihood computation.
+3.1. The Diffusion Process
+We ﬁrst deﬁne an equivariant diffusion process for coordi-
+nates xi with atom features hi that adds noise to the data.
+Recall that we consider a set of points {(xi, hi)}i=1,...,M,
+where each node has associated to it a coordinate represen-
+tation xi ∈Rn and an attribute vector hi ∈Rnf. Let [·, ·]
+denote a concatenation. We deﬁne the equivariant noising
+
+Equivariant Diffusion for Molecule Generation in 3D
+Algorithm 1 Optimizing EDM
+Input: Data point x, neural network φ
+Sample t ∼U(0, . . . , T), ϵ ∼N(0, I)
+Subtract center of gravity from ϵ(x) in ϵ = [ϵ(x), ϵ(h)]
+Compute zt = αt[x, h] + σtϵ
+Minimize ||ϵ −φ(zt, t)||2
+Algorithm 2 Sampling from EDM
+Sample zT ∼N(0, I)
+for t in T, T −1, . . . , 1 where s = t −1 do
+Sample ϵ ∼N(0, I)
+Subtract center of gravity from ϵ(x) in ϵ = [ϵ(x), ϵ(h)]
+zs =
+1
+αt|s zt −
+σ2
+t|s
+αt|sσt · φ(zt, t) + σt→s · ϵ
+end for
+Sample x, h ∼p(x, h|z0)
+process on latent variables zt = [z(x)
+t
+, z(h)
+t
+] as:
+q(zt|x, h) = Nxh(zt|αt[x, h], σ2
+t I)
+(13)
+for t = 1, . . . , T where Nxh is concise notation for the
+product of two distributions, one for the noised coordinates
+Nx and another for the noised features N given by:
+Nx(z(x)
+t
+|αtx, σ2
+t I) · N(z(h)
+t
+|αth, σ2
+t I)
+(14)
+These equations correspond to Equation 1 in a standard
+diffusion model. Also, a slight abuse of notation is used to
+aid readability: technically x, h, zt are two-dimensional
+variables with an axis for the point identiﬁer and an axis for
+the features. However, in the distributions they are treated
+as if ﬂattened to a vector.
+As explained in (Satorras et al., 2021a) it is impossible to
+have a non-zero distribution that is invariant to translations,
+since it cannot integrate to one. However, one can use distri-
+butions on the linear subspace where the center of gravity is
+always zero. Following (Xu et al., 2022) that showed that
+such a linear subspace can be used consistently in diffusion,
+Nx is deﬁned as a normal distribution on the subspace de-
+ﬁned by P
+i xi = 0 for which the precise deﬁnition is given
+in Appendix A.
+Since the features h are invariant to E(n) transformations,
+the noise distribution for these features can be the conven-
+tional normal distribution N. Although similar to standard
+diffusion models, depending on whether data is categorical
+(for the atom type), ordinal (for atom charge), or continuous,
+different starting representations of h may be desirable and
+require different treatment in L0, on which we will expand
+in Section 3.3.
+The Generative Denoising Process To deﬁne the gener-
+ative process, the noise posteriors q(zs|x, h, zt) of Equa-
+tion 13 can be used in the same fashion as in Equation 4 by
+replacing the data variables x, h by neural network approxi-
+mations ˆx, ˆh:
+p(zs|zt) = Nxh(zs|µt→s([ˆx, ˆh], zt), σ2
+t→sI)
+(15)
+where ˆx, ˆh depend on zt, t and the neural network φ. As
+conventional in modern diffusion models, we use the noise
+parametrization to obtain ˆx, ˆh. Instead of directly predicting
+them, the network φ outputs ˆϵ = [ˆϵ(x), ˆϵ(h)] which is then
+used to compute:
+[ˆx, ˆh] = zt/αt −ˆϵt · σt/αt
+(16)
+If ˆϵt is computed by an equivariant function φ then the de-
+noising distribution in Equation 15 is equivariant. To see
+this, observe that rotating zt to Rzt gives Rˆϵt = φ(Rzt, t).
+Furthermore, the mean of the denoising equation rotates
+Rˆx = Rz(x)
+t
+/αt −Rˆϵ(x)
+t
+σt/αt and since the noise is
+isotropic, the distribution is equivariant as desired.
+To sample from the model, one ﬁrst samples zT
+∼
+Nxh(0, I) and then iteratively samples zt−1 ∼p(zt−1|zt)
+for t
+=
+T, . . . , 1 and then ﬁnally samples x, h
+∼
+p(x, h|z0), as described in Algorithm 2.
+Optimization Objective Recall that a likelihood term of
+this model is given by Lt = −KL(q(zs|x, zt)||p(zs|zt)).
+Analogous to Equation 8, in this parametrization the term
+simpliﬁes to:
+Lt = Eϵt∼Nxh(0, I)
+1
+2 w(t) ||ϵt −ˆϵt||2
+,
+(17)
+where w(t) = (1−SNR(t−1)/SNR(t)) and ˆϵt = φ(zt, t).
+This is convenient: even though parts of the distribution of
+Nxh operate on a subspace, the simpliﬁcation in Equation 8
+also holds here, and can be computed for all components be-
+longing to x and h at once. There are three reason why this
+simpliﬁcation remains true: ﬁrstly, Nx and N within Nxh
+are independent, so the divergence can be separated into two
+divergences. Further, the KL divergence between the Nx
+components are still compatible with the standard KL equa-
+tion for normal distributions, as they rely on a Euclidean
+distance (which is rotation invariant) and the distributions
+are isotropic with equal variance. Finally, because of the
+similarity in KL equations, the results can be combined
+again by concatenating the components in x and h. For a
+more detailed argument see Appendix A. An overview of
+the optimization procedure is given in Algorithm 1.
+Following (Ho et al., 2020) during training we set w(t) = 1
+as it stabilizes training and it is known to improve sam-
+ple quality for images.
+Experimentally we also found
+this to hold true for molecules: even when evaluating
+the probabilistic variational objective for which w(t) =
+(1−SNR(t−1)/SNR(t)), the model trained with w(t) = 1
+outperformed models trained with the variational w(t).
+In summary, we have deﬁned a diffusion process, a denois-
+ing model and an optimization objective between them. To
+
+Equivariant Diffusion for Molecule Generation in 3D
+further specify our model, we need to deﬁne the neural
+network φ that is used within the denoising model.
+3.2. The Dynamics
+We
+learn
+the
+E(n)
+equivariant
+dynamics
+function
+[ˆϵ(x)
+t
+, ˆϵ(h)
+t
+] = φ(z(x)
+t
+, z(h)
+t
+, t) of the diffusion model us-
+ing the equivariant network EGNN introduced in Section
+2.2 in the following way:
+ˆϵ(x)
+t
+, ˆϵ(h)
+t
+= EGNN(z(x)
+t
+, [z(h)
+t
+, t/T]) −[z(x)
+t
+, 0 ]
+Notice that we simply input z(x)
+t
+, z(h)
+t
+to the EGNN with
+the only difference that t/T is concatenated to the node
+features. The estimated noise ˆϵ(x)
+t
+is given by the output
+of the EGNN from which the input coordinates z(x)
+t
+are
+removed. Importantly, since the outputs have to lie on a zero
+center of gravity subspace, the component ˆϵ(x)
+t
+is projected
+down by subtracting its center of gravity. This then satisﬁes
+the rotational and reﬂection equivariance on ˆx with the
+parametrization in Equation 16.
+3.3. The Zeroth Likelihood Term
+In typical diffusion models (Ho et al., 2020), the data being
+modelled is ordinal which makes the design of L(h)
+0
+=
+log p(h|z(h)
+0 ) relatively simple. Speciﬁcally, under very
+small noise perturbations of the original data distribution
+pdata(h) (when α0 ≈1 and σ0 ≈0) we have
+q(h|z(h)
+0 ) =
+q(z(h)
+0 |h)pdata(h)
+P
+h q(z(h)
+0 |h)pdata(h)
+≈1,
+when z(h)
+0
+is sampled from the noising process q(z(h)
+0 |h).
+Because q(z(h)
+0 |h) is a highly peaked distribution, in prac-
+tice it tends to zero for all but one single discrete state of h.
+Furthermore, pdata is constant over this small peak, and thus
+q(h|z(h)
+0 ) ≈1 when h is the closest integer value to z(h)
+0 .
+This can be used to model integer molecular properties such
+as the atom charge. Following standard practice we let:
+p(h|z(h)
+0 ) =
+Z h+ 1
+2
+h−1
+2
+N(u|z(h)
+0 , σ0)du,
+(18)
+which most likely equals 1 for reasonable noise parameters
+α0, σ0 and it computed as Φ((h+ 1
+2 −z(h)
+0 )/σ0)−Φ((h−
+1
+2 −z(h)
+0 )/σ0) where Φ is the CDF of a standard normal
+distribution. For categorical features such as the atom types,
+this model would however introduce an undesired bias.
+Categorical features For categorical features such as the
+atom type, the aforementioned integer representation is
+unnatural and introduces bias. Instead of using integers
+for these features, we operate directly on a one-hot rep-
+resentation. Suppose h is an array whose values repre-
+sent categories in {c1, ..., cd} such as atom types. Then
+h is encoded with a one-hot function h 7→honehot such
+that honehot
+i,j
+= 1hi=cj. The noising process over z(h)
+t
+can
+then directly be deﬁned using the one-hot representation
+honehot equivalent to its deﬁnition for integer values, i.e.
+q(z(h)
+t
+|h) = N(z(h)
+t
+|αthonehot, σ2
+t I) with the only differ-
+ence that z(h)
+t
+has an additional dimension axis with the size
+equal to the number of categories. Since the data is discrete
+and the noising process is assumed to be well deﬁned, by the
+same reasoning as for integer data we can deﬁne probability
+parameters p to be proportional to the normal distribution
+integrated from 1 −1
+2 to 1 + 1
+2. Intuitively, when a small
+amount of noise is sampled and added to the one-hot repre-
+sentation, then the value corresponding to the active class
+will almost certainly be between 1 −1
+2 and 1 + 1
+2:
+p(h|z(h)
+0 ) = C(h|p), p ∝
+Z 1+ 1
+2
+1−1
+2
+N(u|z(h)
+0 , σ0)du
+where p is normalized to sum to one and C is a categorical
+distribution. In practice this distribution will almost cer-
+tainly equal one for values z(h)
+0
+that were sampled from the
+diffusion process given h.
+Continuous positions For continuous positions, deﬁning
+L(x)
+0
+= log p(x|z(x)
+0 ) is a little more involved than for dis-
+crete features. A similar analysis assuming pdata(x) is
+constant results in:
+q(x|z(x)
+0 ) =
+q(z(x)
+0 |x)pdata(x)
+R
+x q(z(x)
+0 |x)pdata(x)
+≈
+q(z(x)
+0 |x)
+R
+x q(z(x)
+0 |x)
+,
+which by completing the square we ﬁnd is equal to
+Nx(x|z(x)
+0 /α0, σ2
+0/α2
+0I).
+Empirically, we ﬁnd that our
+model achieves better likelihood performance, especially
+with lower SNR rates, when we use ˆx as a prediction for
+the mean. After simplifying the terms it turns out that this
+essentially adds an additional correction term containing
+the estimated noise ˆϵ(x)
+0 , which originates from Equation 16
+and can be written as:
+p(x|z0) = N
+
+x
+z(x)
+0 /α0 −σ0/α0ˆϵ0, σ2
+0/α2
+0I
+
+.
+(19)
+When this parametrization is chosen the log likelihood com-
+ponent L(x)
+0
+can be re-written to:
+L(x)
+0
+= Eϵ(x)∼Nx(0,I)
+h
+log Z−1 −1
+2||ϵ(x) −φ(x)(z0, 0)||2i
+,
+with the normalization constant Z. Conveniently, this allows
+Equation 17 for losses Lt to also be used for t = 0 in its
+x component, by deﬁning w(0) = −1. The normalization
+constant then has to be added separately. This normalization
+constant Z = (
+√
+2π ·σ0/α0)(M−1)·n where the (M −1)·n
+
+Equivariant Diffusion for Molecule Generation in 3D
+arises from the zero center of gravity subspace is described
+in Appendix A.
+Scaling Features
+Since coordinates, atom types and
+charges represent different physical quantities, we can de-
+ﬁne a relative scaling between them. While normalizing
+the features simply makes them easier to process for the
+neural network, the relative scaling has a deeper impact on
+the model: when the features h are deﬁned on a smaller
+scale than the coordinates x, the denoising process tends to
+ﬁrst determine rough positions and decide on the atom types
+only afterwards. Whereas scaling x requires a correction in
+the log-likelihood since it is continuous, scaling h does not
+require a correction and is not problematic as long as the
+difference in discrete values is large compared to σ0. We
+ﬁnd empirically that deﬁning the input to our EDM model
+as [x, 0.25 honehot, 0.1 hatom charge] signiﬁcantly improves
+performance over non-scaled inputs.
+Number of Atoms In the above sections we have consid-
+ered the number of atoms M to be known beforehand. To
+adapt to different molecules with different sizes, we com-
+pute the categorical distribution p(M) of molecule sizes
+on the training set. To sample from the model p(x, h, M),
+M ∼p(M) is ﬁrst sampled and then x, h ∼p(x, h|M)
+are sampled from the EDM. For clarity this conditioning on
+M is often omitted, but it remains an important part of the
+generative process and likelihood computation.
+3.4. Conditional generation
+In this section we describe a straightforward extension to
+the proposed method to do conditional generation x, h ∼
+p(x, h|c) given some desired property c. We can deﬁne
+the optimization lower bound for the conditional case as
+log p(x, h|c) ≥Lc,0 + Lc,base + PT
+t=1 Lc,t, where the dif-
+ferent Lc,t for 1 ≤t < T −1 are deﬁned similarly to
+Equation 17, with the important difference that the func-
+tion ˆϵt = φ(zt, [t, c]) takes as additional input a property c
+which is concatenated to the nodes features. Given a trained
+conditional model we deﬁne the generative process by ﬁrst
+sampling the number of nodes M and a property value c
+from a parametrized distribution c, M ∼p(c, M) deﬁned
+in Appendix E. Next, we can generate molecules x, h given
+c, M using our Conditional EDM x, h ∼p(x, h|c, M).
+4. Related Work
+Diffusion models (Sohl-Dickstein et al., 2015) are genera-
+tive models that have recently been connected to score-based
+methods via denoising diffusion models (Song & Ermon,
+2019; Ho et al., 2020). This new family of generative mod-
+els has proven to be very effective for the generation of data
+such as images (Ho et al., 2020; Nichol & Dhariwal, 2021).
+Some recent methods directly generate molecules in 3D:
+(Gebauer et al., 2019; Luo & Ji, 2021; Luo et al., 2021a;
+Gebauer et al., 2021) deﬁne an order-dependent autoregres-
+sive distribution from which atoms are iteratively sampled.
+(Ragoza et al., 2020) maps atoms to a ﬁxed grid and trains a
+VAE using 3D convolutions. E-NF (Satorras et al., 2021a)
+deﬁnes an equivariant normalizing ﬂow that integrates a
+differential equation. Instead, our method learns to denoise
+a diffusion process, which scales better during training.
+A related branch of literature is concerned by solely pre-
+dicting coordinates from molecular graphs, referred to as
+the conformation. Examples of such methods utilize condi-
+tional VAEs (Simm & Hern´andez-Lobato, 2019), Wasser-
+stein GANs (Hoffmann & No´e, 2019), and normalizing
+ﬂows (No´e et al., 2019), with adaptions for Euclidean sym-
+metries in (K¨ohler et al., 2020; Xu et al., 2021a; Simm
+et al., 2021; Ganea et al., 2021; Guan et al., 2022) result-
+ing in performance improvements. In recent works (Shi
+et al., 2021; Luo et al., 2021b; Xu et al., 2022) it was shown
+that score-based and diffusion models are effective at co-
+ordinate prediction, especially when the underlying neural
+network respects the symmetries of the data. Our work can
+be seen as an extension of these methods that incorporates
+discrete atom features, and furthermore derives the equa-
+tions required for log-likelihood computation. In the context
+of diffusion for discrete variables, unrelated to molecule
+modelling, discrete diffusion processes have been proposed
+(Sohl-Dickstein et al., 2015; Hoogeboom et al., 2021; Austin
+et al., 2021). However, for 3D molecule generation these
+would require a separate diffusion process for the discrete
+features and the continuous coordinates. Instead we deﬁne
+a joint process for both of them.
+Tangentially related, other methods generate molecules in
+graph representation. Some examples are autoregressive
+methods such as (Liu et al., 2018; You et al., 2018; Liao
+et al., 2019), and one-shot approaches such as (Simonovsky
+& Komodakis, 2018; De Cao & Kipf, 2018; Bresson & Lau-
+rent, 2019; Kosiorek et al., 2020; Krawczuk et al., 2021).
+However such methods do not provide conformer informa-
+tion which is useful for many downstream tasks.
+5. Experiments
+5.1. Molecule Generation — QM9
+QM9 (Ramakrishnan et al., 2014) is a standard dataset that
+contains molecular properties and atom coordinates for 130k
+small molecules with up to 9 heavy atoms (29 atoms in-
+cluding hydrogens). In this experiment we train EDM to
+unconditionally generate molecules with 3-dimensional co-
+ordinates, atom types (H, C, N, O, F) and integer-valued
+atom charges. We use the train/val/test partitions introduced
+in (Anderson et al., 2019), which consists of 100K/18K/13K
+samples respectively for each partition.
+
+Equivariant Diffusion for Molecule Generation in 3D
+Figure 3. Selection of samples generated by the denoising process of our EDM trained on QM9 (up) and GEOM-DRUGS (down).
+Table 1. Neg. log-likelihood −log p(x, h, M), atom stability and
+molecule stability with standard deviations across 3 runs on QM9,
+each drawing 10000 samples from the model.
+# Metrics
+NLL
+Atom stable (%)
+Mol stable (%)
+E-NF
+-59.7
+85.0
+4.9
+G-Schnet
+N.A
+95.7
+68.1
+GDM
+-94.7
+97.0
+63.2
+GDM-aug
+-92.5
+97.6
+71.6
+EDM (ours)
+-110.7±1.5
+98.7±0.1
+82.0±0.4
+Data
+99.0
+95.2
+Metrics Following (Satorras et al., 2021a), we use the dis-
+tance between pairs of atoms and the atom types to predict
+bond types (single, double, triple or none). We then measure
+atom stability (the proportion of atoms that have the right
+valency) and molecule stability (the proportion of generated
+molecules for which all atoms are stable).
+Baselines: We compare EDM to two existing E(3) equivari-
+ant models: G-Schnet (Gebauer et al., 2019) and Equivariant
+Normalizing Flows (E-NF) (Satorras et al., 2021a). For G-
+Schnet we extracted 10000 samples from the publicly avail-
+able code to run the analysis. In order to demonstrate the
+beneﬁts of equivariance, we also perform an ablation study
+and run a non-equivariant variation of our method that we
+call Graph Diffusion Models (GDM). The Graph diffusion
+model is run with the same conﬁguration as our method, ex-
+cept that the EGNN is replaced by a non-equivariant graph
+network deﬁned in Appendix C. We also experiment with
+GDM-aug, where the GDM model is trained on data aug-
+mented with random rotations. All models use 9 layers, 256
+features per layer and SiLU activations. They are trained
+using Adam with batch size 64 and learning rate 10−4.
+Results are reported in Table 1. Our method outperforms
+previous methods (E-NF and G-Schnet), as well as its non-
+equivariant counterparts on all metrics. It is interesting to
+note that the negative log-likelihood of the EDM is much
+lower than other models, which indicates that it is able to
+create sharper peaks in the model distribution.
+Further, EDMs are compared to one-shot graph-based
+molecule generation models that do not operate on 3D
+Table 2. Validity and uniqueness over 10000 molecules with stan-
+dard deviation across 3 runs. Results marked (*) are not directly
+comparable, as they do not use 3D coordinates to derive bonds.
+H: model hydrogens explicitly
+Method
+H
+Valid (%)
+Valid and Unique (%)
+Graph VAE (*)
+55.7
+42.3
+GTVAE (*)
+74.6
+16.8
+Set2GraphVAE (*)
+59.9±1.7
+56.2±1.4
+EDM (ours)
+97.5±0.2
+94.3±0.2
+E-NF
+✓
+40.2
+39.4
+G-Schnet
+✓
+85.5
+80.3
+GDM-aug
+✓
+90.4
+89.5
+EDM (ours)
+✓
+91.9±0.5
+90.7±0.6
+Data
+✓
+97.7
+97.7
+coordinates:
+GraphVAE (Simonovsky & Komodakis,
+2018), GraphTransformerVAE (Mitton et al., 2021), and
+Set2GraphVAE (Vignac & Frossard, 2021). For G-Schnet
+and EDM, the bonds are directly derived from the distance
+between atoms. We report validity (as measured by RDKit)
+and uniqueness of the generated compounds. Following
+(Vignac & Frossard, 2021) novelty is not included here. For
+a discussion on the issues with the novelty metric, see Ap-
+pendix C. As can be seen in Table 2, the EDM is able to
+generate a very high rate of valid and unique molecules.
+This is impressive since the 3D models are at a disadvan-
+tage in this metric, as the rules to derive bonds are very
+strict. Interestingly, even when including hydrogen atoms
+in the model, the performance of the EDM does not deteri-
+orate much. A possible explanation is that the equivariant
+diffusion model scales effectively and learn very precise dis-
+tributions, as evidenced by the low negative log-likelihood.
+5.2. Conditional Molecule Generation
+In this section, we aim to generate molecules targeting some
+desired properties. This can be of interest towards the pro-
+cess of drug discovery where we need to obtain molecules
+that satisfy speciﬁc properties. We train our conditional
+diffusion model from Section 3.4 in QM9 conditioning the
+generation on properties α, gap, homo, lumo, µ and Cv
+described in more detail in Appendix E. In order to assess
+
+Equivariant Diffusion for Molecule Generation in 3D
+Figure 4. Generated molecules by our Conditional EDM when interpolating among different Polarizability α values with the same
+reparametrization noise ϵ. Each α value is provided on top of each image.
+Table 3. Mean Absolute Error for molecular property prediction by
+a EGNN classiﬁer φc on a QM9 subset, EDM generated samples
+and two different baselines ”Naive (U-bounds)” and ”# Atoms”.
+Task
+α
+∆ε εHOMO εLUMO
+µ
+Cv
+Units
+Bohr3 meV
+meV
+meV
+D
+cal
+molK
+Naive (U-bound)
+9.01 1470
+645
+1457 1.616 6.857
+#Atoms
+3.86
+866
+426
+813 1.053 1.971
+EDM
+2.76
+655
+356
+584 1.111 1.101
+QM9 (L-bound)
+0.10
+64
+39
+36 0.043 0.040
+the quality of the generated molecules w.r.t. to their con-
+ditioned property, we use the property classiﬁer network
+φc from Satorras et al. (2021b). We split the QM9 training
+partition into two halves Da, Db of 50K samples each. The
+classiﬁer φc is trained on the ﬁrst half Da, while the Con-
+ditional EDM is trained on the second half Db. Then, φc
+is evaluated on the EDM conditionally generated samples.
+We also report the loss of φc on Db as a lower bound named
+”QM9 (L-bound)”. The better EDM approximates Db the
+smaller the gap between ”EDM” and ”QM9 (L-bound)”.
+Further implementation details are reported in Appendix E.
+Baselines: We provide two baselines in which molecules
+are to some extent agnostic to their respective property c. In
+the ﬁrst baseline we simply remove any relation between
+molecule and property by shufﬂing the property labels in Db
+and then evaluating φc on it. We name this setting ”Naive
+(Upper-Bound)”. The second baseline named ”#Atoms”
+predicts the molecular properties in Db by only using the
+number of atoms in the molecule. If ”EDM” overcomes
+”Naive (Upper-Bound)” it should be able to incorporate con-
+ditional property information into the generated molecules.
+If it overcomes ”#Atoms” it should be able to incorporate it
+into the molecular structure beyond the number of atoms.
+Results (quantitative): Results are reported in Table 3.
+EDM outperforms both ”Naive (U-bound)” and ”#Atoms”
+baselines in all properties (except µ) indicating that it is
+able to incorporate property information into the generated
+molecules beyond the number of atoms for most properties.
+However, we can see there is still room for improvement by
+looking at the gap between ”EDM” and ”QM9 (L-bound)”.
+Results (qualitative): In Figure 4, we interpolate the con-
+ditional generation among different Polarizability values α
+while keeping the noise ϵ ﬁxed. The Polarizability is the
+tendency of a molecule to acquire an electric dipole moment
+Table 4. Neg. log-likelihood, atom stability and Wasserstein dis-
+tance between generated and training set energy distributions.
+# Metrics
+NLL
+Atom stability (%)
+W
+GDM
+−14.2
+75.0
+3.32
+GDM-aug
+−58.3
+77.7
+4.26
+EDM
+−137.1
+81.3
+1.41
+Data
+86.5
+0.0
+when subject to an external electric ﬁeld. We can expect
+less isometrically shaped molecules for large α values. This
+is the obtained behavior in Figure 4 – we show that this
+behavior is consistent across different runs in Appendix E.
+5.3. GEOM-Drugs
+While QM9 features only small molecules, GEOM (Axel-
+rod & Gomez-Bombarelli, 2020) is a larger scale dataset
+of molecular conformers. It features 430,000 molecules
+with up to 181 atoms and 44.4 atoms on average. For each
+molecule, many conformers are given along with their en-
+ergy. From this dataset we retain the 30 lowest energy con-
+formations for each molecule. The models learn to generate
+the 3D positions and atom types of these molecules. All
+models use 4 layers, 256 features per layer, and are trained
+using Adam with batch size 64 and learning rate 10−4.
+Since molecules in this dataset are bigger and have more
+complex structures, predicting the bond types using the
+atom types and the distance between atoms with lookup
+tables results in more errors than on QM9. For this reason,
+we only report the atom stability, which measures 86.5%
+stable atoms on the dataset. Intuitively, this metric describes
+the percentage of atoms that have bonds in typical ranges
+– ideally, generative models should generate a comparable
+number of stable atoms. We also measure the energy of
+generated compounds with the software used to generate
+the conformations of the GEOM dataset (Bannwarth et al.,
+2019). After computing the energies of sampled molecules
+and the dataset, we measure the Wasserstein distance be-
+tween their histograms. In Table 4 we can see that the EDM
+outperforms its non-equivariant counterparts on all metrics.
+In particular, EDM is able to capture the energy distribution
+well, as can be seen on the histograms in Appendix C.
+
+Equivariant Diffusion for Molecule Generation in 3D
+6. Conclusions
+We presented EDM, an E(3) equivariant diffusion model
+for molecule generation in 3D. While previous non-
+autoregressive models mostly focused on very small
+molecules with up to 9 atoms, our model scales better and
+can generate valid conformations while explicitly modeling
+hydrogen atoms. We also evaluate our model on the larger
+GEOM-DRUGS dataset, setting the stage for models for
+drug-size molecule generation in 3D.
+References
+Anderson, B., Hy, T. S., and Kondor, R.
+Cormorant:
+Covariant molecular neural networks.
+In Wallach,
+H., Larochelle, H., Beygelzimer, A., d'Alch´e-Buc, F.,
+Fox, E., and Garnett, R. (eds.), Advances in Neural
+Information Processing Systems, volume 32. Curran As-
+sociates, Inc., 2019. URL https://proceedings.
+neurips.cc/paper/2019/file/
+03573b32b2746e6e8ca98b9123f2249b-Paper.
+pdf.
+Austin, J., Johnson, D., Ho, J., Tarlow, D., and van den Berg,
+R.
+Structured denoising diffusion models in discrete
+state-spaces. Advances in Neural Information Processing
+Systems, 34, 2021.
+Axelrod, S. and Gomez-Bombarelli, R. Geom: Energy-
+annotated molecular conformations for property pre-
+diction and molecular generation.
+arXiv preprint
+arXiv:2006.05531, 2020.
+Bannwarth, C., Ehlert, S., and Grimme, S. Gfn2-xtb—an
+accurate and broadly parametrized self-consistent tight-
+binding quantum chemical method with multipole elec-
+trostatics and density-dependent dispersion contributions.
+Journal of chemical theory and computation, 15(3):1652–
+1671, 2019.
+Bresson, X. and Laurent, T. A two-step graph convolu-
+tional decoder for molecule generation. arXiv preprint
+arXiv:1906.03412, 2019.
+De Cao, N. and Kipf, T. Molgan: An implicit generative
+model for small molecular graphs. ICML Workshop on
+Theoretical Foundations and Applications of Deep Gen-
+erative Models, 2018.
+Finzi, M., Stanton, S., Izmailov, P., and Wilson, A. G. Gen-
+eralizing convolutional neural networks for equivariance
+to lie groups on arbitrary continuous data. In Proceed-
+ings of the 37th International Conference on Machine
+Learning, ICML, volume 119 of Proceedings of Machine
+Learning Research, pp. 3165–3176. PMLR, 2020.
+Fuchs, F., Worrall, D. E., Fischer, V., and Welling, M. Se(3)-
+transformers: 3d roto-translation equivariant attention
+networks. In Advances in Neural Information Processing
+Systems 33: Annual Conference on Neural Information
+Processing Systems 2020, NeurIPS, 2020.
+Ganea, O.-E., Pattanaik, L., Coley, C. W., Barzilay, R.,
+Jensen, K. F., Green, W. H., and Jaakkola, T. S. Ge-
+omol: Torsional geometric generation of molecular 3d
+conformer ensembles. arXiv preprint arXiv:2106.07802,
+2021.
+Gebauer, N. W., Gastegger, M., and Sch¨utt, K. T. Generating
+equilibrium molecules with deep neural networks. arXiv
+preprint arXiv:1810.11347, 2018.
+Gebauer, N. W., Gastegger, M., and Sch¨utt, K. T. Symmetry-
+adapted generation of 3d point sets for the targeted dis-
+covery of molecules. arXiv preprint arXiv:1906.00957,
+2019.
+Gebauer, N. W., Gastegger, M., Hessmann, S. S., M¨uller,
+K.-R., and Sch¨utt, K. T. Inverse design of 3d molecular
+structures with conditional generative neural networks.
+arXiv preprint arXiv:2109.04824, 2021.
+Gilmer, J., Schoenholz, S. S., Riley, P. F., Vinyals, O., and
+Dahl, G. E. Neural message passing for quantum chem-
+istry. In International conference on machine learning,
+pp. 1263–1272. PMLR, 2017.
+Guan, J., Qian, W. W., qiang liu, Ma, W.-Y., Ma, J., and
+Peng, J. Energy-inspired molecular conformation op-
+timization.
+In International Conference on Learning
+Representations, 2022.
+Ho, J., Jain, A., and Abbeel, P. Denoising diffusion proba-
+bilistic models. arXiv preprint arXiv:2006.11239, 2020.
+Hoffmann, M. and No´e, F. Generating valid euclidean dis-
+tance matrices. arXiv preprint arXiv:1910.03131, 2019.
+Hoogeboom, E., Nielsen, D., Jaini, P., Forr´e, P., and Welling,
+M. Argmax ﬂows and multinomial diffusion: Learning
+categorical distributions. Advances in Neural Information
+Processing Systems, 34, 2021.
+Jumper, J., Evans, R., Pritzel, A., Green, T., Figurnov, M.,
+Ronneberger, O., Tunyasuvunakool, K., Bates, R., ˇZ´ıdek,
+A., Potapenko, A., et al. Highly accurate protein structure
+prediction with alphafold. Nature, 596(7873):583–589,
+2021.
+Kingma, D. P., Salimans, T., Poole, B., and Ho, J. Varia-
+tional diffusion models. arXiv preprint arXiv:2107.00630,
+2, 2021.
+
+Equivariant Diffusion for Molecule Generation in 3D
+Klicpera, J., Groß, J., and G¨unnemann, S. Directional mes-
+sage passing for molecular graphs. In 8th International
+Conference on Learning Representations, ICLR, 2020.
+K¨ohler, J., Klein, L., and No´e, F. Equivariant ﬂows: Exact
+likelihood generative learning for symmetric densities.
+In Proceedings of the 37th International Conference on
+Machine Learning, ICML, volume 119 of Proceedings
+of Machine Learning Research, pp. 5361–5370. PMLR,
+2020.
+Kosiorek, A. R., Kim, H., and Rezende, D. J. Conditional
+set generation with transformers. Workshop on Object-
+Oriented Learning at ICML 2020, 2020.
+Krawczuk, I., Abranches, P., Loukas, A., and Cevher, V. Gg-
+gan: A geometric graph generative adversarial network,
+2021. URL https://openreview.net/forum?
+id=qiAxL3Xqx1o.
+Liao, R., Li, Y., Song, Y., Wang, S., Nash, C., Hamilton,
+W. L., Duvenaud, D., Urtasun, R., and Zemel, R. S. Ef-
+ﬁcient graph generation with graph recurrent attention
+networks. arXiv preprint arXiv:1910.00760, 2019.
+Liu, Q., Allamanis, M., Brockschmidt, M., and Gaunt, A. L.
+Constrained graph variational autoencoders for molecule
+design. arXiv preprint arXiv:1805.09076, 2018.
+Luo, S., Guan, J., Ma, J., and Peng, J. A 3d generative model
+for structure-based drug design.
+Advances in Neural
+Information Processing Systems, 34, 2021a.
+Luo, S., Shi, C., Xu, M., and Tang, J. Predicting molecular
+conformation via dynamic graph score matching. Ad-
+vances in Neural Information Processing Systems, 34,
+2021b.
+Luo, Y. and Ji, S. An autoregressive ﬂow model for 3d
+molecular geometry generation from scratch. In Interna-
+tional Conference on Learning Representations, 2021.
+Mitton, J., Senn, H. M., Wynne, K., and Murray-Smith, R.
+A graph vae and graph transformer approach to generat-
+ing molecular graphs. arXiv preprint arXiv:2104.04345,
+2021.
+Nichol, A. and Dhariwal, P. Improved denoising diffusion
+probabilistic models. arXiv preprint arXiv:2102.09672,
+2021.
+No´e, F., Olsson, S., K¨ohler, J., and Wu, H. Boltzmann
+generators: Sampling equilibrium states of many-body
+systems with deep learning. Science, 365(6457), 2019.
+Ragoza, M., Masuda, T., and Koes, D. R. Learning a contin-
+uous representation of 3d molecular structures with deep
+generative models. arXiv preprint arXiv:2010.08687,
+2020.
+Ramakrishnan, R., Dral, P. O., Rupp, M., and Von Lilienfeld,
+O. A. Quantum chemistry structures and properties of
+134 kilo molecules. Scientiﬁc data, 1(1):1–7, 2014.
+Salimans, T. and Ho, J. Progressive distillation for fast
+sampling of diffusion models. CoRR, abs/2202.00512,
+2022.
+Satorras, V. G., Hoogeboom, E., Fuchs, F., Posner, I., and
+Welling, M. E(n) equivariant normalizing ﬂows. Ad-
+vances in Neural Information Processing Systems, 34,
+2021a.
+Satorras, V. G., Hoogeboom, E., and Welling, M.
+E
+(n) equivariant graph neural networks. arXiv preprint
+arXiv:2102.09844, 2021b.
+Serre, J.-P. Linear representations of ﬁnite groups, vol-
+ume 42. Springer, 1977.
+Shi, C., Luo, S., Xu, M., and Tang, J. Learning gradient
+ﬁelds for molecular conformation generation. In Meila,
+M. and Zhang, T. (eds.), Proceedings of the 38th Interna-
+tional Conference on Machine Learning, ICML, 2021.
+Simm, G. N. and Hern´andez-Lobato, J. M. A generative
+model for molecular distance geometry. arXiv preprint
+arXiv:1909.11459, 2019.
+Simm, G. N. C., Pinsler, R., Cs´anyi, G., and Hern´andez-
+Lobato, J. M. Symmetry-aware actor-critic for 3d molec-
+ular design. In International Conference on Learning
+Representations, 2021. URL https://openreview.
+net/forum?id=jEYKjPE1xYN.
+Simonovsky, M. and Komodakis, N. Graphvae: Towards
+generation of small graphs using variational autoencoders.
+In International conference on artiﬁcial neural networks,
+pp. 412–422. Springer, 2018.
+Sohl-Dickstein, J., Weiss, E. A., Maheswaranathan, N., and
+Ganguli, S. Deep unsupervised learning using nonequi-
+librium thermodynamics. In Bach, F. R. and Blei, D. M.
+(eds.), Proceedings of the 32nd International Conference
+on Machine Learning, ICML, 2015.
+Song, Y. and Ermon, S.
+Generative modeling by es-
+timating gradients of the data distribution.
+CoRR,
+abs/1907.05600, 2019. URL http://arxiv.org/
+abs/1907.05600.
+Thomas, N., Smidt, T., Kearnes, S. M., Yang, L., Li,
+L., Kohlhoff, K., and Riley, P. Tensor ﬁeld networks:
+Rotation- and translation-equivariant neural networks for
+3d point clouds. CoRR, abs/1802.08219, 2018.
+Vignac, C. and Frossard, P. Top-n: Equivariant set and
+graph generation without exchangeability. arXiv preprint
+arXiv:2110.02096, 2021.
+
+Equivariant Diffusion for Molecule Generation in 3D
+Xu, M., Wang, W., Luo, S., Shi, C., Bengio, Y., Gomez-
+Bombarelli, R., and Tang, J. An end-to-end framework
+for molecular conformation generation via bilevel pro-
+gramming. arXiv preprint arXiv:2105.07246, 2021a.
+Xu, M., Yu, L., Song, Y., Shi, C., Ermon, S., and Tang,
+J. Geodiff: A geometric diffusion model for molecular
+conformation generation. In International Conference
+on Learning Representations, 2022. URL https://
+openreview.net/forum?id=PzcvxEMzvQC.
+Xu, Y., Song, Y., Garg, S., Gong, L., Shu, R., Grover, A.,
+and Ermon, S.
+Anytime sampling for autoregressive
+models via ordered autoencoding. In 9th International
+Conference on Learning Representations, ICLR, 2021b.
+You, J., Liu, B., Ying, R., Pande, V., and Leskovec, J. Graph
+convolutional policy network for goal-directed molecu-
+lar graph generation. arXiv preprint arXiv:1806.02473,
+2018.
+
+Equivariant Diffusion for Molecule Generation in 3D
+A. The zero center of gravity, normal distribution
+Consider the Euclidean variable x ∈RM×n in the linear subspace P
+i xi = 0. In other words, x is a point cloud where its
+center of gravity is zero. One can place a normal distribution Nx over this subspace and its likelihood can be expressed as:
+Nx(x|µ, σ2I) = (
+√
+2πσ)−(M−1)·n exp
+
+−
+1
+2σ2 ||x −µ||2
+Here µ also lies in the same subspace as x. Also note a slight abuse of notation: x, µ are technically two-dimensional
+matrices but are treated in the distribution as single-dimensional (ﬂattened) vectors. To sample from this distribution, there
+are multiple options. For instance, one could sample from a normal distribution with dimensionality (M −1) · n and then
+map the sample to the M · n dimensional ambient space so that its center of gravity equals zero. However there is an easier
+alternative: One can sample in the M · n dimensional ambient space directly, and subtract P
+i xi. Because the normal
+distributions are isotropic (meaning its variance in any direction you pick is σ2) this is equivalent to the aforementioned
+method. More detailed analysis are given in (Satorras et al., 2021a) and (Xu et al., 2022).
+KL Divergence
+A standard KL divergence for between two isotropic normal distributions q = N(µ1, σ2
+1I) and p =
+N(µ2, σ2
+2I) is given by:
+KL(q||p) = d · log σ2
+σ1
++ 1
+2
+hd · σ2
+1 + ||µ1 −µ2||2
+σ2
+2
+−d
+i
+,
+(20)
+where d is the dimensionality of the distribution. Recall that in our case the diffusion and denoising process have the same
+variance σ2
+Q,s,t. If σ1 = σ2 = σ, then the KL divergence simpliﬁes to:
+KL(q||p) = 1
+2
+h||µ1 −µ2||2
+σ2
+i
+.
+(21)
+Suppose now that N1(˜µ1, σI) and N2(˜µ2, σI) are deﬁned on a linear subspace, where the mean ˜µ is deﬁned with respect
+to any coordinate system in the subspace. The KL divergence between these distributions then includes a term containing
+the Euclidean distance ||˜µ1 −˜µ2||2
+Similar to the arguments in (Satorras et al., 2021a; Xu et al., 2022), an orthogonal transformation Q can be constructed that
+maps an ambient space where P
+i µi = 0 to the subspace in such a way that
+˜µ
+0
+
+= Qµ. Observe that ||˜µ|| = ||
+˜µ
+0
+
+|| =
+||µ||, and therefore ||˜µ1 −˜µ2||2 = ||µ1 −µ2||2. This shows that Equation 21 can be consistently computed in the ambient
+space. This also shows an important caveat: in some diffusion models, different variances are used in the posterior of the
+diffusion process and the denoising process. In those cases one can see from Equation 20 that the divergence depends on the
+dimensionality of the subspace, not to be confused with the dimensionality of the ambient space.
+The combined KL divergence for positions and features
+In the previous section we have shown that the KL divergence
+for distributions such as Nx, can still be computed in the ambient space as long as standard deviations between two such
+distributions are the same. Let us know consider the combined KL divergence for distributions q = Nxh(µ1, σ2I) and
+p = Nxh(µ2, σ2I). Note that here the means consist of two parts µ = [µ(x), µ(h)] where the x part lies in a subspace
+and the h part is deﬁned freely. The distributions factorize as Nxh(µ, σ2I) = Nx(µ(x), σ2I) · N(µ(h), σ2I). Then the KL
+divergence simpliﬁes as:
+KL(q||p) = KL
+
+Nx(µ(x)
+1 , σ2I)||Nx(µ(x)
+2 , σ2I)
+
++ KL
+
+N(µ(h)
+1 , σ2I)||N(µ(h)
+2 , σ2I)
+
+= 1
+2
+h||µ(x)
+1
+−µ(x)
+2 ||2
+σ2
+i
++ 1
+2
+h||µ(h)
+1
+−µ(h)
+2 ||2
+σ2
+i
+= 1
+2
+h||µ1 −µ2||2
+σ2
+i
+.
+(22)
+Here we have used that products of independent distributions sum in their independent KL terms, and that the sum of the
+Euclidean distance of two vectors squared is equal to the squared Euclidean distance of the two vectors concatenated. In
+summary, even though parts of our distribution are deﬁned on a linear subspace, all computation for the KL divergences is
+still consistent and does not require special treatment. This is however only valid under the condition that the variances of
+the denoising process and posterior noising process are the same.
+
+Equivariant Diffusion for Molecule Generation in 3D
+B. Additional Details for the Method
+Noise schedule: A diffusion process requires a deﬁnition for αt, σt for t = 0, . . . , T. Since αt =
+p
+1 −σ2
+t , it sufﬁces to
+deﬁne αt. The values should monotonically decrease, starting α0 ≈1 and ending at αT ≈0. In this paper we let
+αt = (1 −2s) · f(t) + s where f(t) = (1 −(t/T)2),
+for a precision value 10−5 that avoids numerically unstable situations. This schedule is very similar to the cosine noise
+schedule introduced in (Nichol & Dhariwal, 2021), but ours is somewhat simpler in notation. To avoid numerical instabilities
+during sampling, we follow the clipping procedure of (Nichol & Dhariwal, 2021) and compute αt|t−1 = αt/αt−1, where
+we deﬁne α−1 = 1. The values α2
+t|t−1 are then clipped from below by 0.001. This avoids numerical instability as 1/αt|t−1
+is now bounded during sampling. Then the αt values can be recomputed using the cumulative product αt = Qt
+τ=0 ατ|τ−1.
+Recall that SNR(t) = α2
+t/σ2
+t . As in (Kingma et al., 2021), we compute the negative log SNR curve deﬁned as γ(t) =
+−(log α2
+t −log σ2
+t ) for σ2
+t = 1 −α2
+t . γ(t) is a monotonically increasing function from which all required components can
+be computed with high numerical precision. For instance, α2
+t = sigmoid(−γ(t)), σ2
+t = sigmoid(γ(t)), and SNR(t) =
+exp(−γ(t)).
+Log-likelihood estimator: As discussed, the simpliﬁed objective described in Algorithm 1 is optimized during training.
+However, when evaluating the log-likelihood of samples, the true weighting w(t) = 1 −SNR(t −1)/SNR(t) needs to be
+used. For this purpose, we follow the procedure described in Algorithm 3. An important detail is that we choose to put an
+estimator over Lt for t = 1, . . . , T using Et∼U(1,...,T )[T · Lt] = PT
+t=1 Lt, but we require an additional forward pass for L0.
+In initial experiments, we found the contribution of L0 very large compared to other loss terms, which would result in very
+high variance of the estimator. For that reason, the L0 is always computed at the expense of an additional forward pass. The
+resulting ˆL is an unbiased estimator for the log-likelihood.
+Algorithm 3 Log-likelihood estimator for EDMs
+Input: Data point x, neural network φ
+Sample t ∼U(1, . . . , T), ϵt ∼N(0, I), subtract center of gravity from ϵ(x)
+t
+in ϵt = [ϵ(x)
+t
+, ϵ(h)
+t
+]
+zt = αt[x, h] + σtϵt
+Lt = 1
+2(1 −SNR(t −1)/SNR(t))||ϵt −φ(zt, t)||2
+Sample ϵ0 ∼N(0, I), subtract center of gravity from ϵ(x)
+0
+in ϵ0 = [ϵ(x)
+0 , ϵ(h)
+0 ]
+z0 = α0[x, h] + σ0ϵ0
+L0 = L(x)
+0
++ L(h)
+0
+= −1
+2||ϵ −φ(z0, 0)||2 −log Z + log p(h|z(h)
+0 )
+Lbase = −KL(q(zT |x, h)|p(zT )) = −KL(Nxh(αT [x, h], σ2
+T I)|Nxh(0, I))
+Return ˆL = T · Lt + L0 + Lbase
+The Dynamics
+In Section 3.2 we explained that the dynamics of our proposed Equivariant Diffusion Model (EDM) are
+learned by the EGNN introduced in Section 2.2. The EGNN consists of a sequence of Equivariant Graph Convolutional
+Layers (EGCL). The EGCL is deﬁned in Eq. 12. All its learnable components φe, φh, φx, φinf by Multilayer Perceptrons:
+Edge operation φe. Takes as input two node embeddings. The squared distance d2
+ij = ∥xl
+i −xl
+j∥2
+2, and the squared distance
+at the ﬁrst layer as the optional attribute aij = ∥x0
+i −x0
+j∥2
+2 and outputs mij ∈Rnf.
+concat[hl
+i, hl
+j, d2
+ij, aij] −→{Linear(nf · 2 + 2, nf) −→Silu −→Linear(nf, nf) −→Silu} −→mij
+Edge inference operation φinf. Takes as input the message mij and outputs a scalar value ˜eij ∈(0, 1).
+mij −→{Linear(nf, 1) −→Sigmoid} −→˜eij
+Node update φh Takes as input a node embedding and the aggregated messages and outputs the updated node embedding.
+concat[hl
+i, mij] −→{Linear(nf · 2, nf) −→Silu −→Linear(nf, nf) −→add(·, hl
+i)} −→hl+1
+i
+Coordinate update φx. Has the same inputs as φe and outptus a scalar value.
+concat[hl
+i, hl
+j, d2
+ij, aij] −→{Linear(nf · 2 + 2, nf) −→Silu −→Linear(nf, nf) −→Silu −→Linear(nf, 1)} −→Output
+
+Equivariant Diffusion for Molecule Generation in 3D
+Equivariant Processes
+To be self-contained, a version of the proof from (Xu et al., 2022) is given here. It shows that
+if the transition distributions p(zt−1|zt) are equivariant and p(zT ) is invariant, then every marginal distribution p(zt) is
+invariant which importantly includes p(z0). Here induction is used to derive the result.
+Base case: Observe that p(zT ) = N(0, I) is equivariant with respect to rotations and reﬂections, so p(zT ) = p(RzT ).
+Induction step: For some t ∈{1, . . . , T} assume p(zt) to be invariant meaning that p(zt) = p(Rzt) for all orthogonal R.
+Let p(zt−1|zt) be equivariant meaning that p(zt−1|zt) = p(Rzt−1|Rzt) for orthogonal R. Then:
+p(Rzt−1) =
+Z
+zt
+p(Rzt−1|zt)p(zt)
+Probability Chain Rule
+=
+Z
+zt
+p(Rzt−1|RR−1zt)p(RR−1zt)
+Multiply by RR−1 = I
+=
+Z
+zt
+p(zt−1|R−1zt)p(R−1zt)
+Equivariance & Invariance
+=
+Z
+u
+p(zt−1|u)p(u) · det R
+| {z }
+=1
+Change of Variables u = R−1zt
+= p(zt−1),
+and thus p(zt−1) is invariant. By induction, p(zT −1), . . . , p(z0) are all invariant. Compared to (Xu et al., 2022), this proof
+makes explicit the dependency on a change of variables to rotate the reference frame of integration.
+
+Equivariant Diffusion for Molecule Generation in 3D
+C. Additional Details on Experiments
+Baseline model
+While our EDM model is parametrized by an E(3) equivariant EGNN network, the GDM model used
+for the ablation study uses a non equivariant graph network. In this network, the coordinates are simply concatenated with
+the other node features: ˜h0
+i = [xi, h]. A message passing neural network (Gilmer et al., 2017) is then applied, that can be
+written:
+˜hl+1
+i
+= φh(˜hl
+i,
+X
+j̸=i
+˜eijmij)
+for
+mij = φe
+
+˜hl
+i, ˜hl
+j, aij
+
+The MLPs φe, φh are parametrized in the same way as in EGNN, with the sole exception that the input dimension of φe in
+the ﬁrst layer is changed to accommodate the atom coordinates.
+QM9
+On QM9, the EDM and GDMs are trained using EGNNs with 256 hidden features and 9 layers. The models are
+trained for 1100 epochs, which is around 1.7 million iterations with a batch size of 64. The models are saved every 20
+epochs when the validation loss is lower than the previously obtained number. The diffusion process uses T = 1000.
+Training takes approximately 7 days on a single NVIDIA GeForce GTX 1080Ti GPU. When generating samples the model
+takes on average 1.7 seconds per sample on the 1080Ti GPU. These times should not be taken as a fundamental limit of
+sampling performance, as more efﬁcient samplers can be extracted from diffusion models after training (Salimans & Ho,
+2022). For comparison, the E-NF takes 0.54 seconds per sample and G-Schnet 0.03 seconds. The EDM that only models
+heavy atoms and no hydrogens has the same architecture but is faster to train because it operates over less nodes: it takes
+about 3.2 days on a single 1080Ti GPU for 1100 epochs and converges even earlier to its ﬁnal performance.
+GEOM-DRUGS
+On GEOM, the EDM and GDMs are trained using EGNNs with 256 hidden features and 4 layers. The
+models are trained for 13 epochs, which is around 1.2 million iterations with a batch size of 64. Training takes approximately
+5.5 days on three NVIDIA RTX A6000 GPUs. The model then takes on average 10.3 seconds to generate a sample.
+140
+120
+100
+80
+60
+40
+20
+Energy (Eh)
+0.000
+0.005
+0.010
+0.015
+0.020
+0.025
+Frequency
+dataset
+EDM
+140
+120
+100
+80
+60
+40
+20
+dataset
+GDM-aug
+140
+120
+100
+80
+60
+40
+20
+dataset
+GDM
+Figure 5. Distribution of estimated energies for the molecules generated by all methods trained on GEOM-DRUGS. We observe that EDM
+captures the dataset distribution well, while other methods tend to produce too many low-energy compounds.
+Limitations of RDKit-based metrics
+Most commonly, unconstrained molecule generation methods are evaluated using
+RDKit. First, a molecule is built that contains only heavy atoms. Then, RDKit processes this molecule. In particular, it
+adds hydrogens to each heavy atoms in such a way that the valency of each atom matches its atom type. As a result, invalid
+molecules mostly appear when an atom has a valency bigger than expected.
+Experimentally, we observed that validity could artiﬁcially be increased by reducing the number of bonds. For example,
+predicting only single bonds was enough to obtain close to 100% of valid molecules on GEOM-DRUGS. Such a change also
+increases the novelty of the generated molecules, since these molecules typically contain more hydrogens than the training
+set. On the contrary, our stability metrics directly model hydrogens and cannot be tricked as easily.
+Regarding novelty, Vignac & Frossard (2021) argued that QM9 is the exhaustive enumeration of molecules that satisfy a
+predeﬁned set of constraints. As a result, a molecule that is novel does not satisfy at least one of these constraints, which
+
+Equivariant Diffusion for Molecule Generation in 3D
+means that the algorithm failed to capture some properties of the dataset. Experimentally, we observed that novelty decreases
+during training, which is in accordance with this observation. The ﬁnal novelty metrics we obtain are the following:
+Table 5. Novelty among valid and unique molecules (starting from 10000 molecules) with standard deviations across 3 runs on QM9.
+Experimentally, we observed that novelty is initially close to 100%, and decreases during training. On QM9, it reﬂects the fact that the
+algorithm progressively learns to capture the data distribution, which is an exhaustive enumeration under a predeﬁned set of constraints.
+Method
+GDM-aug
+EDM (with H)
+EDM (no H)
+Novelty (%)
+74.6
+65.7 ±1.3
+34.5±0.9
+Jensen–Shannon divergence between atomic distances
+In addition to the reported metrics in the QM9 experiment, we
+also report the Jensen-Shannon divergence between histograms of inter-atomic distances. Following the procedure from
+(Satorras et al., 2021a), we produce a histogram of relative distances between all pairs of atoms within each molecule.
+Then, we compute the Jensen-Shannon divergence between the normalized histograms produced with the generated and
+the training samples JSdiv(Pgen||Pdata). The lower the metric, the closer the distribution between generated and training
+samples will be. We report this metric in the following table for E-NF (Satorras et al., 2021a), G-Schnet (Gebauer et al.,
+2019) and EDM.
+Table 6. Jensen-Shannon divergence between the normalized histograms of inter-atomic distances within atoms (lower is better). Results
+are reported for E-NF (Satorras et al., 2021a), G-Schnet (Gebauer et al., 2019) and our proposed method EDM.
+E-NF
+G-Schnet
+EDM (Ours)
+JS-Div
+.0049
+.0027
+.0002
+Bond distances
+In order to check the validity and stability of the generated structures, we compute the distance between
+all pairs of atoms and use these distances to predict the existence of bonds and their order. Bond distances in Table 7,
+8 and 9 are based on typical distances in chemistry23. In addition, margins are deﬁned for single, double, triple bonds
+m1, m2, m3 = 10, 5, 3 which were found empirically to describe the QM9 dataset well. If an two atoms have a distance
+shorter than the typical bond length plus the margin for the respective bond type, the atoms are considered to have a bond
+between them. The allowed number of bonds per atom are: H: 1, C: 4, N: 3, O: 2, F: 1, B: 3, Al: 3, Si: 4, P: [3, 5], S: 4,
+Cl: 1, As: 3, Br: 1, I: 1. After all bonds have been created, we say that an atom is stable if its valency is precisely equal
+to the allowed number of bonds. An entire molecule is considered stable if all its atoms are stable. Although this metric
+does not take into account more atypical distances or aromatic bonds, it is still an extremely important metric as it measures
+whether the model is positioning the atoms precisely enough. On the QM9 dataset it still considers 95.2% molecules stable
+and 99.0% of atoms stable. For Geom-Drugs the molecules are much larger which introduces more atypical behaviour.
+Here the atom stability, which is 86.5%, can still be used since it describes how many atoms satisfy the typical bond length
+description. However, the molecule stability is 2.8% on the dataset, which is too low to draw meaningful conclusions.
+Limitations of Log-Likelihood
+One of the metrics on which we compare the models is the log-likelihood, which is
+the negative cross-entropy between the data distribution and the model distribution. For discrete data, such a loss has a
+direct interpretation: it gives the number of bits required to compress the signal losslessly. For continuous data, no such
+interpretation exists. Further difﬁculty is that even though the representation is continuous, the underlying distribution may
+be discrete. When this happens, the log-likelihood is unbounded and can grow arbitrarily large. For the datasets used in this
+paper, the positional information (the conformation) is optimized with an iterative process to a local minimum, and thus has
+a discrete nature.
+For this reason, the log-likelihoods are unbounded and should be treated with caution. They still provide insight into how
+the model is ﬁtted: Higher log-likelihoods correspond to sharper model distributions on the correct locations, which is
+an important positive indication that the model is ﬁtted well. However, it can also happen that part of the distribution
+(suppose for an x-coordinate) is extremely sharp whereas it is very blurred for another part (suppose a y-coordinate). The
+2http://www.wiredchemist.com/chemistry/data/bond_energies_lengths.html
+3http://chemistry-reference.com/tables/Bond%20Lengths%20and%20Enthalpies.pdf
+
+Equivariant Diffusion for Molecule Generation in 3D
+Table 7. Typical bond distances for a single bond.
+H
+C
+O
+N
+P
+S
+F
+Si
+Cl
+Br
+I
+B
+As
+H
+74
+109
+96
+101
+144
+134
+92
+148
+127
+141
+161
+119
+152
+C
+109
+154
+143
+147
+184
+182
+135
+185
+177
+194
+214
+-
+-
+O
+96
+143
+148
+140
+163
+151
+142
+163
+164
+172
+194
+-
+-
+N
+101
+147
+140
+145
+177
+168
+136
+-
+175
+214
+222
+-
+-
+P
+144
+184
+163
+177
+221
+210
+156
+-
+203
+222
+-
+-
+-
+S
+134
+182
+151
+168
+210
+204
+158
+200
+207
+225
+234
+-
+-
+F
+92
+135
+142
+136
+156
+158
+142
+160
+166
+178
+187
+-
+-
+Si
+148
+185
+163
+-
+-
+200
+160
+233
+202
+215
+243
+-
+-
+Cl
+127
+177
+164
+175
+203
+207
+166
+202
+199
+214
+-
+175
+-
+Br
+141
+194
+172
+214
+222
+225
+178
+215
+214
+228
+-
+-
+-
+I
+161
+214
+194
+222
+-
+234
+187
+243
+-
+-
+266
+-
+-
+B
+119
+-
+-
+-
+-
+-
+-
+-
+175
+-
+-
+-
+-
+As
+152
+-
+-
+-
+-
+-
+-
+-
+-
+-
+-
+-
+-
+Table 8. Typical bond distances for a double bond.
+C
+O
+N
+P
+S
+C
+134
+120
+129
+-
+160
+O
+120
+121
+121
+150
+-
+N
+129
+121
+125
+-
+-
+P
+-
+150
+-
+-
+186
+S
+-
+-
+-
+186
+-
+Table 9. Typical bond distances for a triple bond.
+C
+O
+N
+C
+120
+113
+116
+O
+113
+-
+-
+N
+116
+-
+110
+log-likelihood would still be high because of the x-coordinate, even though the y-coordinate is poorly ﬁtted. Therefore, for
+this type of data, log-likelihoods should be considered in combination with other metrics such as the atom stability and
+molecule stability metrics, as done in this paper.
+
+Equivariant Diffusion for Molecule Generation in 3D
+D. Samples from our models
+Additional samples from the model trained on QM9 are depicted in Figure 6 and, and samples from the model trained on
+GEOM-DRUGS in Figure 7. These samples are not curated or cherry picked in any way. As a result, their structure may
+sometimes be difﬁcult to see due to an unfortunate viewing angle.
+Figure 6. Random samples taken from the EDM trained on QM9.
+The samples from the model trained on the drugs partition of GEOM show impressive large 3D structures. Interestingly,
+the model is sometimes generating disconnected component, which only happens QM9 models in early training stages.
+This may indicate that further training and increasing expressitivity of the models may further help the model bring these
+components together.
+Figure 7. Random samples taken from the EDM trained on geom drugs. While most samples are very realistic, we observe two main
+failure cases: some molecules that are disconnected, and some that contain long rings. We note that the model does not feature any
+regularization to prevent these phenomena.
+
+Equivariant Diffusion for Molecule Generation in 3D
+Figure 8 depicts the generation of molecules from a model trained on GEOM-Drugs. The model starts at random normal
+noise at time t = T = 1000 and iteratively sample zt−1 ∼p(zt−1|zt) towards t = 0 to obtain x, h, which is the resulting
+sample from the model. The atom type part of z(h)
+t
+is visualized by taking the argmax of this component.
+Figure 8. Selection of sampling chains at different steps from a model trained on GEOM-Drugs. The ﬁnal column shows the resulting
+sample from the model.
+Ablation on scaling features
+In Table 10 a comparison between the standard and proposed scaling is shown. Interestingly,
+there is quite a large difﬁculty in performance when measuring atom and molecule stability. From these results, it seems
+that it is easier to learn a denoising process where the atom type is decided later, when the atom coordinates are already
+relatively well deﬁned.
+Table 10. Ablation study on the scaling of features of the EDM. Comparing our proposed scaling to no scaling.
+# Metrics
+Scaling
+NLL
+Atom stable (%)
+Mol stable (%)
+EDM (ours)
+[x, 1.00 honehot, 1.0 hatom charge]
+-103.4
+95.7
+46.9
+EDM (ours)
+[x, 0.25 honehot, 0.1 hatom charge]
+-110.7±1.5
+98.7±0.1
+82.0±0.4
+Data
+99.0
+95.2
+
+Equivariant Diffusion for Molecule Generation in 3D
+E. Conditional generation
+Conditional Method
+The speciﬁc deﬁnition for the loss components Lc,t is given in Equation 23. Essentially, a condition-
+ing on a property c is added where relevant. The diffusion process that adds noise is not altered. The generative denoising
+process is conditioned on c by adding it as input to the neural network φ:
+Lc,t = Eϵt∼Nxh(0,I)
+1
+2(1 −SNR(t −1)/SNR(t))||ϵt −φ(zt, t, c)||2
+,
+L(h)
+c,0 = log p(h|z(h)
+0
+) ≈0,
+L(x)
+c,0 = log p(x|z0, c) = Eϵ(x)∼N (0,I)
+h
+log Z−1 −1
+2||ϵ(x) −φ(x)(z0, 0, c)||2i
+,
+Lc,base = Lbase = −KL(q(zT |x, h)|p(zT )) ≈0.
+(23)
+Given a trained conditional model p(x, h|c, M), we deﬁne the generative process by ﬁrst sampling c, M ∼p(c, M) and
+then x, h ∼p(x, h|c, M). We compute c, M ∼p(c, M) on the training partition as a parametrized two dimensional
+categorical distribution where we discretize the continuous variable c into small uniformly distributed intervals.
+Implementation details: In this conditional experiment, our Equivariant Diffusion Model uses an EGNN with 9 layers,
+192 features per hidden layer and SiLU activation functions. We used the Adam optimizer with learning rate 10−4 and
+batch size 64. Only atom types (categorical) and positions (continuous) have been modelled but not atom charges. All
+methods have been trained for ∼2000 epochs while doing early stopping by evaluating the Negative Log Likelihood on the
+validation partition proposed by (Anderson et al., 2019).
+Additionaly, the obtained molecule stabilities in the conditional generative case was similar to the the ones obtained in
+the non-conditional setting. The reported molecule stabilities for each conditioned property evaluated on 10K generated
+samples are: (80.4%) α, (81.73%) ∆ε, (82.81%) εHOMO, (83.6 %) εLUMO, (83.3%) µ, (81.03 %) Cv.
+QM9 Properties
+α Polarizability: Tendency of a molecule to acquire an electric dipole moment when subjected to anexternal electric ﬁeld.
+εHOMO: Highest occupied molecular orbital energy.
+εLUMO: Lowest unoccupied molecular orbital energy.
+∆ε Gap: The energy difference between HOMO and LUMO.
+µ: Dipole moment.
+Cv: Heat capacity at 298.15K
+Conditional generation results
+In this Section we sweep over 9 different α values in the range [73.6, 101.6] while
+keeping the reparametrization noise ϵ ﬁxed and the number of nodes M = 19. We plot 10 randomly selected sweeps in
+Figure 9 with different reparametrization noises ϵ each. Samples have been generated using our Conditional EDM. We can
+see that for larger Polarizability values, the atoms are distributed less isotropically encouraing larger dipole moments when
+an electric ﬁeld is applied. This behavior is consistent among all reported runs.
+
+Equivariant Diffusion for Molecule Generation in 3D
+Figure 9. Molecules generated by our Conditional EDM when interpolating among different α polarizability values (from left to right).
+α’s are reported on top of the image. All samples within each row have been generated with the same reparametrization noise ϵ.

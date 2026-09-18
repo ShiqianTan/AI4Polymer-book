@@ -1,0 +1,1680 @@
+Molformer: Motif-based Transformer on 3D Heterogeneous Molecular Graphs
+Fang Wu,13 Dragomir Radev, 2 Stan Z. Li 1*
+1 School of Engineering, Westlake University
+2 Department of Computer Science, Yale University
+3 Institute of AI Industry Research, Tsinghua University
+fw2359@columbia.edu, dragomir.radev@yale.edu, stan.zq.li@westlake.edu.cn
+Abstract
+Procuring expressive molecular representations underpins
+AI-driven molecule design and scientiﬁc discovery. The re-
+search mainly focuses on atom-level homogeneous molecu-
+lar graphs, ignoring the rich information in subgraphs or mo-
+tifs. However, it has been widely accepted that substructures
+play a dominant role in identifying and determining molec-
+ular properties. To address such issues, we formulate hetero-
+geneous molecular graphs (HMGs), and introduce a novel ar-
+chitecture to exploit both molecular motifs and 3D geometry.
+Precisely, we extract functional groups as motifs for small
+molecules and employ reinforcement learning to adaptively
+select quaternary amino acids as motif candidates for pro-
+teins. Then HMGs are constructed with both atom-level and
+motif-level nodes. To better accommodate those HMGs, we
+introduce a variant of the Transformer named Molformer,
+which adopts a heterogeneous self-attention layer to distin-
+guish the interactions between multi-level nodes. Besides,
+it is also coupled with a multi-scale mechanism to capture
+ﬁne-grained local patterns with increasing contextual scales.
+An attentive farthest point sampling algorithm is also pro-
+posed to obtain the molecular representations. We validate
+Molformer across a broad range of domains, including quan-
+tum chemistry, physiology, and biophysics. Extensive experi-
+ments show that Molformer outperforms or achieves the com-
+parable performance of several state-of-the-art baselines. Our
+work provides a promising way to utilize informative motifs
+from the perspective of multi-level graph construction. The
+code is available at https://github.com/smiles724/Molformer.
+Introduction
+The past decade has witnessed the extraordinary success
+of deep learning (DL) in many scientiﬁc areas. Inspired
+by these achievements, researchers have shown increas-
+ing interest in exploiting DL for drug discovery and ma-
+terial design with the hope of rapidly identifying desirable
+molecules. A key aspect of fast screening is how to represent
+molecules effectively, where graphs are a natural choice to
+preserve their internal structures. As a consequence, a num-
+ber of graph neural networks (GNNs) (Gilmer et al. 2017;
+Ishida et al. 2021) have been invented and applied to molec-
+ular representation learning with noticeable performance.
+*The corresponding author.
+Copyright © 2023, Association for the Advancement of Artiﬁcial
+Intelligence (www.aaai.org). All rights reserved.
+However, most existing GNNs only take atom-level infor-
+mation in homogeneous molecular graphs as input, which
+fails to adequately exploit rich semantic information in
+motifs. Remarkably, motifs are signiﬁcant subgraph pat-
+terns that frequently occur, and can be leveraged to un-
+cover molecular properties. For instance, a carboxyl group
+(COOH) acts as a hydrogen-bond acceptor, which con-
+tributes to better stability and higher boiling points. Besides,
+similar to the role of N-gram in natural language, molecu-
+lar motifs can promote the segmentation of atomic semantic
+meanings. While some regard motifs as additional features
+of atoms (Maziarka et al. 2020, 2021), these methods in-
+crease the difﬁculty to separate the semantic meanings of
+motifs from atoms explicitly and hinder models from view-
+ing motifs from an integral perspective. Others (Huang et al.
+2020) take motifs as the only input, but ignore the inﬂuence
+of single atoms and infrequent substructures.
+To overcome these problems, we formulate a novel het-
+erogeneous molecular graph (HMG) that is comprised of
+both atom-level and motif-level nodes as the model input.
+It provides a clean interface to incorporate nodes of differ-
+ent levels and prevents the error propagation caused by in-
+correct semantic segmentation of atoms. As for the determi-
+nation of motifs, we adopt different strategies for different
+types of molecules. On the one hand, for small molecules,
+the motif lexicon is deﬁned by functional groups based on
+chemical domain knowledge. On the other hand, for proteins
+that are constituted of sequential amino acids, a reinforce-
+ment learning (RL) motif mining technique is introduced to
+discover the most meaningful amino acid subsequences for
+downstream tasks.
+In order to better align with HMGs, we present Mol-
+former, an equivariant geometric model based on Trans-
+former (Vaswani et al. 2017). Molformer differs from pre-
+ceding Transformer-based models in two major aspects.
+First, it utilizes heterogeneous self-attention (HSA) to dis-
+tinguish the interactions between nodes of different levels
+and incorporates them into the self-attention computation.
+Second, an Attentive Farthest Point Sampling (AFPS) algo-
+rithm is introduced to aggregate node features and obtain a
+comprehensive representation of the entire molecule.
+To summarize, our contributions are as follows:
+• To the best of our knowledge, we are the foremost to in-
+corporate motifs and construct 3D heterogeneous molec-
+arXiv:2110.01191v7  [q-bio.QM]  7 Jan 2023
+
+ular graphs for molecular representation learning.
+• We propose a novel Transformer architecture to perform
+on these heterogeneous molecular graphs. It has a mod-
+iﬁed self-attention to take into account the interactions
+between multi-level nodes, and an AFPS algorithm to in-
+tegrate molecular representations.
+• We empirically outperform or achieve competitive re-
+sults compared to state-of-the-art baselines on several
+benchmarks of small molecules and proteins.
+Preliminaries
+Problem Deﬁnition.
+Suppose a molecule S = (P , H)
+has N atoms, where P = {pi}N
+i=1 ∈RN×3 describes 3D
+coordinates associated to each atom and H = {hi}N
+i=1 ∈
+RN×h contains a set of h-dimension roto-translationally in-
+variant features (e.g. atom types and weights). hi can be
+converted to a dense vector xi ∈Rψembed via a multi-layer
+perceptron (MLP). A representation learning model f acts
+on S, and obtains its representation r = f(S). Then r is
+forwarded to a predictor g and attains the prediction of a
+biochemical property ˆy = g(r).
+Self-Attention Mechanism.
+Given input {xi}N
+i=1, the
+standard dot-product self-attention layer is computed as fol-
+lows:
+qi = fQ(xi), ki = fK(xi), vi = fV (xi)
+(1)
+aij = qikT
+j /
+p
+ψmodel, zi =
+N
+X
+j=1
+σ(aij)vj
+(2)
+where {fQ, fK, fV } are embedding transformations, and
+{qi, ki, vi} are respectively the query, key, and value vec-
+tors with the same dimension ψmodel. aij is the attention that
+the token i pays to the token j. σ denotes the Softmax func-
+tion and zi is the output embedding of the token i. This for-
+mula conforms to a non-local network (Wang et al. 2018),
+which indicates its poor ability to capture ﬁne-grained pat-
+terns in a local context.
+Position Encoding.
+Self-attention is invariant to the per-
+mutation of the input, and position encoding (PE) is the only
+technique to reveal position information. PE can be based on
+absolute positions or relative distances. The former uses raw
+positions and is not robust to spatial transformations. The
+latter manipulates the attention score by incorporating rela-
+tive distances: aij = qikT
+j /√ψmodel + fPE(pi −pj), where
+fPE is a translation-invariant PE function. The rotation in-
+variance can be further accomplished by taking a L2-norm
+dij = ||pi −pj||2 between the i-th and j-th atom.
+Heterogeneous Molecular Graphs
+Motifs are frequently-occurring substructure patterns and
+serve as the building blocks of complex molecular struc-
+tures. They have great expressiveness of the biochemical
+characteristics of the whole molecules. In this section, we
+ﬁrst describe how to extract motifs from small molecules
+and proteins respectively, and then present how to formulate
+HMGs.
+Reward
+Policy Network
+(e.g., ProtBERT)
+Motif Lexicon
+Molformer
+Downstream Tasks
+(e.g., PDBbind)
+Action
+Input
+Model
+?
+?
+?
+?
+𝐶160,000
+𝐾
+Action Space
+Figure 1: The workﬂow of RL motif mining method in
+proteins. In each iteration, the policy network is responsible
+for producing a motif lexicon. Molformer’s performance on
+downstream tasks and the diversity of the lexicon are con-
+sidered as the reward.
+Motifs in Small Molecules
+In the chemical community, a set of standard criteria have
+been developed to recognize motifs with essential func-
+tionalities in small molecules. There, we build motif tem-
+plates of four categories of functional groups, containing
+groups that contain only carbon and hydrogen (Hydrocar-
+bons), groups that contain halogen (Haloalkanes), groups
+that contain oxygen, and groups that contain nitrogen (see
+Appendix for more discussion). Practically, we rely on RD-
+Kit (Landrum 2013) to draw them from SMILES of small
+molecules.
+Motifs in Proteins
+In large protein molecules, motifs are local regions of 3D
+structures or amino acid sequences shared among proteins
+that inﬂuence their functions (Somnath, Bunne, and Krause
+2021). Each motif usually consists of only a few elements,
+such as the ’helix-turn-helix’ motif, and can describe the
+connectivity between secondary structural elements. The de-
+tection of protein motifs has been long studied. Neverthe-
+less, existing tools are either from the context of a pro-
+tein surface (Somnath, Bunne, and Krause 2021) or are
+task-independent and computationally expensive (Macken-
+zie, Zhou, and Grigoryan 2016). On the basis of this pecu-
+liarity, we design an RL mining method to discover task-
+speciﬁc protein motifs heuristically.
+Therefore, we consider motifs with four amino acids be-
+cause they make up the smallest polypeptide and have spe-
+cial functionalities in proteins. For instance, β-turns are
+composed of four amino acids and are a non-regular sec-
+ondary structure that causes a change in the direction of the
+polypeptide chain. Each amino acid can be of 20 different
+possibilities, such as Alanine, Isoleucine, and Methionine,
+so there are 1.6 × 105 (= 204) potential quaternary motifs.
+Our goal is to ﬁnd the most effective lexicon V∗∈V
+composed of K quaternary amino acid templates, where V
+denotes the space of all CK
+1.6×105 potential lexicons. Since
+we aim to mine the optimal task-speciﬁc lexicon, it is prac-
+tically feasible to only consider the existing quaternions in
+the downstream datasets instead of all 1.6 × 105 possible
+
+quaternions.
+In each iteration of the parameter update, we use a pre-
+trained ProtBERT (Elnaggar et al. 2020) with an MLP as
+the policy network πθ. Speciﬁcally, all possible quaternions
+are fed into ProtBert to obtain their corresponding repre-
+sentations {ei}1.6×105
+i=1
+, which are subsequently sent to the
+MLP to acquire their scores {si}1.6×105
+i=1
+. These scores il-
+lustrate each quaternion’s signiﬁcance to beneﬁt the down-
+stream tasks if they are chosen as a part of the vocabulary.
+Then top-K motifs with the highest scores are selected to
+comprise V ∈V in accordance with {si}1.6×105
+i=1
+, and V is
+used as templates to extract motifs and construct HMGs in
+downstream tasks. After that, a Molformer is trained based
+on these HMGs. Its validation performance is regarded as
+the reward r to update parameters θ by means of policy gra-
+dients. With adequate iterations, the agent can select the op-
+timal task-speciﬁc quaternary motif lexicon V∗.
+Remarkably, our motif mining process is a one-step game,
+since the policy network πθ only generates the vocabulary V
+once in each iteration. Thus, the trajectory consists of only
+one action, and the performance of Molformer based on the
+chosen lexicon V composes a part of the total reward. More-
+over, we also consider the diversity of motif templates within
+the lexicon and calculate it as:
+ddiv(V) =
+1
+|V|
+X
+mi∈V
+X
+mj∈V
+dlev(mi, mj)
+(3)
+where dlev is the Levenshtein distance of two quaternary se-
+quences mi and mj. The ﬁnal reward, therefore, becomes
+R(V) = r + γddiv(V), where γ is a weight to balance two
+reward terms, and the policy gradient is computed as the fol-
+lowing objective:
+∇θJ(θ) = EV∈V[∇θ log πθ(V)R(V)]
+(4)
+Formulation of Heterogeneous Molecular Graphs
+Most prior studies (Maziarka et al. 2020; Rong et al. 2020;
+Maziarka et al. 2021) simply incorporate motifs into atom
+features. For instance, they differentiate carbons into aro-
+matic or non-aromatic and deem them as extra features. We
+argue its ineffectiveness for two reasons. First, the fusion
+of multi-level features increases the difﬁculty to summarize
+the functionality of motifs. Second, it hinders models to see
+motifs from a unitary perspective. To ﬁll these gaps, we sep-
+arate apart motifs and atoms, regarding motifs as new nodes
+to formulate an HMG. This way disentangles motif-level and
+atom-level representations, thus alleviating the difﬁculty for
+models to properly mine the motif-level semantic meanings.
+Similar to the relation between phrases and single words
+in natural language, motifs in molecules carry higher-level
+semantic meanings than atoms. Therefore, they play an es-
+sential part in identifying the functionalities of their atomic
+constituents. Inspired by the employment of dynamic lattice
+structures in named entity recognition, we treat each cate-
+gory of motifs as a new type of node and build HMGs as
+the input of our Molformer. To begin with, motifs are ex-
+tracted according to a motif vocabulary V. We assume M
+motifs {mi}M
+i=1 are detected in the molecule S. Conse-
+quently, an HMG includes both the motif-level and atom-
+level nodes as {x1, ..., xN, xm1, ..., xmM }, where xmi ∈
+Rψembed is obtained through a learnable embedding matrix
+W M
+∈RC′×ψembed and C′ denotes the number of mo-
+tif categories. As for positions of each motif, we adopt
+a weighted sum of 3D coordinates of its components as
+pmi = P
+xi∈mi
+
+wi
+P
+xi∈mi wi
+
+·pi, where wi are the atomic
+weights. Analogous to word segmentation, our HMGs com-
+posed of multi-level nodes avoid error propagation due to
+inappropriate semantic segmentation while leveraging the
+atom information for molecular representation learning.
+Molformer
+In this section, we propose Molformer, which modiﬁes
+Transformer with several novel components speciﬁcally de-
+signed for 3D HMGs. First, we build a motif vocabulary
+and match each molecule with this lexicon to obtain all its
+contained motifs. Then both atoms and motifs acquire their
+corresponding embeddings and are forwarded into L fea-
+ture learning blocks. Each block consists of an HSA, a feed-
+forward network (FFN), and two-layer normalizations. After
+that, an AFPS is followed to adaptively produce the molec-
+ular representation, which is later fed into a dense predictor
+to forecast properties in a broad range of downstream tasks.
+Heterogeneous Self-attention
+After formulating an HMG with N atom-level nodes and M
+motif-level nodes, it is important to endow the model with
+the capacity of separating the interactions between multi-
+order nodes. To this end, we utilize a function φ(i, j) :
+R(N+M)×(N+M) →Z, which identiﬁes the relationship
+between any two nodes into three sorts: atom-atom, atom-
+motif, and motif-motif. Then a learnable scalar bφ(i,j) : Z →
+R indexed by φ(i, j) is introduced so that each node can
+adaptively attend to all other nodes according to their hier-
+archical relationship inside our HMGs.
+In addition, we consider exploiting 3D molecular geome-
+try (see Figure 2). Since robustness to global changes such
+as 3D translations and rotations is an underlying principle
+for molecular representation learning, we seek to satisfy
+roto-translation invariance. There, we borrow ideas from
+SE(3)-Transformer (Sch¨utt, Unke, and Gastegger 2021) and
+AlphaFold2 (Jumper et al. 2021), and apply a convolu-
+tional operation to the pairwise distance matrix D
+=
+[di,j]i,j∈[N+M] ∈R(N+M)×(N+M) as ˆD = Conv2d(D),
+where Conv2d denotes a 2D shallow convolutional network
+with a kernel size of 1×1. Consequently, the attention score
+is computed as follows:
+ˆaij =
+
+qikT
+j /
+p
+ψmodel
+
+· ˆdij + bφ(i,j),
+(5)
+where ˆdi,j ∈ˆD controls the impact of interatomic distance
+over the attention score, and bφ(i,j) is shared across all lay-
+ers.
+Moreover, exploiting local context has proven to be im-
+portant in sparse 3D space. However, it has been pointed out
+
+Heterogeneous Self-attention 
+Layer Norm
+FFN
+L ×
+Global Pooling
+Properties
+Layer Norm
+Virtual Atom 
+w
+w
+w
+w
+w
+w
+w
+w
+H
+Attentive FPS
+MLP
+N
+O
+C
+Multi-scale Mechanism
+Local Global
+Unselected Atom 
+Motif   Extraction
+C
+C
+H
+…
+Embedding Layer 
+Motifs
+Atoms
+Figure 2: The architecture of Molformer. Given a heterogeneous molecular graph with both atom-level and motif-level nodes,
+stacked feature learning blocks composed of a heterogeneous self-attention module and an FFN compute their updated features.
+Afterward, an attentive subsampling module integrates the molecular representation for downstream predictions. Local features
+with different scales are purple and orange; yellow corresponds to global features.
+that self-attention is good at capturing global data patterns
+but ignores local context (Wu et al. 2020). Based on this
+fact, we impose a distance-based constraint on self-attention
+in order to extract multi-scaled patterns from both local and
+global contexts. Guo et al. (2020) propose to use integer-
+based distances to limit attention to local word neighbors,
+which cannot be used in molecules. This is because different
+types of molecules have different densities and molecules of
+the same type have different spatial regularity, which results
+in the non-uniformity of interatomic distances. Normally,
+small molecules have a mean interatomic distance of 1-2 ˚A
+(Angstrom, 10−10m), which is denser than large molecules
+like proteins with approximately 5 ˚A on average. To tackle
+that, we design a multi-scale methodology to robustly cap-
+ture details. Speciﬁcally, we mask nodes beyond a certain
+distance τs at each scale s. The attention calculation is mod-
+iﬁed as:
+aτs
+ij = ˆaij · 1{dij<τs}, zτs
+i =
+N
+X
+j=1
+σ
+ aτs
+ij
+
+vj,
+(6)
+where 1{dij<τs} is the indicator function. Notably, Equa-
+tion 6 can be complementarily combined with Equation 5.
+Then, features extracted from S different scales {τs}S
+s=1,
+as well as the informative global feature, are concatenated
+together to form a multi-scale representation, denoted by
+z′
+i = zτ1
+i ⊕... ⊕zτS
+i
+⊕zglobal
+i
+∈R(S+1)ψmodel. After that,
+z′
+i is forwarded into a FFN to obtain z′′
+i with the original
+dimension ψmodel.
+Attentive Farthest Point Sampling
+After having the node embeddings {z′′
+i }N+M
+i=1
+, we study how
+to obtain the molecular representation r. For GNNs, several
+readout functions such as set2set (Vinyals, Bengio, and Kud-
+lur 2015) and GG-NN (Gilmer et al. 2017) are invented. For
+Transformers, one way is via a virtual node. Though Ying
+et al. (2021) state that it signiﬁcantly improves the perfor-
+mance of existing models in the leaderboard of Open Graph
+Benchmark (OGB), this way concentrates more on its close
+adjacent nodes and less on distant ones, and may lead to
+inadvertent over-smoothing of information propagation. Be-
+sides, it is difﬁcult to locate a virtual node in 3D space and
+build connections to existing vertices. The other way selects
+a subset of nodes via a downsampling algorithm named Far-
+thest Point Search (FPS), but it ignores nodes’ differences
+and has the sensitivity to outlier points as well as uncon-
+trollable randomness. To address these issues, we propose a
+new algorithm named AFPS. It aims to sample vertices by
+not merely spatial distances, but also their signiﬁcance in
+terms of attention scores.
+Speciﬁcally, we choose the virtual atom x# as the
+starting point and initialize two lists P
+=
+{x#} and
+M = {xi}N+M
+i=1
+to store remaining candidate points. Then
+the process begins with the attention score matrix ˆA =
+[ˆai,j]i,j∈[N+M] ∈R(N+M)×(N+M) and the interatomic dis-
+tance matrix D ∈R(N+M)×(N+M). It can be easily proved
+that each row of ˆA sums up to 1 after the Softmax op-
+eration along columns, i.e. P
+j ˆaij = 1, ∀i ∈[N + M].
+
+Algorithm 1: Attentive Farthest Point Sampling
+Input: The attention score matrix A ∈R(N+M)×(N+M),
+a Euclidean distance matrix D ∈R(N+M)×(N+M).
+Output: K sampled points.
+˜A ←P
+i ˆaij ∈RN+M
+▷sum up along rows
+˜D ←
+D−min D
+max D−min D ∈R(N+M)×(N+M) ▷normalize the
+distance matrix
+P = {x#}
+M = {xi}N+M
+i=1
+while length(P) < k do
+xnew ←argmax
+i∈M
+(min
+j∈P
+˜Dij + λ ˜Ai) ▷pick up the node
+that maximize the objective
+P.append(xnew)
+M.remove(xnew)
+end whilereturn P
+In order to obtain the importance of each atom in the self-
+attention computation, we accumulate ˆA along rows and get
+˜A = P
+i ˆaij ∈RN+M. Besides, we adopt the min-max
+normalization to rescale the distance matrix D into values
+between 0 and 1, and obtain ˜D =
+D−min D
+max D−min D.
+After the above preprocess, we repeatedly move a point
+xnew from M to P, which ensures that xnew is as far from
+P as possible by maximizing ˜Dij and also plays a crucial
+role in attention computation by maximizing ˜Ai. Mathemat-
+ically, the AFPS aims to achieve the objective:
+max
+X
+i∈M
+( min
+j∈P\{i}
+˜Dij + λ ˜Ai),
+(7)
+where λ is a hyperparameter to balance those two differ-
+ent goals. This process is repeated until P has reached K
+points. Algorithm 1 provides a greedy approximation solu-
+tion to this AFPS optimization objective for sake of compu-
+tational efﬁciency.
+After that, sampled features {z′′
+i }i∈P are gathered by a
+Global Average Pooling layer to attain the molecular repre-
+sentation r ∈Rψmodel.
+Remarkably, our proposed AFPS has considerable differ-
+ences and superiority over a body of previous hierarchical
+approaches (Eismann et al. 2021). Their subsampling oper-
+ations are mainly designed for protein complexities, which
+often have uniform structures. To be speciﬁc, they hierarchi-
+cally use alpha carbons as the intermediate set of points and
+aggregate information at the level of those carbons for the
+entire complex. However, the structures of small molecules
+have no such stable paradigm, and we provide a universal
+method to adaptively subsample atoms without any prior as-
+sumptions on the atom arrangement.
+Experiments
+We conduct extensive experiments on 7 datasets about both
+small molecules and large protein molecules from three dif-
+ferent domains, including quantum chemistry, physiology,
+and biophysics. The appendix summarises statistical infor-
+mation of these 7 benchmark datasets, such as the num-
+ber of tasks and task types, the number of molecules and
+atom classes, the minimum and the maximum number of
+atoms, and the density (mean interatomic distances) of all
+molecules.
+Datasets.
+We test Molformer on a series of small molecule
+datasets, containing QM7 (Blum and Reymond 2009),
+QM8 (Ramakrishnan et al. 2015), QM9 (Ramakrishnan et al.
+2014), BBBP (Martins et al. 2012), ClinTox (Gayvert, Mad-
+hukar, and Elemento 2016), and BACE (Subramanian et al.
+2016) 1. QM7 is a subset of GDB-13 and is composed of 7K
+molecules. QM8 and QM9 are subsets of GDB-17 with 22K
+and 133K molecules respectively. BBBP involves records
+of whether a compound carries the permeability property of
+penetrating the blood-brain barrier. ClinTox compares drugs
+approved through FDA and drugs eliminated due to toxicity
+during clinical trials. BACE is collected for recording com-
+pounds that could act as the inhibitors of human β-secretase
+1 (BACE-1).
+We also inspect Molformer’s ability to learn mutual re-
+lations between proteins and molecules on the PDBbind
+dataset (Wang et al. 2005). Following Townshend et al.
+(2020), we split protein-ligand complexes by protein se-
+quence identity at 30%. As for the target, we predict pS =
+−log(S), where S is the binding afﬁnity in Molar unit. In
+addition, we only use the pocket of each protein and put
+pocket-ligand pairs together as the input.
+For QM9, we use the exact train/validation/test split
+as Townshend et al. (2020). For PDBbind, 90% of the data
+is used for training and the rest is divided equally between
+validation and test like Chen et al. (2019). For others, we
+adopt the scaffold splitting method with a ratio of 8:1:1 for
+train/validation/test as Rong et al. (2020). More implement-
+ing details can be found in Appendix.
+Baselines
+For small molecules, we compare Molformer
+with the following baselines. TF Robust (Ramsundar
+et al. 2015) takes molecular ﬁngerprints as the input.
+Weave (Kearnes et al. 2016), MPNN (Gilmer et al. 2017),
+Schnet (Sch¨utt et al. 2018), MEGNet (Chen et al. 2019),
+GROVER (Rong et al. 2020), DMPNN (Yang et al.
+2019), MGCN (Lu et al. 2019), AttentiveFP (Xiong et al.
+2019), DimeNet (Klicpera, Groß, and G¨unnemann 2020),
+DimeNet++ (Klicpera et al. 2020), PaiNN (Sch¨utt, Unke,
+and Gastegger 2021), and SphereNet (Liu et al. 2021) are
+all graph convolutional models. Graph Transformer (Chen,
+Barzilay, and Jaakkola 2019), MAT (Maziarka et al. 2020),
+R-MAT (Maziarka et al. 2021), SE(3)-Transformer (Fuchs
+et al. 2020), and LieTransformer (Hutchinson et al.
+2021) are Transformer-based Equivariant Neural Networks
+(ENNs) (Thomas et al. 2018).
+For
+PDBbind,
+we
+choose
+seven
+baselines.
+Deep-
+DTA ( ¨Ozt¨urk, ¨Ozg¨ur, and Ozkirimli 2018) and DeepAfﬁn-
+ity (Karimi et al. 2019) take in pairs of ligand and protein
+SMILES as input. Cormorant (Anderson, Hy, and Kondor
+2019) is an ENN that represents each atom by its abso-
+lute 3D coordinates. HoloProt (Somnath, Bunne, and Krause
+1For BBBP, ClinTox, and BACE, we use RDKit (Landrum
+2013) to procure 3D coordinates from SMILES.
+
+Method
+QM7
+QM8
+BBBP
+ClinTox
+BACE
+TF-Robust (Ramsundar et al. 2015)
+120.6
+0.024
+0.860
+0.765
+0.824
+Weave (Kearnes et al. 2016)
+94.7
+0.022
+0.837
+0.823
+0.791
+MPNN (Gilmer et al. 2017)
+113.0
+0.015
+0.913
+0.879
+0.815
+Schnet (Sch¨utt et al. 2018)
+74.2
+0.020
+0.847
+0.717
+0.750
+DMPNN (Yang et al. 2019)
+105.8
+0.014
+0.919
+0.897
+0.852
+MGCN (Lu et al. 2019)
+77.6
+0.022
+0.850
+0.634
+0.734
+Attentive FP (Xiong et al. 2019)
+126.7
+0.028
+0.908
+0.933
+0.863
+Graph Transformer (Chen, Barzilay, and Jaakkola 2019)
+47.8
+0.010
+0.913
+-
+0.880
+MAT (Maziarka et al. 2020)
+102.8
+-
+0.728
+-
+0.846
+R-MAT (Maziarka et al. 2021)
+68.6
+-
+0.746
+-
+0.871
+GROVERlarge (Rong et al. 2020)
+89.4
+0.017
+0.911
+0.884
+0.858
+Molformer
+43.2
+0.009
+0.926
+0.937
+0.884
+Table 1: For regression tasks in QM7 and QM8, lower MAE
+is better. For classiﬁcation tasks in BBBP, ClinTox, and
+Bace, higher values are better.
+2021) captures higher-level ﬁngerprint motifs on the pro-
+tein surface. Schnet, 3DCNN and 3DGCN (Townshend et al.
+2020) are 3D methods.
+Overall Results on Benchmark Tasks
+Molecules.
+Table 1 and Table 2 document the overall re-
+sults on small molecules datasets, where the best perfor-
+mance is marked bold and the second best is underlined
+for clear comparison. It can be discovered that Molformer
+achieves the lowest MAE of 43.2 on QM7 and 0.009 on
+QM8, beating several strong baselines including DMPNN
+and Graph Transformer. Besides, Molformer offers compet-
+itive performance in all property regression tasks on QM9.
+Particularly, we outperform all Transformer-based ENNs,
+including SE(3)-Transformer and LieTransformer. As for
+classiﬁcation problems, we surpass all baselines mostly by a
+fairly large margin.
+Proteins.
+Table 3 reports the Root-Mean-Squared Devia-
+tion (RMSD), the Pearson correlation (Rp), and the Spear-
+man correlation (Rs) on PDBbind. Molformer achieves the
+lowest RMSD and the best Pearson and Spearman correla-
+tions. As Wu et al. (2018) claim, appropriate featurization
+which holds pertinent information is signiﬁcant for PDB-
+bind. However, an important observation in our work is that
+deep learning approaches with the exploitation of 3D ge-
+ometric information can perform better than conventional
+methods like DeepDTA and DeepAfﬁnity which use a set
+of physicochemical descriptors but ignore 3D structures.
+Ablation Study and Discussion
+What Is the Effect of Each Component?
+We investigate
+the effectiveness of each component of our Molformer in
+Table 4. It can be observed that HSA along with HMGs
+substantially boosts the model’s performance compared with
+the naive method that immediately adds 3D coordinates as
+the atom input feature. MAE declines from 132.2 to 46.5
+in QM7 while decreasing from 0.0205 to 0.0097 in QM8. In
+addition, AFPS produces better predictions than the counter-
+part that utilizes the virtual node as the molecular representa-
+tion (a case study of AFPS is in the Appendix). We also dis-
+cover that the multi-scale mechanism signiﬁcantly reduces
+RMSD from 50.1 to 46.5 on QM7, but its improvements in
+QM8 are much smaller. This phenomenon indicates that the
+multi-scale mechanism is an appropriate way to alleviate the
+No Motif
++Hydrocarbon +Haloalkane
++Oxygen
++Nitrogen
+40
+60
+80
+100
+120
+MAE
+QM7
+BBBP
+0.85
+0.86
+0.87
+0.88
+0.89
+0.90
+0.91
+0.92
+0.93
+ROC
+Figure 3: The ablation study of consecutively adding four
+motif groups (from left to right) in the QM7 and BBBP
+datasets.
+problem of inadequate training in small datasets. It endows
+Molformer with the capability to extract local features by
+regulating the scope of self-attention. However, as the data
+size gets larger, Molformer does not require the assistance
+of the multi-scale mechanism to abstract local patterns, since
+the parameters of convolution operators are properly trained.
+What Is the Contribution of HMGs?
+The ideology of
+constructing heterogeneous graphs has already been proven
+successful in not only chemical knowledge graphs, but
+named entity recognition (Li et al. 2020). The former views
+the chemical characteristics obtained from domain knowl-
+edge of elements as shared nodes, while the latter converts
+the lattice structure into a ﬂat structure consisting of spans.
+To further verify its efﬁcacy, we compare our motif-based
+HMGs with the naive fusion of multi-level features. Table 5
+shows a noticeable improvement in our HMGs over the other
+two variants.
+Have We Found Good Candidates of Motifs?
+How to
+determine motifs is critical to HMGs. Concerning small
+molecules, we deﬁne motifs on the basis of functional
+groups, which refers to a substituent or moiety that causes
+molecules’ characteristic chemical reactions. To further ex-
+plore their contributions, we divide functional groups into
+four categories: Hydrocarbons, Haloalkanes, groups that
+contain oxygen, and groups that contain nitrogen (see
+Appendix). The ablation studies (see Figure 3) demon-
+strate that Molformer can gain improvements from all
+four groups of motifs, where Hydrocarbons and Haloalka-
+nes are the most and the least effective types respec-
+tively. This is in line with the fact that Hydrocarbons
+occur most frequently in organic molecules. Moreover,
+the best performance is achieved when all categories are
+considered, implying a promising direction to discover
+more effective motifs. As for proteins, motifs discovered
+by our RL mining method share the same backbone as
+CC(C(NC(C)C(O)=O)=O)NC(CNC(CN)=O)=O (see Ap-
+pendix), which is a hydrogen bond donor and implies a mark
+to distinguish potential binding site. Moreover, the portion
+of those motifs in the pocket (1.38%) is nearly twice that in
+other locations (0.73%), conforming to the fact that pockets
+are the most preferable part for ligands to bind with.
+
+Target
+ϵHOMO
+ϵLUMO
+∆ϵ
+µ
+α
+R2
+ZPVE
+U0
+U
+H
+G
+cv
+Unit
+eV
+eV
+eV
+D
+bohr3
+a2
+0
+meV
+meV
+meV
+meV
+meV
+cal/mol K
+MPNN (Gilmer et al. 2017)
+.043
+.037
+.069
+.030
+.092
+.150
+1.27
+45
+45
+39
+44
+.800
+Schnet (Sch¨utt et al. 2018)
+.041
+.034
+.063
+.033
+.235
+.073
+1.7
+14
+19
+14
+14
+.033
+MEGNet full (Chen et al. 2019)
+.038
+.031
+.061
+.040
+.083
+.265
+1.4
+9
+10
+10
+10
+.030
+MGCN (Lu et al. 2019)
+.042
+.057
+.064
+.056
+.030
+.110
+1.12
+12.9
+14.4
+14.6
+16.2
+.038
+DimeNet (Klicpera, Groß, and G¨unnemann 2020)
+.027
+.019
+.034
+.028
+.046
+.331
+1.29
+8.02
+7.89
+8.11
+8.98
+.024
+DimeNet++ (Klicpera et al. 2020)
+.024
+.019
+.032
+.029
+.043
+.331
+1.21
+6.32
+6.28
+6.53
+7.56
+.023
+SphereNet (Liu et al. 2021)
+.024
+.019
+.032
+.026
+.047
+.292
+1.12
+6.26
+7.33
+6.40
+8.0
+.021
+PaiNN (Sch¨utt, Unke, and Gastegger 2021)
+.028
+.020
+.046
+.012
+.045
+.066
+1.28
+5.85
+5.53
+5.98
+7.35
+.024
+SE(3)-Transformer (Fuchs et al. 2020)
+.035
+.033
+.053
+.051
+.142
+–
+–
+–
+–
+–
+–
+–
+LieTransformer (Hutchinson et al. 2021)
+.033
+.029
+.052
+.061
+.104
+2.29
+3.55
+17
+16
+27
+23
+.041
+Molformer
+.025
+.026
+.039
+.028
+.041
+.350
+2.05
+7.52
+7.46
+7.38
+8.11
+.025
+Table 2: Comparison of MAE on QM9. The last three methods are Transformer-based methods.
+Method
+Geometry
+RMSD
+Rp
+Rs
+DeepDTA ( ¨Ozt¨urk, ¨Ozg¨ur, and Ozkirimli 2018)
+Non-3D
+1.565
+0.573
+0.574
+DeepAfﬁnity (Karimi et al. 2019)
+Non-3D
+1.893
+0.415
+0.426
+Schnet (Sch¨utt et al. 2018)
+3D
+1.892
+0.601
+-
+Cormorant (Anderson, Hy, and Kondor 2019)
+3D
+1.429
+0.541
+0.532
+3DCNN (Townshend et al. 2020)
+3D
+1.520
+0.558
+0.556
+3DGCN (Townshend et al. 2020)
+3D
+1.963
+0.581
+0.647
+HoloProt (Somnath, Bunne, and Krause 2021)
+3D
+1.464
+0.509
+0.500
+Molformer
+3D
+1.386
+0.623
+0.651
+Table 3: Comparison of RMSD, Rp, and Rs on PDBbind.
+HSA
+AFPS
+HMG
+QM7
+QM8
+PDBbind
+1
+-
+-
+-
+132.2
+0.0205
+1.925
+2
+✓
+-
+✓
+46.5
+0.0097
+1.441
+3
+✓
+✓
+✓
+43.2
+0.0095
+1.386
+Table 4: Effects of each module on QM7, QM8 and PDB-
+bind (RMSD).
+Related Works
+Motifs in Molecular Graphs.
+Motifs have been proven
+to beneﬁt many tasks from exploratory analysis to trans-
+fer learning. Various algorithms have been proposed to ex-
+ploit them for contrastive learning (Zhang et al. 2020), self-
+supervised pretraining (Zhang et al. 2021), generation (Jin,
+Barzilay, and Jaakkola 2020), protein design (Li et al.) and
+drug-drug interaction prediction (Huang et al. 2020). To the
+best of our knowledge, none of them take advantage of mo-
+tifs to build a heterogeneous graph for molecular property
+prediction.
+As for motif extraction, previous motif mining methods
+either depend on exact counting (Cantoni, Gatti, and Lom-
+bardi 2011) or sampling and statistical estimation (Wernicke
+2006). No preceding studies extract task-speciﬁc motifs to
+enhance model performance.
+Molecular
+Representation
+Learning.
+DL
+has
+been
+widely applied to predict molecular properties. Molecules
+are usually represented as 1D sequences, including amino
+acid sequences and SMILES (Xu et al. 2017), and 2D
+graphs (Duvenaud et al. 2015). Despite that, more evidence
+indicates that 3D structures lead to better modeling and su-
+perior performance. 3D CNNs (Anand-Achim et al. 2021)
+and GNNs (Cho and Choi 2018) become popular to cap-
+QM7
+QM8
+PDBbind
+No Motifs
+132.2
+0.0205
+1.925
+Multi-Level Fusion
+89.7
+0.0154
+1.427
+Heterogeneous Graphs
+43.2
+0.0095
+1.386
+Table 5: Comparison of HMGs with simple feature fusion
+on QM7, QM8 and PDBbind (RMSD).
+ture these complex geometries in various bio-molecular ap-
+plications. Nonetheless, the aforementioned methods is in-
+efﬁcient at grabbing local contextual feature and long-range
+dependencies.
+Attempts have been taken to address that issue based
+on the Transformer. It assumes full connection and uses
+self-attention to capture long-term dependencies. Some re-
+searchers feed SMILES in Transformer to obtain represen-
+tations (Honda, Shi, and Ueda 2019) and conduct pretrain-
+ing (Chithrananda, Grand, and Ramsundar 2020). Others
+employ Transformer to solve generative tasks (Ingraham
+et al. 2019) or fulﬁll equivariance (Fuchs et al. 2020) via
+spherical harmonics. However, the foregoing methods are ei-
+ther incapable to encode 3D geometry, non-sensitive to local
+contextual patterns, or inefﬁcient to aggregate atom features.
+More essentially, they are not specially designed to operate
+on heterogeneous graphs of molecules.
+Conclusion
+This paper presents Molformer for 3D molecular representa-
+tion learning on heterogeneous molecular graphs. First, we
+extract informative motifs by means of functional groups
+and a reinforcement learning mining method to formu-
+late heterogeneous molecular graphs. After that, Molformer
+adopts a heterogeneous self-attention to distinguish the in-
+teractions between multi-level nodes and exploit spatial in-
+formation with multiplicate scales for the sake of catching
+local features. Then a simple but efﬁcient downsampling al-
+gorithm is introduced to better accumulate molecular repre-
+sentations. Experiments demonstrate the superiority of Mol-
+former in various domains, which beats a group of baseline
+algorithms.
+
+References
+Anand-Achim, N.; Eguchi, R. R.; Mathews, I. I.; Perez,
+C. P.; Derry, A.; Altman, R. B.; and Huang, P. 2021. Protein
+sequence design with a learned potential. bioRxiv, 2020–01.
+Anderson, B.; Hy, T.-S.; and Kondor, R. 2019. Cormorant:
+Covariant molecular neural networks.
+arXiv preprint
+arXiv:1906.04015.
+Blum, L. C.; and Reymond, J.-L. 2009. 970 million drug-
+like small molecules for virtual screening in the chemical
+universe database GDB-13. Journal of the American Chem-
+ical Society, 131(25): 8732–8733.
+Cantoni, V.; Gatti, R.; and Lombardi, L. 2011. 3D Protein
+Surface Segmentation through Mathematical Morphology.
+In International Joint Conference on Biomedical Engineer-
+ing Systems and Technologies, 97–109. Springer.
+Chen, B.; Barzilay, R.; and Jaakkola, T. 2019.
+Path-
+augmented graph transformer network.
+arXiv preprint
+arXiv:1905.12712.
+Chen, C.; Ye, W.; Zuo, Y.; Zheng, C.; and Ong, S. P. 2019.
+Graph networks as a universal machine learning framework
+for molecules and crystals. Chemistry of Materials, 31(9):
+3564–3572.
+Chithrananda, S.; Grand, G.; and Ramsundar, B. 2020.
+Chemberta:
+Large-scale
+self-supervised
+pretraining
+for
+molecular
+property
+prediction.
+arXiv
+preprint
+arXiv:2010.09885.
+Cho, H.; and Choi, I. S. 2018.
+Three-dimensionally em-
+bedded graph convolutional network (3dgcn) for molecule
+interpretation. arXiv preprint arXiv:1811.09794.
+Duvenaud, D.; Maclaurin, D.; Aguilera-Iparraguirre, J.;
+G´omez-Bombarelli, R.; Hirzel, T.; Aspuru-Guzik, A.;
+and Adams, R. P. 2015.
+Convolutional networks on
+graphs for learning molecular ﬁngerprints. arXiv preprint
+arXiv:1509.09292.
+Eismann, S.; Townshend, R. J.; Thomas, N.; Jagota, M.;
+Jing, B.; and Dror, R. O. 2021.
+Hierarchical, rotation-
+equivariant neural networks to select structural models of
+protein complexes.
+Proteins: Structure, Function, and
+Bioinformatics, 89(5): 493–501.
+Elnaggar, A.; Heinzinger, M.; Dallago, C.; Rihawi, G.;
+Wang, Y.; Jones, L.; Gibbs, T.; Feher, T.; Angerer, C.;
+Steinegger, M.; et al. 2020.
+ProtTrans: towards cracking
+the language of Life’s code through self-supervised deep
+learning and high performance computing. arXiv preprint
+arXiv:2007.06225.
+Fuchs, F. B.; Worrall, D. E.; Fischer, V.; and Welling, M.
+2020. Se (3)-transformers: 3d roto-translation equivariant
+attention networks. arXiv preprint arXiv:2006.10503.
+Gayvert, K. M.; Madhukar, N. S.; and Elemento, O. 2016. A
+data-driven approach to predicting successes and failures of
+clinical trials. Cell chemical biology, 23(10): 1294–1301.
+Gilmer, J.; Schoenholz, S. S.; Riley, P. F.; Vinyals, O.; and
+Dahl, G. E. 2017.
+Neural message passing for quantum
+chemistry. In International conference on machine learn-
+ing, 1263–1272. PMLR.
+Guo, Q.; Qiu, X.; Liu, P.; Xue, X.; and Zhang, Z. 2020.
+Multi-scale self-attention for text classiﬁcation. In Proceed-
+ings of the AAAI Conference on Artiﬁcial Intelligence, vol-
+ume 34, 7847–7854.
+Honda, S.; Shi, S.; and Ueda, H. R. 2019.
+Smiles trans-
+former: Pre-trained molecular ﬁngerprint for low data drug
+discovery. arXiv preprint arXiv:1911.04738.
+Huang, K.; Xiao, C.; Hoang, T.; Glass, L.; and Sun, J. 2020.
+Caster: Predicting drug interactions with chemical substruc-
+ture representation. In Proceedings of the AAAI Conference
+on Artiﬁcial Intelligence, volume 34, 702–709.
+Hutchinson, M. J.; Le Lan, C.; Zaidi, S.; Dupont, E.; Teh,
+Y. W.; and Kim, H. 2021. Lietransformer: Equivariant self-
+attention for lie groups. In International Conference on Ma-
+chine Learning, 4533–4543. PMLR.
+Ingraham, J.; Garg, V. K.; Barzilay, R.; and Jaakkola, T.
+2019. Generative models for graph-based protein design.
+Advances in neural information processing systems.
+Ishida, S.; Miyazaki, T.; Sugaya, Y.; and Omachi, S. 2021.
+Graph Neural Networks with Multiple Feature Extraction
+Paths for Chemical Property Estimation. Molecules, 26(11):
+3125.
+Jin, W.; Barzilay, R.; and Jaakkola, T. 2020.
+Hierarchi-
+cal generation of molecular graphs using structural motifs.
+In International Conference on Machine Learning, 4839–
+4848. PMLR.
+Jumper, J.; Evans, R.; Pritzel, A.; Green, T.; Figurnov, M.;
+Ronneberger, O.; Tunyasuvunakool, K.; Bates, R.; ˇZ´ıdek,
+A.; Potapenko, A.; et al. 2021. Highly accurate protein struc-
+ture prediction with AlphaFold. Nature, 596(7873): 583–
+589.
+Karimi, M.; Wu, D.; Wang, Z.; and Shen, Y. 2019. Deep-
+Afﬁnity: interpretable deep learning of compound–protein
+afﬁnity through uniﬁed recurrent and convolutional neural
+networks. Bioinformatics, 35(18): 3329–3338.
+Kearnes, S.; McCloskey, K.; Berndl, M.; Pande, V.; and Ri-
+ley, P. 2016. Molecular graph convolutions: moving beyond
+ﬁngerprints. Journal of computer-aided molecular design,
+30(8): 595–608.
+Klicpera, J.; Giri, S.; Margraf, J. T.; and G¨unnemann,
+S. 2020.
+Fast and uncertainty-aware directional message
+passing for non-equilibrium molecules.
+arXiv preprint
+arXiv:2011.14115.
+Klicpera, J.; Groß, J.; and G¨unnemann, S. 2020.
+Direc-
+tional message passing for molecular graphs. arXiv preprint
+arXiv:2003.03123.
+Landrum, G. 2013. RDKit: A software suite for cheminfor-
+matics, computational chemistry, and predictive modeling.
+Li, A. J.; Sundar, V.; Grigoryan, G.; and Keating, A. E. ????
+TERMinator: A Neural Framework for Structure-Based Pro-
+tein Design using Tertiary Repeating Motifs.
+Li, X.; Yan, H.; Qiu, X.; and Huang, X. 2020.
+FLAT:
+Chinese NER using ﬂat-lattice transformer. arXiv preprint
+arXiv:2004.11795.
+
+Liu, Y.; Wang, L.; Liu, M.; Zhang, X.; Oztekin, B.; and Ji,
+S. 2021. Spherical message passing for 3d graph networks.
+arXiv preprint arXiv:2102.05013.
+Lu, C.; Liu, Q.; Wang, C.; Huang, Z.; Lin, P.; and He, L.
+2019.
+Molecular property prediction: A multilevel quan-
+tum interactions modeling perspective. In Proceedings of
+the AAAI Conference on Artiﬁcial Intelligence, volume 33,
+1052–1060.
+Mackenzie, C. O.; Zhou, J.; and Grigoryan, G. 2016. Ter-
+tiary alphabet for the observable protein structural universe.
+Proceedings of the National Academy of Sciences, 113(47):
+E7438–E7447.
+Martins, I. F.; Teixeira, A. L.; Pinheiro, L.; and Falcao, A. O.
+2012. A Bayesian approach to in silico blood-brain barrier
+penetration modeling. Journal of chemical information and
+modeling, 52(6): 1686–1697.
+Maziarka, Ł.; Danel, T.; Mucha, S.; Rataj, K.; Tabor, J.; and
+Jastrzebski, S. 2020. Molecule attention transformer. arXiv
+preprint arXiv:2002.08264.
+Maziarka, Ł.; Majchrowski, D.; Danel, T.; Gai´nski, P.;
+Tabor, J.; Podolak, I.; Morkisz, P.; and Jastrzebski, S.
+2021. Relative Molecule Self-Attention Transformer. arXiv
+preprint arXiv:2110.05841.
+¨Ozt¨urk, H.; ¨Ozg¨ur, A.; and Ozkirimli, E. 2018. DeepDTA:
+deep drug–target binding afﬁnity prediction. Bioinformatics,
+34(17): i821–i829.
+Ramakrishnan, R.; Dral, P. O.; Rupp, M.; and von Lilienfeld,
+O. A. 2014. Quantum chemistry structures and properties of
+134 kilo molecules. Scientiﬁc Data, 1.
+Ramakrishnan, R.; Hartmann, M.; Tapavicza, E.; and
+Von Lilienfeld, O. A. 2015. Electronic spectra from TDDFT
+and machine learning in chemical space.
+The Journal of
+chemical physics, 143(8): 084111.
+Ramsundar, B.; Kearnes, S.; Riley, P.; Webster, D.; Konerd-
+ing, D.; and Pande, V. 2015. Massively multitask networks
+for drug discovery. arXiv preprint arXiv:1502.02072.
+Rong, Y.; Bian, Y.; Xu, T.; Xie, W.; Wei, Y.; Huang, W.; and
+Huang, J. 2020. Self-supervised graph transformer on large-
+scale molecular data. arXiv preprint arXiv:2007.02835.
+Sch¨utt,
+K.
+T.;
+Sauceda,
+H.
+E.;
+Kindermans,
+P.-J.;
+Tkatchenko, A.; and M¨uller, K.-R. 2018.
+Schnet–a
+deep learning architecture for molecules and materials. The
+Journal of Chemical Physics, 148(24): 241722.
+Sch¨utt, K. T.; Unke, O. T.; and Gastegger, M. 2021.
+Equivariant message passing for the prediction of ten-
+sorial properties and molecular spectra.
+arXiv preprint
+arXiv:2102.03150.
+Somnath, V. R.; Bunne, C.; and Krause, A. 2021. Multi-
+Scale Representation Learning on Proteins. In Thirty-Fifth
+Conference on Neural Information Processing Systems.
+Subramanian, G.; Ramsundar, B.; Pande, V.; and Denny,
+R. A. 2016.
+Computational modeling of β-secretase 1
+(BACE-1) inhibitors using ligand based approaches. Journal
+of chemical information and modeling, 56(10): 1936–1949.
+Thomas, N.; Smidt, T.; Kearnes, S.; Yang, L.; Li, L.;
+Kohlhoff, K.; and Riley, P. 2018.
+Tensor ﬁeld networks:
+Rotation-and translation-equivariant neural networks for 3d
+point clouds. arXiv preprint arXiv:1802.08219.
+Townshend, R. J.; V¨ogele, M.; Suriana, P.; Derry, A.;
+Powers, A.; Laloudakis, Y.; Balachandar, S.; Anderson,
+B.; Eismann, S.; Kondor, R.; et al. 2020.
+ATOM3D:
+Tasks On Molecules in Three Dimensions. arXiv preprint
+arXiv:2012.04035.
+Vaswani, A.; Shazeer, N.; Parmar, N.; Uszkoreit, J.; Jones,
+L.; Gomez, A. N.; Kaiser, Ł.; and Polosukhin, I. 2017. At-
+tention is all you need. In Advances in neural information
+processing systems, 5998–6008.
+Vinyals, O.; Bengio, S.; and Kudlur, M. 2015.
+Order
+matters: Sequence to sequence for sets.
+arXiv preprint
+arXiv:1511.06391.
+Wang, R.; Fang, X.; Lu, Y.; Yang, C.-Y.; and Wang, S. 2005.
+The PDBbind database: methodologies and updates. Journal
+of medicinal chemistry, 48(12): 4111–4119.
+Wang, X.; Girshick, R.; Gupta, A.; and He, K. 2018. Non-
+local neural networks.
+In Proceedings of the IEEE con-
+ference on computer vision and pattern recognition, 7794–
+7803.
+Wernicke, S. 2006.
+Efﬁcient detection of network mo-
+tifs. IEEE/ACM transactions on computational biology and
+bioinformatics, 3(4): 347–359.
+Wu, Z.; Liu, Z.; Lin, J.; Lin, Y.; and Han, S. 2020. Lite
+transformer with long-short range attention. arXiv preprint
+arXiv:2004.11886.
+Wu, Z.; Ramsundar, B.; Feinberg, E. N.; Gomes, J.; Ge-
+niesse, C.; Pappu, A. S.; Leswing, K.; and Pande, V. 2018.
+MoleculeNet: a benchmark for molecular machine learning.
+Chemical science, 9(2): 513–530.
+Xiong, Z.; Wang, D.; Liu, X.; Zhong, F.; Wan, X.; Li, X.;
+Li, Z.; Luo, X.; Chen, K.; Jiang, H.; et al. 2019. Pushing the
+boundaries of molecular representation for drug discovery
+with the graph attention mechanism. Journal of medicinal
+chemistry, 63(16): 8749–8760.
+Xu, Z.; Wang, S.; Zhu, F.; and Huang, J. 2017. Seq2seq
+ﬁngerprint: An unsupervised deep molecular embedding for
+drug discovery.
+In Proceedings of the 8th ACM interna-
+tional conference on bioinformatics, computational biology,
+and health informatics, 285–294.
+Yang, K.; Swanson, K.; Jin, W.; Coley, C.; Eiden, P.; Gao,
+H.; Guzman-Perez, A.; Hopper, T.; Kelley, B.; Mathea, M.;
+et al. 2019. Analyzing learned molecular representations for
+property prediction. Journal of chemical information and
+modeling, 59(8): 3370–3388.
+Ying, C.; Cai, T.; Luo, S.; Zheng, S.; Ke, G.; He, D.;
+Shen, Y.; and Liu, T.-Y. 2021.
+Do Transformers Really
+Perform Bad for Graph Representation?
+arXiv preprint
+arXiv:2106.05234.
+Zhang, S.; Hu, Z.; Subramonian, A.; and Sun, Y. 2020.
+Motif-driven contrastive learning of graph representations.
+arXiv preprint arXiv:2012.12533.
+Zhang, Z.; Liu, Q.; Wang, H.; Lu, C.; and Lee, C.-K. 2021.
+Motif-based Graph Self-Supervised Learning for Molecular
+Property Prediction. arXiv preprint arXiv:2110.00987.
+
+Experimental Setup
+Molformer Architecture
+A standard Molformer has 6 heterogeneous self-attention
+layers, and each layer has 3 scales and 8 heads. Normally,
+scales are set by τ = [ ρ
+2, ρ, 2ρ], where ρ is the density of
+each corresponding dataset. The number of selected atoms
+K and the weight ratio λ in AFPS is set as 4 and 0.1, re-
+spectively. We use ReLU as the activation function and a
+dropout rate of 0.1 for all layers if not speciﬁed. The input
+embedding size is 512 and the hidden size for FFN is 2048.
+For BBBP and ClinTox, we use Molformer with 2 heteroge-
+neous self-attention layers with 4 heads. The scales are 0.8,
+1.6, and 3.0 ˚A. The dropout rate is 0.2 and 0.6 for BBBP and
+ClinTox, respectively. For BACE, we use a standard Mol-
+former but with a dropout rate of 0.2.
+Training Details
+We use Pytorch to implement Molformer and data paral-
+lelism in two GeForce RTX 3090. An Adam optimizer is
+used and a ReduceLROnPlateau scheduler is enforced to ad-
+just it with a factor of 0.6 and a patience of 10. We apply no
+weight decay there. Each model is trained with 300 epochs,
+except for PDBbind where we solely train the model for 30
+epochs. The data summary is in Table 7.
+For QM7 and QM8, we use a batch size of 128 and a
+learning rate of 10−4. For QM9, we use a batch size of
+256 and a learning rate of 10−3. For PDBbind, we use a
+batch size of 16 and a learning rate of 10−4. All hyper-
+parameters are tuned based on validation sets. For all molec-
+ular datasets, we impose no limitation on the input length
+and normalize the values of each regression task by mean
+and the standard deviation of the training set. We used grid
+search to tune the hyper-parameters of our model and base-
+lines based on the validation dataset (see Table 6).
+Motif Extraction
+We adopt RDKit to search motifs from SMILES repre-
+sentations of small molecules. For QM9 and PDBbind,
+Atom3D provides both 3D coordinates and SMILES. For
+QM7, DeepChem offers SMILES. For QM8, we ﬁrst at-
+tain SMILES from their 3D representations using RDKit and
+then extract motifs. For motifs in proteins, Besides, we uti-
+lize a Latin hyper-cube sampling to sample 1K quaternary
+amino acids as the candidates in each iteration, and γ is set
+as 1e−3. The motif lexicon explored by our RL method for
+the PDBbind task is in Figure 5.
+For motifs in proteins, since we aim to mine the optimal
+task-speciﬁc lexicon, it is unnecessary to take into account
+all 160,000 possible quaternions. Instead, we only need to
+consider the existing quaternions in the datasets. Speciﬁ-
+cally, there are only 29,871 kinds of quaternions in PDB-
+bind. Besides, we utilize a Latin hyper-cube sampling to
+sample 1K quaternary amino acids as the candidates in each
+iteration, and γ is set as 1e−3. The motif lexicon explored by
+our RL method for the PDBbind task is in Figure 5. More-
+over, the portion of motifs in a protein (or some part such as
+a pocket) is the number of motifs divided by the number of
+all amino acids in that protein.
+Additional Experimental Results
+Conformation Classiﬁcation
+Task and Data.
+To explore the inﬂuence of multiple con-
+formations, we introduce a new task, conformation clas-
+siﬁcation, to evaluate the model’s capacity to differenti-
+ate molecules with various low-energy conformations. We
+use the recent GEOM-QM9 which is an extension to the
+QM9 dataset. It contains multiple conformations for most
+molecules, while the original QM9 only contains one.
+We randomly draw 1000 different molecules from
+GEOM-QM9, each with 20 different conformations. Models
+are required to distinguish the molecular type given different
+conformations. We take half of each molecule’s conforma-
+tions as the training set and another half as the test split.
+Since it is a multi-class classiﬁcation problem with 1000
+classes, we compute the micro-average and macro-average
+ROC-AUC as well as the accuracy for evaluations.
+Results.
+Molformer achieves a perfect micro-average and
+macro-average ROC-AUC as well as a high accuracy (see
+Table 8). This indicates the strong robustness of our model
+against different spatial conformations of molecules.
+AFPS vs. FPS.
+To have a vivid understanding of the atom sampling algo-
+rithm, we conducted a case study on a random molecule (see
+Figure 6). Points selected by FPS are randomized and ex-
+clude vital atoms like the heavy metal Nickel (Ni). With the
+adoption of AFPS, sampled points include Ni, Nitrogen (N),
+and the benzene ring besides that they keep remote distances
+from each other. Moreover, FPS integrates too many fea-
+tures of trivial atoms like Hydrogen (H) while missing out
+on key atoms and motifs, which will signiﬁcantly smooth the
+molecular representations and lead to poor predictions. This
+illustrative example shows the effectiveness of our AFPS
+to offset the disadvantages of the conventional FPS in 3D
+molecular representation.
+Protein
+We envision a protein-ligand pair in PDBbind in Figure 7.
+It can be observed that motifs occur much more frequently
+in the area of the protein pocket than in other places. To be
+speciﬁc, the ligand is exactly surrounded by our discovered
+motifs, which strongly demonstrates the effectiveness of our
+RL method to mine motifs with semantic meanings.
+
+Hyper-parameter
+Description
+Range
+bs
+The input batch size.
+[16, 128, 256]
+lr
+The initial learning rate of ReduceLROnPlateau learning rate scheduler.
+[1e −4, 1e −5]
+min lr
+The minimum learning rate of ReduceLROnPlateau learning rate scheduler.
+5e −7
+dropout
+The dropout ratio.
+[0.1, 0.2, 0.6]
+n encoder
+The number of heterogeneous self-attention layers.
+[2, 6]
+head
+The number of self-attention heads.
+[4, 8]
+embed dim
+The dimension of input embeddings.
+512
+ffn dim
+The hidden size of MLP layers.
+1024
+k
+The number of sampled points in AFPS.
+[4, 8, 10, 20]
+lambda
+The balance ratio in AFPS.
+[0.1, 0.5, 1.0, 2.0]
+dist bar
+The scales of the multi-scale mechanism ( ˚A).
+[[0.75, 1.55, 3.0], [0.8, 1.6, 3.0], [1.5, 3.0, 6.0]]
+Table 6: The training hyper-parameters.
+Category
+Dataset
+Tasks
+Task Type
+Molecules
+Atom
+Class
+Min.
+Atoms
+Max.
+Atoms
+Density
+( ˚A)
+Metric
+Quantum
+Chemistry
+QM7
+1
+regression
+7,160
+5
+4
+23
+2.91
+MAE
+QM8
+12
+regression
+21,786
+5
+3
+26
+1.54
+MAE
+QM9
+12
+regression
+133,885
+5
+3
+28
+1.61
+MAE
+Physiology
+BBBP
+1
+classiﬁcation
+2,039
+13
+2
+132
+2.64
+ROC-AUC
+ClinTox
+2
+classiﬁcation
+1,478
+27
+1
+136
+2.83
+ROC-AUC
+Biophysics
+PDBind2
+1
+regression
+11,908
+23
+115
+1,085
+5.89
+RMSE
+BACE
+1
+classiﬁcation
+1,513
+8
+10
+73
+3.24
+ROC-AUC
+Table 7: Key statistics of datasets from three different categories.
+Hydrocarbons
+Haloalkanes
+F
+Cl
+I
+Groups containing Oxygen
+O
+OH
+O
+O
+O
+O
+Groups containing Nitrogen
+O
+N
+N
+N
+NH2
+Figure 4: Examples of the four different motif categories that we apply in Molformer based on functional groups.
+Metrics
+Acc.
+Micro.
+Macro.
+Molformer
+0.999
+1.000
+1.000
+Table 8: Molformer performance on conformation classiﬁcation.
+
+GADD
+ADDT
+DDTV
+LDTG
+VIGG
+PVIG
+IGGI
+LVSL
+RLDT
+TGAD
+Figure 5: The motif lexicon found by our RL method, where each motif is composed of ten quaternary amino acids and the
+upper-case names correspond to their compositions.
+H
+F
+Cl
+C
+Ni
+O
+N
+Figure 6: Sampled points using FPS and AFPS. The red circle represents a benzene ring. We do not show dummy nodes there.
+Figure 7: The protein-ligand pair of 2aqu in PDBbind. The yellow dot-halos denotes the motifs found in this protein.

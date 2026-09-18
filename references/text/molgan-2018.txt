@@ -1,0 +1,1561 @@
+MolGAN: An implicit generative model for small molecular graphs
+Nicola De Cao 1 Thomas Kipf 1
+Abstract
+Deep generative models for graph-structured data
+offer a new angle on the problem of chemical
+synthesis: by optimizing differentiable models
+that directly generate molecular graphs, it is pos-
+sible to side-step expensive search procedures in
+the discrete and vast space of chemical structures.
+We introduce MolGAN, an implicit, likelihood-
+free generative model for small molecular graphs
+that circumvents the need for expensive graph
+matching procedures or node ordering heuris-
+tics of previous likelihood-based methods. Our
+method adapts generative adversarial networks
+(GANs) to operate directly on graph-structured
+data. We combine our approach with a reinforce-
+ment learning objective to encourage the genera-
+tion of molecules with speciﬁc desired chemical
+properties. In experiments on the QM9 chemi-
+cal database, we demonstrate that our model is
+capable of generating close to 100% valid com-
+pounds. MolGAN compares favorably both to
+recent proposals that use string-based (SMILES)
+representations of molecules and to a likelihood-
+based method that directly generates graphs, al-
+beit being susceptible to mode collapse.
+1. Introduction
+Finding new chemical compounds with desired properties
+is a challenging task with important applications such as
+de novo drug design (Schneider & Fechner, 2005). The
+space of synthesizable molecules is vast and search in this
+space proves to be very difﬁcult, mostly owing to its discrete
+nature.
+Recent progress in the development of deep generative mod-
+els has spawned a range of promising proposals to address
+this issue. Most works in this area (G´omez-Bombarelli
+1Informatics Institute, University of Amsterdam, Amster-
+dam, The Netherlands.
+Correspondence to: Nicola De Cao
+<nicola.decao@gmail.com>.
+Presented at the ICML 2018 workshop on Theoretical Foundations
+and Applications of Deep Generative Models, Stockholm, Sweden,
+PMLR 80, 2018. Copyright 2018 by the author(s).
+Molecular graph
+Generator
+Discriminator
+Reward 
+network
+z ~ p(z)
+0/1
+0/1
+x ~ pdata(x)
+Figure 1. Schema of MolGAN. A vector z is sampled from a prior
+and passed to the generator which outputs the graph representation
+of a molecule. The discriminator classiﬁes whether the molecular
+graph comes from the generator or the dataset. The reward net-
+work tries to estimate the reward for the chemical properties of a
+particular molecule provided by an external software.
+et al., 2016; Kusner et al., 2017; Guimaraes et al., 2017;
+Dai et al., 2018) make use of a so-called SMILES repre-
+sentation (Weininger, 1988) of molecules: a string-based
+representation derived from molecular graphs. Recurrent
+neural networks (RNNs) are ideal candidates for these rep-
+resentations and consequently, most recent works follow the
+recipe of applying RNN-based generative models on this
+type of encoding. String-based representations of molecules,
+however, have certain disadvantages: RNNs have to spend
+capacity on learning both the syntactic rules and the order
+ambiguity of the representation. Besides, this is approach
+not applicable to generic (non-molecular) graphs.
+SMILES strings are generated from a graph-based represen-
+tation of molecules, thereby working in the original graph
+space has the beneﬁt of removing additional overhead. With
+recent progress in the area of deep learning on graphs (Bron-
+stein et al., 2017; Hamilton et al., 2017), training deep gen-
+erative models directly on graph representations becomes
+a feasible alternative that has been explored in a range of
+recent works (Kipf & Welling, 2016; Johnson, 2017; Grover
+et al., 2019; Li et al., 2018b; Simonovsky & Komodakis,
+2018; You et al., 2018).
+Likelihood-based methods for molecular graph generation
+arXiv:1805.11973v2  [stat.ML]  27 Sep 2022
+
+MolGAN: An implicit generative model for small molecular graphs
+(Li et al., 2018b; Simonovsky & Komodakis, 2018) how-
+ever, either require providing a ﬁxed (or randomly chosen)
+ordered representation of the graph or an expensive graph
+matching procedure to evaluate the likelihood of a generated
+molecule, as the evaluation of all possible node orderings is
+prohibitive already for graphs of small size.
+In this work, we sidestep this issue by utilizing implicit,
+likelihood-free methods, in particular, a generative adversar-
+ial network (GAN) (Goodfellow et al., 2014) that we adapt
+to work directly on graph representations. We further utilize
+a reinforcement learning (RL) objective similar to ORGAN
+(Guimaraes et al., 2017) to encourage the generation of
+molecules with particular properties.
+Our molecular GAN (MolGAN) model (outlined in Figure
+1) is the ﬁrst to address the generation of graph-structured
+data in the context of molecular synthesis using GANs
+(Goodfellow et al., 2014). The generative model of Mol-
+GAN predicts discrete graph structure at once (i.e., non-
+sequentially) for computational efﬁciency, although sequen-
+tial variants are possible in general. MolGAN further uti-
+lizes a permutation-invariant discriminator and reward net-
+work (for RL-based optimization towards desired chemi-
+cal properties) based on graph convolution layers (Bruna
+et al., 2014; Duvenaud et al., 2015; Kipf & Welling, 2017;
+Schlichtkrull et al., 2017) that both operate directly on graph-
+structured representations.
+2. Background
+2.1. Molecules as graphs
+Most previous deep generative models for molecular data
+(G´omez-Bombarelli et al., 2016; Kusner et al., 2017;
+Guimaraes et al., 2017; Dai et al., 2018) resort to gener-
+ating SMILES representations of molecules. The SMILES
+syntax, however, is not robust to small changes or mistakes,
+which can result in the generation of invalid or drastically
+different structures. Grammar VAEs (Kusner et al., 2017)
+alleviate this problem by constraining the generative process
+to follow a particular grammar.
+Operating directly in the space of graphs has recently been
+shown to be a viable alternative for generative modeling of
+molecular data (Li et al., 2018b; Simonovsky & Komodakis,
+2018) with the added beneﬁt that all generated outputs are
+valid graphs (but not necessarily valid molecules).
+We consider that each molecule can be represented by an
+undirected graph G with a set of edges E and nodes V.
+Each atom corresponds to a node vi ∈V that is associ-
+ated with a T-dimensional one-hot vector xi, indicating
+the type of the atom. We further represent each atomic
+bond as an edge (vi, vj) ∈E associated with a bond type
+y ∈{1, ..., Y }. For a molecular graph with N nodes, we
+can summarize this representation in a node feature ma-
+trix X = [x1, ..., xN]T ∈RN×T and an adjacency tensor
+A ∈RN×N×Y where Aij ∈RY is a one-hot vector indi-
+cating the type of the edge between i and j.
+2.2. Implicit vs. likelihood-based methods
+Likelihood-based methods such as the variational auto-
+encoder (VAE) (Kingma & Welling, 2014; Rezende et al.,
+2014) typically allow for easier and more stable optimization
+than implicit generative models such as a GAN (Goodfel-
+low et al., 2014). When generating graph-structured data,
+however, we wish to be invariant to reordering of nodes
+in the (ordered) matrix representation of the graph, which
+requires us to either perform a prohibitively expensive graph
+matching procedure (Simonovsky & Komodakis, 2018) or
+to evaluate the likelihood for all possible node permutations
+explicitly.
+By resorting to implicit generative models, in particular
+to the GAN framework, we circumvent the need for an
+explicit likelihood. While the discriminator of the GAN
+can be made invariant to node ordering by utilizing graph
+convolutions (Bruna et al., 2014; Duvenaud et al., 2015;
+Kipf & Welling, 2017) and a node aggregation operator (Li
+et al., 2016), the generator still has to decide on a speciﬁc
+node ordering when generating a graph. Since we do not
+provide a likelihood, however, the generator is free to choose
+any suitable ordering for the task at hand. We provide a
+brief introduction to GANs in the following.
+Generative adversarial networks
+GANs (Goodfellow
+et al., 2014) are implicit generative models in the sense
+that they allow for inference of model parameters without
+requiring one to specify a likelihood.
+A GAN consist of two main components: a generative
+model Gθ, that learns a map from a prior to the data distribu-
+tion to sample new data-points, and a discriminative model
+Dφ, that learns to classify whether samples came from the
+data distribution rather than from Gθ. Those two models are
+implemented as neural networks and trained simultaneously
+with stochastic gradient descent (SGD). Gθ and Dφ have
+different objectives, and they can be seen as two players in
+a minimax game
+min
+θ
+max
+φ
+Ex∼pdata(x)[log Dφ(x)]+
+Ez∼pz(z)[log(1 −Dφ(Gθ(z))] ,
+(1)
+where Gθ tries to generate samples to fool the discriminator
+and Dφ tries to differentiate samples correctly. To prevent
+undesired behaviour such as mode collapse (Salimans et al.,
+2016) and to stabilize learning, we use minibatch discrimina-
+tion (Salimans et al., 2016) and improved WGAN (Gulrajani
+et al., 2017), an alternative and more stable GAN model that
+minimizes a better suited divergence.
+
+MolGAN: An implicit generative model for small molecular graphs
+Improved WGAN
+WGANs (Arjovsky et al., 2017) mini-
+mize an approximation of the Earth Mover (EM) distance
+(also know as Wasserstein-1 distance) deﬁned between two
+probability distributions. Formally, the Wasserstein distance
+between p and q, using the Kantorovich-Rubinstein duality
+is
+DW [p||q] = 1
+K
+sup
+∥f∥L<K
+Ex∼p(x)
+
+f(x)
+
+−Ex∼q(x)
+
+f(x)
+
+,
+(2)
+where in the case of WGAN, p is the empirical distribution
+and q is the generator distribution. Note that the supremum
+is over all the K-Lipschitz functions for some K > 0.
+Gulrajani et al. (2017) introduce a gradient penalty as an
+alternative soft constraint on the 1-Lipschitz continuity as
+an improvement upon the gradient clipping scheme from
+the original WGAN. The loss with respect to the generator
+remains the same as in WGAN, but the loss function with
+respect to the discriminator is modiﬁed to be
+L(x(i), Gθ(z(i)); φ) = −Dφ(x(i)) + Dφ(Gθ(z(i)))
+|
+{z
+}
+original WGAN loss
++
+α
+
+∥∇ˆx(i)Dφ(ˆx(i))∥−1
+2
+|
+{z
+}
+gradient penalty
+, (3)
+where α is a hyperparameter (we use α = 10 as in the
+original paper), ˆx(i) is a sampled linear combination be-
+tween x(i) ∼pdata(x) and Gθ(z(i)) with z(i) ∼pz(z),
+thus ˆx(i) = ϵ x(i) + (1 −ϵ) Gθ(z(i)) with ϵ ∼U(0, 1).
+2.3. Deterministic policy gradients
+A GAN generator learns a transformation from a prior dis-
+tribution to the data distribution. Thus, generated samples
+resemble data samples. However, in de novo drug design
+methods, we are not only interested in generating chem-
+ically valid compounds, but we want them to have some
+useful property (e.g., to be easily synthesizable). There-
+fore, we also optimize the generation process towards some
+non-differentiable metrics using reinforcement learning.
+In reinforcement learning, a stochastic policy is represented
+by πθ(s) = pθ(a|s) which is a parametric probability distri-
+bution in θ that selects a categorical action a conditioned on
+an state s. Conversely, a deterministic policy is represented
+by µθ(s) = a which deterministically outputs an action.
+In initial experiments, we explored using REINFORCE
+(Williams, 1992) in combination with a stochastic policy
+that models graph generation as a set of categorical choices
+(actions). However, we found that it converged poorly due to
+the high dimensional action space when generating graphs
+at once. We instead base our method on a deterministic
+policy gradient algorithm which is known to perform well
+in high-dimensional action spaces (Silver et al., 2014). In
+particular, we employ a simpliﬁed version of deep determin-
+istic policy gradient (DDPG) introduced by Lillicrap et al.
+(2016), an off-policy actor-critic algorithm that uses deter-
+ministic policy gradients to maximize an approximation of
+the expected future reward.
+In our case, the policy is the GAN generator Gθ which takes
+a sample z for the prior as input, instead of an environmental
+state s, and it outputs a molecular graph as an action (a =
+G). Moreover, we do not model episodes, so there is no
+need to assess the quality of a state-action combination
+since it does only depend on the graph G. Therefore, we
+introduce a learnable and differentiable approximation of the
+reward function ˆRψ(G) that predicts the immediate reward,
+and we train it via a mean squared error objective based
+on the real reward provided by an external system (e.g.,
+the synthesizability score of a molecule). Then, we train
+the generator maximizing the predicted reward via ˆRψ(G)
+which, being differentiable, provides a gradient to the policy
+towards the desired metric.
+3. Model
+The MolGAN architecture (Figure 2) consists of three main
+components: a generator Gθ, a discriminator Dφ and a
+reward network ˆRψ.
+The generator takes a sample from a prior distribution and
+generates an annotated graph G representing a molecule.
+Nodes and edges of G are associated with annotations denot-
+ing atom type and bond type respectively. The discriminator
+takes both samples from the dataset and the generator and
+learns to distinguish them. Both Gθ and Dφ are trained
+using improved WGAN such that the generator learns to
+match the empirical distribution and eventually outputs valid
+molecules.
+The reward network is used to approximate the reward
+function of a sample and optimize molecule generation to-
+wards non-differentiable metrics using reinforcement learn-
+ing. Dataset and generated samples are inputs of ˆRψ, but,
+differently from the discriminator, it assigns scores to them
+(e.g., how likely the generated molecule is to be soluble
+in water). The reward network learns to assign a reward
+to each molecule to match a score provided by an external
+software1. Notice that, when MolGAN outputs a non-valid
+molecule, it is not possible to assign a reward since the
+graph is not even a compound. Thus, for invalid molecular
+graphs, we assign zero rewards.
+The discriminator is trained using the WGAN objective
+while the generator uses a linear combination of the WGAN
+1We used the RDKit Open-Source Cheminformatics Software:
+http://www.rdkit.org.
+
+MolGAN: An implicit generative model for small molecular graphs
+Generator
+Graph
+Molecule
+N
+N
+N
+N
+N
+N
+T
+T
+z ~ p(z)
+Adjacency tensor
+Sampled
+Sampled
+Annotation matrix
+~
+~
+GCN
+GCN
+0/1
+0/1
+Discriminator
+Reward network
+A
+X
+˜X
+˜A
+Figure 2. Outline of MolGAN. From left: the generator takes a sample from a prior distribution and generates a dense adjacency tensor
+A and an annotation matrix X. Subsequently, sparse and discrete ˜
+A and ˜
+X are obtained from A and X respectively via categorical
+sampling. The combination of ˜
+A and ˜
+X represents an annotated molecular graph which corresponds to a speciﬁc chemical compound.
+Finally, the graph is processed by both the discriminator and reward networks that are invariant to node order permutations and based on
+Relational-GCN (Schlichtkrull et al., 2017) layers.
+loss and the RL loss:
+L(θ) = λ · LW GAN(θ) + (1 −λ) · LRL(θ) ,
+(4)
+where λ ∈[0, 1] is a hyperparameter that regulates the trade-
+off between the two components.
+3.1. Generator
+Gφ(z) takes D-dimensional vectors z ∈RD sampled from
+a standard normal distribution z ∼N(0, I) and outputs
+graphs. While recent works have shown that it is feasible
+to generate graphs of small size by using an RNN-based
+generative model (Johnson, 2017; You et al., 2018; Li et al.,
+2018a;b) we, for simplicity, utilize a generative model that
+predicts the entire graph at once using a simple multi-layer
+perceptron (MLP), as similarly done in Simonovsky & Ko-
+modakis (2018). While this limits our study to graphs of
+a pre-chosen maximum size, we ﬁnd that it is signiﬁcantly
+faster and easier to optimize.
+We restrict the domain to graphs of a limited number of
+nodes and, for each z, Gθ outputs two continuous and dense
+objects: X ∈RN×T that deﬁnes atom types and AN×N×Y
+that deﬁnes bonds types (see Section 2.1). Both X and
+A have a probabilistic interpretation since each node and
+edge type is represented with probabilities of categorical
+distributions over types. To generate a molecule we obtain
+discrete, sparse objects ˜
+X and ˜
+A via categorical sampling
+from X and A, respectively. We overload notation and also
+represent samples from the dataset with binary ˜
+X and ˜
+A.
+As this discretization process is non-differentiable, we ex-
+plore three model variations to allow for gradient-based
+training: We can i) use the continuous objects X and
+A directly during the forward pass (i.e., ˜
+X = X and
+˜
+A = A), ii) add Gumbel noise to X and A before
+passing them to Dφ and ˆRψ in order to make the gen-
+eration stochastic while still forwarding continuous ob-
+jects (i.e., ˜
+Xij = Xij + Gumbel(µ = 0, β = 1) and
+˜
+A = Aijy + Gumbel(µ = 0, β = 1)), or iii) use a straight-
+through gradient based on categorical reparameterization
+with the Gumbel-Softmax (Jang et al., 2017; Maddison
+et al., 2017), that is we use a sample form a categorical
+distribution during the forward pass (i.e., ˜
+Xi = Cat(Xi)
+and ˜
+Aij = Cat(Aij)) and the continuous relaxed values
+(i.e., the original X and A) in the backward pass.
+3.2. Discriminator and reward network
+Both the discriminator Dφ and the reward network ˆRψ re-
+ceive a graph as input, and they output a scalar value each.
+We choose the same architecture for both networks but do
+not share parameters between them. A series of graph con-
+volution layers convolve node signals ˜
+X using the graph
+adjacency tensor ˜
+A. We base our model on Relational-GCN
+(Schlichtkrull et al., 2017), a convolutional network for
+graphs with support for multiple edge types. At every layer,
+feature representations of nodes are convolved/propagated
+according to:
+h′(ℓ+1)
+i
+= f (ℓ)
+s (h(ℓ)
+i , xi) +
+N
+X
+j=1
+Y
+X
+y=1
+˜
+Aijy
+|Ni| f (ℓ)
+y (h(ℓ)
+j , xj) ,
+h(ℓ+1)
+i
+= tanh(h′(ℓ+1)
+i
+) ,
+(5)
+where h(ℓ)
+i
+is the signal of the node i at layer ℓand f (ℓ)
+s
+is a
+linear transformation function that acts as a self-connection
+between layers. We further utilize an edge type-speciﬁc
+afﬁne function f (ℓ)
+y
+for each layer. Ni denotes the set of
+neighbors for node i. The normalization factor 1/|Ni| en-
+sures that activations are on a similar scale irrespective of
+the number of neighbors.
+
+MolGAN: An implicit generative model for small molecular graphs
+After several layers of propagation via graph convolutions,
+following Li et al. (2016) we aggregate node embeddings
+into a graph level representation vector as
+h′
+G =
+X
+v∈V
+σ(i(h(L)
+v
+, xv)) ⊙tanh(j(h(L)
+v
+, xv)) ,
+hG = tanh h′
+G ,
+(6)
+where σ(x) = 1/(1+exp(−x)) is the logistic sigmoid func-
+tion, i and j are MLPs with a linear output layer and ⊙de-
+notes element-wise multiplication. Then, hG is a vector rep-
+resentation of the graph G and it is further processed by an
+MLP to produce a graph level scalar output ∈(−∞, +∞)
+for the discriminator and ∈(0, 1) for the reward network.
+4. Related work
+Objective-Reinforced Generative Adversarial Networks
+(ORGAN) by Guimaraes et al. (2017) is the closest re-
+lated work to ours. Their model relies on SeqGAN (Yu
+et al., 2017) to adversarially learn to output sequences while
+optimizing towards chemical metrics with REINFORCE
+(Williams, 1992). The main differences from our approach
+is that they model sequences of SMILES as molecular rep-
+resentations instead of graphs, and their RL component uses
+REINFORCE while we use DDPG. Segler et al. (2018) also
+employs RL for drug discovery by searching retrosynthetic
+routes using Monte Carlo Tree Search (MCTS) in combina-
+tion with an expansion policy network.
+Several other works have explored training generative mod-
+els on SMILES representations of molecules: CharacterVAE
+(G´omez-Bombarelli et al., 2016) is the ﬁrst such model that
+is based on a VAE with recurrent encoder and decoder net-
+works. GrammarVAE (Kusner et al., 2017) and SDVAE
+(Dai et al., 2018) constrain the decoding process to follow
+particular syntactic and semantic rules.
+A related line of research considers training deep genera-
+tive models to output graph-structured data directly. Sev-
+eral works explored auto-encoder architectures utilizing
+graph convolutions for link prediction within graphs (Kipf
+& Welling, 2016; Grover et al., 2019; Davidson et al., 2018).
+Johnson (2017); Li et al. (2018b); You et al. (2018); Li et al.
+(2018a) on the other hand developed likelihood-based meth-
+ods to directly output graphs of arbitrary size in a sequential
+manner. Several related works have explored extending
+VAEs to generate graphs directly, examples include the
+GraphVAE (Simonovsky & Komodakis, 2018), Junction
+Tree VAE (Jin et al., 2018) and the NeVAE (Samanta et al.,
+2018) model.
+For link prediction within graphs, a range of adversarial
+methods have been introduced in the literature (Minervini
+et al., 2017; Wang et al., 2018; Bojchevski et al., 2018). This
+class of models, however, is not suitable to generate molec-
+ular graphs from scratch, which makes direct comparison
+infeasible.
+5. Experiments
+We compare MolGAN against recent neural network-based
+drug generation models in a range of experiments on es-
+tablished benchmarks using the QM9 (Ramakrishnan et al.,
+2014) chemical database. We ﬁrst focus on studying the
+effect of the λ parameter to ﬁnd the best trade-off between
+the GAN and RL objective (see Section 5.1). We then
+compare MolGAN with ORGAN (Guimaraes et al., 2017)
+since it is the most related work to ours: ORGAN is a
+sequential generative model operating on SMILES represen-
+tations, optimizing towards several chemical properties with
+an RL objective (see Section 5.2). We also compare our
+model against variational autoencoding methods (Section
+5.3) such as CharacterVAE (G´omez-Bombarelli et al., 2016),
+GrammarVAE (Kusner et al., 2017), as well as a recent
+graph-based generative model: GraphVAE (Simonovsky &
+Komodakis, 2018).
+Dataset
+In all experiments, we used QM9 (Ramakrishnan
+et al., 2014) a subset of the massive 166.4 billion molecules
+GDB-17 chemical database (Ruddigkeit et al., 2012). QM9
+contains 133,885 organic compounds up to 9 heavy atoms:
+carbon (C), oxygen (O), nitrogen (N) and ﬂuorine (F).
+Generator architecture
+The generator architecture is
+ﬁxed for all experiments. We use N = 9 as the maxi-
+mum number of nodes, T = 5 as the number of atom types
+(C, O, N, F, and one padding symbol), and Y = 4 as the
+number of bond types (single, double, triple and no bond).
+These dimensionalities are enough to cover all molecules in
+QM9. The generator takes a 32-dimensional vector sampled
+from a standard normal distribution z ∼N(0, I) and pro-
+cess it with a 3-layer MLP of [128, 256, 512] hidden units
+respectively, with tanh as activation functions. Eventually,
+the last layer is linearly projected to match X and A dimen-
+sions and normalized in their last dimension with a softmax
+operation (softmax(x)i = exp(xi)/ PD
+i=1 exp(xi)).
+Discriminator and reward network architecture
+Both
+networks use a RelationalGCN encoder (see Eq. 5) with two
+layers and [64, 32] hidden units, respectively, to process the
+input graphs. Subsequently, we compute a 128-dimensional
+graph-level representation (see Eq. 6) further processed by
+a 2-layer MLP of dimensions [128, 1] and with tanh as
+hidden layer activation function. In the reward network, we
+further use a sigmoid activation function on the output.
+Evaluation measures
+We measure the following statis-
+tics as deﬁned in Samanta et al. (2018): validity, novelty,
+and uniqueness. Validity is deﬁned as the ratio between
+
+MolGAN: An implicit generative model for small molecular graphs
+the number of valid and all generated molecules. Novelty
+measures the ratio between the set of valid samples that are
+not in the dataset and the total number of valid samples. Fi-
+nally, uniqueness is deﬁned as the ratio between the number
+of unique samples and valid samples and it measures the
+degree of variety during sampling.
+Training
+In all experiments, we use a batch size of 32
+and train using the Adam (Kingma & Ba, 2015) optimizer
+with a learning rate of 10−3. For each setting, we employ a
+grid search over dropout rates ∈{0.0, 0.1, 0.25} (Srivastava
+et al., 2014) as well as over discretization variations (as de-
+scribed in Section 3.1). We always report the results of the
+best model depending on what we are optimizing for (e.g.,
+when optimizing solubility we report the model with the
+highest solubility score – when no metric is optimized we
+report the model with the highest sum of individual scores).
+Although the use of WGAN should prevent, to some extent,
+undesired behaviors like mode collapse (Salimans et al.,
+2016), we notice that our models suffer from that problem.
+We leave addressing this issue for future work. As a sim-
+ple countermeasure, we employ early stopping, evaluating
+every 10 epochs, to avoid completely collapsed modes. In
+particular, we use the unique score to measure the degree of
+collapse of our models since it intrinsically indicates how
+much variety there is in the generation process. We set an
+arbitrary threshold of 2% under which we consider a model
+to be collapsed and stop training.
+During early stages of our work, we noticed that the reward
+network needs several epochs of pretraining before being
+used to propagate the gradient to the generator, otherwise the
+generator easily diverges. We think this happens because at
+the beginning of the training, ˆRψ does not predict the reward
+accurately and then it does not optimize the generator well.
+Therefore, in each experiment, we train the generator for the
+ﬁrst half of the epochs without the RL component, but using
+the WGAN objective only. We train the reward network
+during these epochs, but no RL loss is used to train the
+generator. For the second half of the epochs we use the
+combined loss in Equation 4.
+5.1. Effect of λ
+As in Guimaraes et al. (2017), the λ hyperparameter controls
+the trade-off between maximizing the desired objective and
+regulating the generator to match the data distribution. We
+study the effects of λ ∈{0.0, 0.01, 0.05, 0.5, 1.0} on the
+solubility metric (see Section 5.2 for more details). We train
+for 300 epochs (150 of which for pretraining) on the 5k
+subset of QM9 used in Guimaraes et al. (2017). We use
+the best λ parameter – determined via the model with the
+maximum sum of valid, unique, novel, and solubility scores
+– on all other experiments (Section 5.2 and 5.3) without
+doing any further search.
+Results
+We report results in Table 1. We observe a clear
+trend towards higher validity scores for lower values of
+λ. This is likely due to the implicit optimization of valid
+molecules since invalid ones receive zero reward during
+training. Therefore, if the RL loss component is strong, the
+generator is optimized to generate mostly valid molecular
+graphs. Conversely, it appears that λ does not mainly affect
+the unique and novel scores. Notice that these scores are
+not optimized, neither directly nor indirectly, and therefore
+they are a result of model architecture, hyperparameters,
+and training procedure. Indeed, the unique score is always
+close to 2% (which is our threshold) indicating that models
+appear to collapse (even in the RL only case) if we do not
+apply early stopping.
+We also run λ = 0 without starting from a pretrained model.
+We observe that it succeeds in optimizing toward the desired
+metrics, but it collapses outputting very few samples (i.e.,
+low unique score). This behavior may indicate that pretrain-
+ing is fundamental for matching the data distribution before
+using RL since the GAN acts regularizing towards diversity.
+Since λ controls the trade-off between the WGAN and RL
+losses, it is not surprising that λ = 0 (i.e., only RL in
+the second half of training) results in the highest valid and
+solubility scores compared to other values. The λ value with
+the highest sum of scores is λ = 0. We use this value for
+subsequent experiments.
+Algorithm
+Valid
+Unique
+Novel
+Sol.
+λ = 0 (full RL)*
+100.0
+0.03
+100.0
+0.98
+λ = 0 (full RL)
+99.8
+2.3
+97.9
+0.86
+λ = 0.01
+98.2
+2.2
+98.1
+0.74
+λ = 0.05
+92.2
+2.7
+95.0
+0.67
+λ = 0.1
+87.3
+3.2
+87.2
+0.56
+λ = 0.5
+86.6
+2.1
+87.5
+0.48
+λ = 1 (no RL)
+87.7
+2.9
+97.7
+0.54
+Table 1. Comparison of different combinations of RL and GAN
+objectives on the small 5k dataset after GAN-based pretraining for
+150 epochs. All values are reported in percentages except for the
+solubility score. * indicates no GAN-based pretraining and Sol.
+indicates Solubility.
+5.2. Objectives optimization
+Similarly to the previous experiment, we train our model for
+300 epochs on the 5k QM9 subset while optimizing the same
+objectives as Guimaraes et al. (2017) to compare against
+their work. Moreover, we also report results on the full
+dataset trained for 30 epochs (note that the full dataset is 20
+times larger than the subset). All scores are normalized to lie
+within [0, 1]. We assign a score of zero to invalid compounds
+(i.e., implicitly we are also optimizing a validity score). We
+choose to optimize the following objectives which represent
+
+MolGAN: An implicit generative model for small molecular graphs
+Objective
+Algorithm
+Valid (%)
+Unique (%)
+Time (h)
+Diversity
+Druglikeliness
+Synthesizability
+Solubility
+Druglikeliness
+ORGAN
+88.2
+69.4*
+9.63*
+0.55
+0.52
+0.32
+0.35
+OR(W)GAN
+85.0
+8.2*
+10.06*
+0.95
+0.60
+0.54
+0.47
+Naive RL
+97.1
+54.0*
+9.39*
+0.80
+0.57
+0.53
+0.50
+MolGAN
+99.9
+2.0
+1.66
+0.95
+0.61
+0.68
+0.52
+MolGAN (QM9)
+100.0
+2.2
+4.12
+0.97
+0.62
+0.59
+0.53
+Synthesizability
+ORGAN
+96.5
+45.9*
+8.66*
+0.92
+0.51
+0.83
+0.45
+OR(W)GAN
+97.6
+30.7*
+9.60*
+1.00
+0.20
+0.75
+0.84
+Naive RL
+97.7
+13.6*
+10.60*
+0.96
+0.52
+0.83
+0.46
+MolGAN
+99.4
+2.1
+1.04
+0.75
+0.52
+0.90
+0.67
+MolGAN (QM9)
+100.0
+2.1
+2.49
+0.95
+0.53
+0.95
+0.68
+Solubility
+ORGAN
+94.7
+54.3*
+8.65*
+0.76
+0.50
+0.63
+0.55
+OR(W)GAN
+94.1
+20.8*
+9.21*
+0.90
+0.42
+0.66
+0.54
+Naive RL
+92.7
+100.0*
+10.51*
+0.75
+0.49
+0.70
+0.78
+MolGAN
+99.8
+2.3
+0.58
+0.97
+0.45
+0.42
+0.86
+MolGAN (QM9)
+99.8
+2.0
+1.62
+0.99
+0.44
+0.22
+0.89
+All/Alternated
+ORGAN
+96.1
+97.2*
+10.2*
+0.92
+0.52
+0.71
+0.53
+All/Simultaneously
+MolGAN
+97.4
+2.4
+2.12
+0.91
+0.47
+0.84
+0.65
+All/Simultaneously
+MolGAN (QM9)
+98.0
+2.3
+5.83
+0.93
+0.51
+0.82
+0.69
+Table 2. Gray cells indicate directly optimized objectives. Baseline results are taken from Guimaraes et al. (2017) (Table 1) and * indicates
+results reproduced by us using the code provided by the authors.
+qualities typically desired for drug discovery:
+Druglikeness:
+how likely a compound is to be a drug.
+The Quantitative Estimate of Druglikeness (QED) score
+quantiﬁes compound quality with a weighted geometric
+mean of desirability scores capturing the underlying data dis-
+tribution of several drug properties (Bickerton et al., 2012).
+Solubility:
+the degree to which a molecule is hydrophilic.
+The log octanol-water partition coefﬁcient (logP), is deﬁned
+as the logarithm of the ratio of the concentrations between
+two solvents of a solute (Comer & Tam, 2001).
+Synthetizability:
+this measure quantiﬁes how easy a
+molecule is to synthesize. The Synthetic Accessibility score
+(Ertl & Schuffenhauer, 2009) is a method to estimate the
+ease of synthesis in a probabilistic way.
+We also measure, without optimizing for it, a diversity score
+which indicates how likely a molecule is to be diverse with
+respect to the dataset. This measure compares sub-structures
+between samples and a random subset from the dataset
+indicating how many repetitions there are.
+For evaluation, we report average scores from 6400 sampled
+compounds as in (Guimaraes et al., 2017). Additionally,
+we re-run experiments from (Guimaraes et al., 2017) to
+compute unique scores and execution time since it is not
+reported. Differently from ORGAN, to optimize for all
+objectives, we do not alternate between optimizing them
+individually during training which in our case is not possible
+since the reward network is speciﬁc to a single type of
+reward. Thus, we instead optimize a joint reward which we
+deﬁne as the product (to lie within ∈[0, 1]) of all objectives.
+Results
+Results are reported in Table 2. Qualitative sam-
+ples are provided in the Appendix (Figure 3). We observe
+that MolGAN models always converge to very high validity
+outputs > 97% at the end of the training. This is coherent as
+observed in the previous experiment, since also here there is
+an implicit optimization of validity. Moreover, in all single
+metrics settings, our models beat ORGAN models in terms
+of valid scores as well as all the three objective scores we
+optimize for.
+We argue that this should be mainly due to two factors: i)
+intuitively, it should be easier to optimize a molecular graph
+predicted as a single sample than to optimize an RNN model
+that outputs a sequence of characters, and ii) using the deter-
+ministic policy gradient instead of REINFORCE effectively
+provides a better gradient and it improves the sampling
+procedure towards metrics while penalizing invalid graphs.
+Training on the full QM9 dataset for 10 times fewer epochs
+further improves results in almost all scores. During train-
+ing, our algorithm observes more different samples, and
+therefore it can learn well with much fewer iterations. More-
+over, it can observe molecules with more diverse structures
+and properties.
+As previously observed in Section 5.1, also in this experi-
+ment the unique score is always close to 2% conﬁrming our
+hypothesis that our models are susceptible to mode collapse.
+This is not the case for the ORGAN baseline. During sam-
+pling, ORGAN generates sequences of maximum 51 char-
+acters which allows it to generate larger molecules whereas
+our model is (by choice) constrained to generate up to 9
+atoms. This explain the difference in unique score since the
+
+MolGAN: An implicit generative model for small molecular graphs
+Algorithm
+Valid
+Unique
+Novel
+CharacterVAE
+10.3
+67.5
+90.0
+GrammarVAE
+60.2
+9.3
+80.9
+GraphVAE
+55.7
+76.0
+61.6
+GraphVAE/imp
+56.2
+42.0
+75.8
+GraphVAE NoGM
+81.0
+24.1
+61.0
+MolGAN
+98.1
+10.4
+94.2
+Table 3. Comparison with different algorithms on QM9. Values
+are reported in percentages. Baseline results are taken from Si-
+monovsky & Komodakis (2018).
+chance of generating different molecules in a smaller space
+is much lower. Notice that in ORGAN, the RL component
+relies on REINFORCE, and the unique score is optimized
+penalizing non-unique outputs which we do not.
+In terms of training time, our model outperforms ORGAN
+by a large margin when training on the 5k dataset (at least
+∼5 times faster in each setting), as we do not rely on se-
+quential generation or discrimination. Both ORGAN and
+MolGAN have a comparable number of parameters, with
+the latter being approximately 20% larger.
+5.3. VAE Baselines
+In this experiment, we compare MolGAN against recent
+likelihood-based methods that utilize VAEs. We report a
+comparison with CharacterVAE (G´omez-Bombarelli et al.,
+2016), GrammarVAE (Kusner et al., 2017), and GraphVAE
+(Simonovsky & Komodakis, 2018). Here we train using the
+complete QM9 dataset. Naturally, we compare only with
+metrics that measure the quality of the generative process
+since the likelihood is not computed directly in MolGAN.
+Moreover, we do not optimize any particular chemical prop-
+erty except validity (i.e., we do not optimize any metric
+described above, but we optimize towards chemically valid
+compounds). The ﬁnal evaluation scores are an average
+from 104 random samples. The number of samples differs
+from the previous experiment to be in line with the setting
+in Simonovsky & Komodakis (2018).
+Results
+Results are reported in Table 3. Training on the
+full QM9 dataset (without optimizing any metric except
+validity) results in a model with a higher unique score com-
+pared to the ones in Section 5.2.
+Though the unique score of MolGAN is slightly higher
+compared to GrammarVAE, the other baselines are superior
+in terms of this score. Even though here we do not con-
+sider our model to be collapsed, such a low score conﬁrms
+our hypothesis that our model is prone to mode collapse.
+On the other hand, we observe signiﬁcantly higher validity
+scores compared to the VAE-based baselines.To verify that
+sampled unique molecules are (mostly) novel and not sim-
+ply memorized from the dataset, we additionally measure
+how many of the unique molecules are also novel for our
+model. This score is 97% indicating that almost all unique
+molecules are indeed novel and MolGAN does not suffer
+from such problems.
+Differently from our approach, VAEs optimize the evidence
+lower bound (ELBO) and there is no explicit nor implicit
+optimization of output validity. Moreover, since a part of the
+ELBO maximizes reconstruction of the observations, the
+novelty in the sampling process is not expected to be high
+since it is not optimized. However, in all reported methods
+novelty is > 60% and, in the case of CharacterVAE, 90%.
+Though CharacterVAE can achieve a high novelty score, it
+underperforms in terms of validity. MolGAN, on the other
+hand, achieves both high validity and novelty scores.
+6. Conclusions
+In this work, we have introduced MolGAN: an implicit gen-
+erative model for molecular graphs of small size. Through
+joint training with a GAN and an RL objective, our model is
+capable of generating molecular graphs with both higher va-
+lidity and novelty than previous comparable VAE-based gen-
+erative models, while not requiring a permutation-dependent
+likelihood function. Compared to a recent SMILES-based
+sequential GAN model for molecular generation, MolGAN
+can achieve higher chemical property scores (such as solu-
+bility) while allowing for at least ∼5x faster training time.
+A central limitation of our current formulation of MolGANs
+is their susceptibility to mode collapse: both the GAN and
+the RL objective do not encourage generation of diverse and
+non-unique outputs whereby the model tends to be pulled
+towards a solution that only involves little sample variability.
+This ultimately results in the generation of only a handful
+of different molecules if training is not stopped early.
+We think that this issue can be addressed in future work,
+for example via careful design of reward functions or some
+form of pretraining. The MolGAN framework taken to-
+gether with established benchmark datasets for chemical
+synthesis offer a new test bed for improvements on GAN
+stability with respect to the issue of mode collapse. We
+believe that insights gained from such evaluations will be
+valuable to the community even outside of the scope of gen-
+erating molecular graphs. Lastly, it will be promising to
+explore alternative generative architectures within the Mol-
+GAN framework, such as recurrent graph-based generative
+models (Johnson, 2017; Li et al., 2018b; You et al., 2018),
+as our current one-shot prediction of the adjacency tensor is
+most likely feasible only for graphs of small size.
+
+MolGAN: An implicit generative model for small molecular graphs
+Acknowledgements
+The authors would like to thank Luca Falorsi, Tim R. David-
+son, Herke van Hoof and Max Welling for helpful discus-
+sions and feedback. T.K. is supported by SAP SE Berlin.
+References
+Arjovsky, Mart´ın, Chintala, Soumith, and Bottou, L´eon.
+Wasserstein generative adversarial networks.
+In Pre-
+cup, Doina and Teh, Yee Whye (eds.), Proceed-
+ings of the 34th International Conference on Ma-
+chine Learning, ICML 2017, Sydney, NSW, Australia,
+6-11 August 2017, volume 70 of Proceedings of
+Machine Learning Research, pp. 214–223. PMLR,
+2017. URL http://proceedings.mlr.press/
+v70/arjovsky17a.html.
+Bickerton, G Richard, Paolini, Gaia V, Besnard, J´er´emy,
+Muresan, Sorel, and Hopkins, Andrew L. Quantifying
+the chemical beauty of drugs. Nature chemistry, 4(2):90,
+2012.
+Bojchevski, Aleksandar, Shchur, Oleksandr, Z¨ugner, Daniel,
+and G¨unnemann, Stephan. Netgan: Generating graphs via
+random walks. In Dy, Jennifer G. and Krause, Andreas
+(eds.), Proceedings of the 35th International Conference
+on Machine Learning, ICML 2018, Stockholmsm¨assan,
+Stockholm, Sweden, July 10-15, 2018, volume 80 of Pro-
+ceedings of Machine Learning Research, pp. 609–618.
+PMLR, 2018.
+URL http://proceedings.mlr.
+press/v80/bojchevski18a.html.
+Bronstein, Michael M, Bruna, Joan, LeCun, Yann, Szlam,
+Arthur, and Vandergheynst, Pierre. Geometric deep learn-
+ing: going beyond euclidean data. IEEE Signal Process-
+ing Magazine, 34(4):18–42, 2017.
+Bruna, Joan, Zaremba, Wojciech, Szlam, Arthur, and Le-
+Cun, Yann. Spectral networks and locally connected
+networks on graphs. In Bengio, Yoshua and LeCun, Yann
+(eds.), 2nd International Conference on Learning Rep-
+resentations, ICLR 2014, Banff, AB, Canada, April 14-
+16, 2014, Conference Track Proceedings, 2014. URL
+http://arxiv.org/abs/1312.6203.
+Comer, John and Tam, Kin. Lipophilicity proﬁles: the-
+ory and measurement. Wiley-VCH: Z¨urich, Switzerland,
+2001.
+Dai, Hanjun, Tian, Yingtao, Dai, Bo, Skiena, Steven, and
+Song, Le. Syntax-directed variational autoencoder for
+molecule generation. In International Conference on
+Machine Learning, 2018.
+Davidson, Tim R., Falorsi, Luca, Cao, Nicola De, Kipf,
+Thomas, and Tomczak, Jakub M. Hyperspherical vari-
+ational auto-encoders. In Globerson, Amir and Silva,
+Ricardo (eds.), Proceedings of the Thirty-Fourth Confer-
+ence on Uncertainty in Artiﬁcial Intelligence, UAI 2018,
+Monterey, California, USA, August 6-10, 2018, pp. 856–
+865. AUAI Press, 2018. URL http://auai.org/
+uai2018/proceedings/papers/309.pdf.
+Duvenaud,
+David,
+Maclaurin,
+Dougal,
+Aguilera-
+Iparraguirre,
+Jorge,
+G´omez-Bombarelli,
+Rafael,
+Hirzel, Timothy, Aspuru-Guzik, Al´an, and Adams,
+Ryan P. Convolutional networks on graphs for learning
+molecular ﬁngerprints. In Cortes, Corinna, Lawrence,
+Neil D., Lee, Daniel D., Sugiyama, Masashi, and
+Garnett, Roman (eds.), Advances in Neural Information
+Processing Systems 28: Annual Conference on Neural
+Information
+Processing
+Systems
+2015,
+December
+7-12, 2015, Montreal, Quebec, Canada, pp. 2224–
+2232,
+2015.
+URL
+https://proceedings.
+neurips.cc/paper/2015/hash/
+f9be311e65d81a9ad8150a60844bb94c-Abstract.
+html.
+Ertl, Peter and Schuffenhauer, Ansgar. Estimation of syn-
+thetic accessibility score of drug-like molecules based on
+molecular complexity and fragment contributions. Jour-
+nal of cheminformatics, 1(1):8, 2009.
+G´omez-Bombarelli,
+Rafael,
+Wei,
+Jennifer N, Duve-
+naud, David, Hern´andez-Lobato, Jos´e Miguel, S´anchez-
+Lengeling, Benjam´ın, Sheberla, Dennis, Aguilera-
+Iparraguirre, Jorge, Hirzel, Timothy D, Adams, Ryan P,
+and Aspuru-Guzik, Al´an. Automatic chemical design us-
+ing a data-driven continuous representation of molecules.
+ACS Central Science, 2016.
+Goodfellow, Ian J., Pouget-Abadie, Jean, Mirza, Mehdi,
+Xu, Bing, Warde-Farley, David, Ozair, Sherjil, Courville,
+Aaron C., and Bengio, Yoshua.
+Generative adver-
+sarial nets.
+In Ghahramani, Zoubin, Welling, Max,
+Cortes, Corinna, Lawrence, Neil D., and Weinberger,
+Kilian Q. (eds.), Advances in Neural Information
+Processing Systems 27: Annual Conference on Neural
+Information
+Processing
+Systems
+2014,
+December
+8-13 2014, Montreal, Quebec, Canada, pp. 2672–
+2680,
+2014.
+URL
+https://proceedings.
+neurips.cc/paper/2014/hash/
+5ca3e9b122f61f8f06494c97b1afccf3-Abstract.
+html.
+Grover, Aditya, Zweig, Aaron, and Ermon, Stefano.
+Graphite: Iterative generative modeling of graphs. In
+Chaudhuri, Kamalika and Salakhutdinov, Ruslan (eds.),
+Proceedings of the 36th International Conference on
+Machine Learning, ICML 2019, 9-15 June 2019, Long
+Beach, California, USA, volume 97 of Proceedings of
+Machine Learning Research, pp. 2434–2444. PMLR,
+
+MolGAN: An implicit generative model for small molecular graphs
+2019. URL http://proceedings.mlr.press/
+v97/grover19a.html.
+Guimaraes, Gabriel Lima, Sanchez-Lengeling, Benjamin,
+Farias, Pedro Luis Cunha, and Aspuru-Guzik, Al´an.
+Objective-reinforced generative adversarial networks (or-
+gan) for sequence generation models. ArXiv preprint,
+abs/1705.10843, 2017. URL https://arxiv.org/
+abs/1705.10843.
+Gulrajani, Ishaan, Ahmed, Faruk, Arjovsky, Mart´ın,
+Dumoulin, Vincent, and Courville, Aaron C.
+Im-
+proved training of wasserstein gans.
+In Guyon,
+Isabelle, von Luxburg, Ulrike, Bengio, Samy, Wallach,
+Hanna M., Fergus, Rob, Vishwanathan, S. V. N., and
+Garnett, Roman (eds.), Advances in Neural Infor-
+mation Processing Systems 30:
+Annual Conference
+on Neural Information Processing Systems 2017,
+December 4-9, 2017, Long Beach, CA, USA, pp. 5767–
+5777,
+2017.
+URL
+https://proceedings.
+neurips.cc/paper/2017/hash/
+892c3b1c6dccd52936e27cbd0ff683d6-Abstract.
+html.
+Hamilton, William L, Ying, Rex, and Leskovec, Jure. Rep-
+resentation learning on graphs: Methods and applica-
+tions.
+ArXiv preprint, abs/1709.05584, 2017.
+URL
+https://arxiv.org/abs/1709.05584.
+Jang, Eric, Gu, Shixiang, and Poole, Ben.
+Categorical
+reparameterization with gumbel-softmax. In 5th Inter-
+national Conference on Learning Representations, ICLR
+2017, Toulon, France, April 24-26, 2017, Conference
+Track Proceedings. OpenReview.net, 2017. URL https:
+//openreview.net/forum?id=rkE3y85ee.
+Jin, Wengong, Barzilay, Regina, and Jaakkola, Tommi S.
+Junction tree variational autoencoder for molecular graph
+generation.
+In Dy, Jennifer G. and Krause, Andreas
+(eds.), Proceedings of the 35th International Conference
+on Machine Learning, ICML 2018, Stockholmsm¨assan,
+Stockholm, Sweden, July 10-15, 2018, volume 80 of Pro-
+ceedings of Machine Learning Research, pp. 2328–2337.
+PMLR, 2018.
+URL http://proceedings.mlr.
+press/v80/jin18a.html.
+Johnson, Daniel D. Learning graphical state transitions.
+In 5th International Conference on Learning Repre-
+sentations, ICLR 2017, Toulon, France, April 24-26,
+2017, Conference Track Proceedings. OpenReview.net,
+2017. URL https://openreview.net/forum?
+id=HJ0NvFzxl.
+Kingma, Diederik P. and Ba, Jimmy. Adam: A method for
+stochastic optimization. In Bengio, Yoshua and LeCun,
+Yann (eds.), 3rd International Conference on Learning
+Representations, ICLR 2015, San Diego, CA, USA, May
+7-9, 2015, Conference Track Proceedings, 2015. URL
+http://arxiv.org/abs/1412.6980.
+Kingma, Diederik P. and Welling, Max. Auto-encoding
+variational bayes. In Bengio, Yoshua and LeCun, Yann
+(eds.), 2nd International Conference on Learning Rep-
+resentations, ICLR 2014, Banff, AB, Canada, April 14-
+16, 2014, Conference Track Proceedings, 2014. URL
+http://arxiv.org/abs/1312.6114.
+Kipf, Thomas N and Welling, Max. Variational graph auto-
+encoders. In NIPS Bayesian Deep Learning Workshop,
+2016.
+Kipf, Thomas N. and Welling, Max. Semi-supervised classi-
+ﬁcation with graph convolutional networks. In 5th Inter-
+national Conference on Learning Representations, ICLR
+2017, Toulon, France, April 24-26, 2017, Conference
+Track Proceedings. OpenReview.net, 2017. URL https:
+//openreview.net/forum?id=SJU4ayYgl.
+Kusner, Matt J., Paige, Brooks, and Hern´andez-Lobato,
+Jos´e Miguel.
+Grammar variational autoencoder.
+In
+Precup, Doina and Teh, Yee Whye (eds.), Proceed-
+ings of the 34th International Conference on Ma-
+chine Learning, ICML 2017, Sydney, NSW, Australia,
+6-11 August 2017, volume 70 of Proceedings of
+Machine Learning Research, pp. 1945–1954. PMLR,
+2017. URL http://proceedings.mlr.press/
+v70/kusner17a.html.
+Li, Yibo, Zhang, Liangren, and Liu, Zhenming. Multi-
+objective de novo drug design with conditional graph
+generative model. ArXiv preprint, abs/1801.07299, 2018a.
+URL https://arxiv.org/abs/1801.07299.
+Li, Yujia, Tarlow, Daniel, Brockschmidt, Marc, and Zemel,
+Richard S. Gated graph sequence neural networks. In
+Bengio, Yoshua and LeCun, Yann (eds.), 4th Interna-
+tional Conference on Learning Representations, ICLR
+2016, San Juan, Puerto Rico, May 2-4, 2016, Conference
+Track Proceedings, 2016. URL http://arxiv.org/
+abs/1511.05493.
+Li, Yujia, Vinyals, Oriol, Dyer, Chris, Pascanu, Razvan,
+and Battaglia, Peter. Learning deep generative models
+of graphs. ArXiv preprint, abs/1803.03324, 2018b. URL
+https://arxiv.org/abs/1803.03324.
+Lillicrap, Timothy P., Hunt, Jonathan J., Pritzel, Alexander,
+Heess, Nicolas, Erez, Tom, Tassa, Yuval, Silver, David,
+and Wierstra, Daan. Continuous control with deep re-
+inforcement learning. In Bengio, Yoshua and LeCun,
+Yann (eds.), 4th International Conference on Learning
+Representations, ICLR 2016, San Juan, Puerto Rico, May
+2-4, 2016, Conference Track Proceedings, 2016. URL
+http://arxiv.org/abs/1509.02971.
+
+MolGAN: An implicit generative model for small molecular graphs
+Maddison, Chris J., Mnih, Andriy, and Teh, Yee Whye.
+The concrete distribution: A continuous relaxation of
+discrete random variables. In 5th International Confer-
+ence on Learning Representations, ICLR 2017, Toulon,
+France, April 24-26, 2017, Conference Track Proceedings.
+OpenReview.net, 2017. URL https://openreview.
+net/forum?id=S1jE5L5gl.
+Minervini, Pasquale, Demeester, Thomas, Rockt¨aschel, Tim,
+and Riedel, Sebastian. Adversarial sets for regularising
+neural link predictors. In Elidan, Gal, Kersting, Kristian,
+and Ihler, Alexander T. (eds.), Proceedings of the Thirty-
+Third Conference on Uncertainty in Artiﬁcial Intelligence,
+UAI 2017, Sydney, Australia, August 11-15, 2017. AUAI
+Press, 2017. URL http://auai.org/uai2017/
+proceedings/papers/306.pdf.
+Ramakrishnan,
+Raghunathan,
+Dral,
+Pavlo O, Rupp,
+Matthias, and Von Lilienfeld, O Anatole. Quantum chem-
+istry structures and properties of 134 kilo molecules. Sci-
+entiﬁc data, 1:140022, 2014.
+Rezende, Danilo Jimenez, Mohamed, Shakir, and Wier-
+stra, Daan.
+Stochastic backpropagation and approx-
+imate inference in deep generative models.
+In Pro-
+ceedings of the 31th International Conference on
+Machine Learning, ICML 2014, Beijing, China, 21-
+26 June 2014, volume 32 of JMLR Workshop and
+Conference Proceedings, pp. 1278–1286. JMLR.org,
+2014. URL http://proceedings.mlr.press/
+v32/rezende14.html.
+Ruddigkeit, Lars, Van Deursen, Ruud, Blum, Lorenz C, and
+Reymond, Jean-Louis. Enumeration of 166 billion or-
+ganic small molecules in the chemical universe database
+gdb-17. Journal of chemical information and modeling,
+52(11):2864–2875, 2012.
+Salimans, Tim, Goodfellow, Ian J., Zaremba, Wojciech,
+Cheung, Vicki, Radford, Alec, and Chen, Xi. Improved
+techniques for training gans.
+In Lee, Daniel D.,
+Sugiyama, Masashi, von Luxburg, Ulrike, Guyon,
+Isabelle, and Garnett, Roman (eds.), Advances in
+Neural Information Processing Systems 29: Annual
+Conference on Neural Information Processing Systems
+2016, December 5-10, 2016, Barcelona, Spain, pp. 2226–
+2234,
+2016.
+URL
+https://proceedings.
+neurips.cc/paper/2016/hash/
+8a3363abe792db2d8761d6403605aeb7-Abstract.
+html.
+Samanta, Bidisha, De, Abir, Ganguly, Niloy, and Gomez-
+Rodriguez, Manuel. Designing random graph models
+using variational autoencoders with applications to chem-
+ical design. ArXiv preprint, abs/1802.05283, 2018. URL
+https://arxiv.org/abs/1802.05283.
+Schlichtkrull, Michael, Kipf, Thomas N, Bloem, Peter,
+Berg, Rianne van den, Titov, Ivan, and Welling, Max.
+Modeling relational data with graph convolutional net-
+works. ArXiv preprint, abs/1703.06103, 2017. URL
+https://arxiv.org/abs/1703.06103.
+Schneider, Gisbert and Fechner, Uli. Computer-based de
+novo design of drug-like molecules. Nature Reviews Drug
+Discovery, 4(8):649, 2005.
+Segler, Marwin HS, Preuss, Mike, and Waller, Mark P. Plan-
+ning chemical syntheses with deep neural networks and
+symbolic ai. Nature, 555(7698):604, 2018.
+Silver, David, Lever, Guy, Heess, Nicolas, Degris, Thomas,
+Wierstra, Daan, and Riedmiller, Martin A. Deterministic
+policy gradient algorithms. In Proceedings of the 31th
+International Conference on Machine Learning, ICML
+2014, Beijing, China, 21-26 June 2014, volume 32 of
+JMLR Workshop and Conference Proceedings, pp. 387–
+395. JMLR.org, 2014. URL http://proceedings.
+mlr.press/v32/silver14.html.
+Simonovsky, Martin and Komodakis, Nikos. Graphvae:
+Towards generation of small graphs using variational au-
+toencoders. ArXiv preprint, abs/1802.03480, 2018. URL
+https://arxiv.org/abs/1802.03480.
+Srivastava, Nitish, Hinton, Geoffrey, Krizhevsky, Alex,
+Sutskever, Ilya, and Salakhutdinov, Ruslan. Dropout:
+A simple way to prevent neural networks from overﬁt-
+ting. The Journal of Machine Learning Research, 15(1):
+1929–1958, 2014.
+Wang, Hongwei, Wang, Jia, Wang, Jialin, Zhao, Miao,
+Zhang, Weinan, Zhang, Fuzheng, Xie, Xing, and Guo,
+Minyi. Graphgan: Graph representation learning with
+generative adversarial nets.
+In McIlraith, Sheila A.
+and Weinberger, Kilian Q. (eds.), Proceedings of the
+Thirty-Second AAAI Conference on Artiﬁcial Intelligence,
+(AAAI-18), the 30th innovative Applications of Artiﬁcial
+Intelligence (IAAI-18), and the 8th AAAI Symposium
+on Educational Advances in Artiﬁcial Intelligence
+(EAAI-18), New Orleans, Louisiana, USA, February
+2-7, 2018, pp. 2508–2515. AAAI Press, 2018. URL
+https://www.aaai.org/ocs/index.php/
+AAAI/AAAI18/paper/view/16611.
+Weininger, David. Smiles, a chemical language and in-
+formation system. 1. introduction to methodology and
+encoding rules. Journal of chemical information and
+computer sciences, 28(1):31–36, 1988.
+Williams, Ronald J. Simple statistical gradient-following
+algorithms for connectionist reinforcement learning. In
+Reinforcement Learning, pp. 5–32. Springer, 1992.
+
+MolGAN: An implicit generative model for small molecular graphs
+You, Jiaxuan, Ying, Rex, Ren, Xiang, Hamilton, William L,
+and Leskovec, Jure. Graphrnn: A deep generative model
+for graphs.
+In International Conference on Machine
+Learning, 2018.
+Yu, Lantao, Zhang, Weinan, Wang, Jun, and Yu, Yong. Se-
+qgan: Sequence generative adversarial nets with policy
+gradient. In Singh, Satinder P. and Markovitch, Shaul
+(eds.), Proceedings of the Thirty-First AAAI Conference
+on Artiﬁcial Intelligence, February 4-9, 2017, San Fran-
+cisco, California, USA, pp. 2852–2858. AAAI Press,
+2017. URL http://aaai.org/ocs/index.php/
+AAAI/AAAI17/paper/view/14344.
+
+MolGAN: An implicit generative model for small molecular graphs
+O
+O
+O
+O
+NH2
+O
+N
+OH
+O
+O
+N
+O
+N
+N
+NH
+N
+O
+OH
+N
+O
+O
+N
+HO
+N
+O
+NH
+HO
+O
+NH
+O
+OH
+O
+N
+O
+NH
+O
+NH
+O
+O
+OH
+N
+O
+O
+O
+O
+O
+O
+N
+O
+HO
+HO
+NH
+N
+OH
+N
+O
+HN
+NH2
+N
+N
+N
+NH
+0.480
+0.475
+0.498
+0.517
+0.404
+0.464
+0.508
+0.400
+0.515
+0.512
+0.450
+0.556
+0.593
+0.441
+0.492
+0.442
+0.595
+0.287
+0.371
+0.527
+0.462
+0.456
+0.568
+0.337
+(a) QM9 samples
+HO
+OH
+O
+OH
+O
+HO
+OH
+OH
+O
+OH
+O
+O
+OH
+HO
+HO
+O
+NH
+OH
+OH
+HO
+OH
+O
+O
+OH
+OH
+OH
+NH2
+O
+HO
+O
+NH
+O
+OH
+OH
+OH
+0.545
+0.572
+0.480
+0.613
+0.571
+0.599
+0.617
+0.529
+0.566
+0.545
+0.535
+0.578
+0.601
+0.601
+0.613
+0.554
+0.569
+0.597
+0.601
+0.523
+0.522
+0.612
+0.619
+0.570
+(b) MolGAN (QED) samples
+Figure 3. Samples from the QM9 dataset (left) and MolGAN trained to optimize druglikeliness (QED) on the 5k QM9 subset (right). We
+also report their relative QED scores.

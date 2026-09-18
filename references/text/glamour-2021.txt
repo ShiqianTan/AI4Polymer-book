@@ -1,0 +1,3189 @@
+Pre-print.
+GLAMOUR:
+GRAPH
+LEARNING
+OVER
+MACRO-
+MOLECULE REPRESENTATIONS
+Somesh Mohapatra, Joyce An & Rafael G´omez-Bombarelli∗
+Department of Materials Science and Engineering
+Massachusetts Institute of Technology
+Cambridge, MA 02139, USA
+{someshm,joycean,rafagb}@mit.edu
+ABSTRACT
+The near-inﬁnite chemical diversity of natural and artiﬁcial macromolecules arises
+from the vast range of possible component monomers, linkages, and polymers
+topologies. This enormous macromolecular diversity contributes to the ubiquity
+and indispensability of macromolecules but hinders the development of general
+machine learning methods with macromolecules as input. To address this, we de-
+veloped GLAMOUR, a framework for chemistry-informed graph representation
+of macromolecules that enables quantifying structural similarity, and interpretable
+supervised learning for macromolecules.
+1
+INTRODUCTION
+Machine learning (ML) applications to individual macromolecule classes, such as proteins, have
+been very successful but typically rely on sequence-based representations that effectively capture
+structures with linear architectures (Schissel et al., 2021; Alley et al., 2019). However, these meth-
+ods do not extend to macromolecules with complex topologies, such as glycans and biohybrid
+sequence-deﬁned polymers, which exhibit non-linear structure and higher levels of monomer and
+linkage diversity. Graphs are a natural and more general macromolecule representation, with nodes
+representing monomers and edges representing connecting bonds. ML over graph representations
+has achieved state-of-the-art results across several ﬁelds (Hamilton et al., 2017) (see Section A for a
+survey of the ﬁeld) and in chemistry and life sciences, graph neural networks (GNNs) have become
+the modern workhorse for molecular property prediction (Yang et al., 2019; Jin et al., 2020). At-
+tribution methods are compatible with GNNs to highlight how input features are relevant to model
+predictions of target properties, such as molecular olfactory descriptors (Sanchez-Lengeling et al.,
+2020; 2019).
+In this work, we developed a graph representation for macromolecules. The representation gener-
+alizes ideas of macromolecule similarity from sequence alignment to structural similarity between
+complex topologies. Using chemical similarity between monomers through cheminformatic ﬁnger-
+prints and exact graph edit distances (GED) or graph kernels to compare topologies, it allows for
+quantiﬁcation of the chemical and structural similarity of two arbitrary macromolecule topologies.
+Further, the representation was coupled to supervised GNN models to learn structure-property rela-
+tionships in glycans and anti-microbial peptides. The graph representation handles linear, branched
+and cyclic topologies along with any monomer composition. Attribution methods highlight the re-
+gions of the macromolecules and the substructures within the monomers that are most responsible
+for the predicted properties.
+2
+RESULTS AND DISCUSSION
+We developed a generalized text ﬁle system to convert a macromolecule structure into a machine-
+readable format (Figure 1A, Section C). The text ﬁle has three sections – SMILES, MONOMERS,
+and BONDS, inspired by the PDB ﬁle format (Berman, 2000). Under SMILES, monomer and bond
+∗Corresponding author: rafagb@mit.edu.
+1
+arXiv:2103.02565v3  [cs.LG]  23 Aug 2021
+
+Pre-print.
+SMILES
+Monomers
+O
+HO
+HO
+OH
+OH
+OH
+Macromolecules
+Text File System
+Macromolecular Graphs
+Monomer Fingerprint
+Graph Neural Network
+Classification
+Immunogenicity
+Taxonomy Labels
+Regression
+Biological Activity 
+A
+C
+D
+Attribution
+Similarity
+Macromolecules
+Macromolecules
+Similarity Matrix
+B
+Figure 1: Macromolecules represented as graphs enable similarity computation and inter-
+pretable machine learning. A. Macromolecular structures are converted into text ﬁles. The text
+ﬁles are parsed into network graphs, where monomers are nodes and bonds are edges. Each text ﬁle
+enumerates SMILES for monomers and bonds, node indices corresponding to monomers, and pairs
+of node indices for bonds. Node and edge attributes are ﬁngerprints of respective molecules. B.
+Pair-wise similarity matrix obtained for the library of macromolecules, and dimensionality reduc-
+tion followed by clustering of similarity vectors corresponding to each macromolecule. C. Graph
+neural networks learn over macromolecule graphs for various tasks. D. Graph attribution provides
+insight into the model’s decision-making process by highlighting the relative importance of different
+nodes/monomers (denoted as node size) in making a speciﬁc prediction.
+names followed by the stereochemical SMILES are noted. MONOMERS enumerates indices of all
+nodes numbered from 1 to n, where n is the total number of monomers, followed by the monomer
+names. Similarly, BONDS lists indices of connections between monomer indices, followed by bond
+names. In this way, we are able to incorporate complexity from the level of individual atoms to the
+full macromolecular structure.
+In our experiments, the macromolecules were then processed as NetworkX graphs (Hagberg et al.,
+2008), with monomers as nodes and bonds as edges (Section D). In line with earlier work where
+ﬁngerprint-based monomer representations worked effectively for macromolecule property pre-
+diction, the monomer and bond molecules were featurized using standard Extended Connectiv-
+ity FingerPrints (Schissel et al., 2021). The ﬁngerprints capture the atomic connectivity of the
+monomer/bond molecule as a series of bits using circular atom neighborhoods, for each constituent
+node or edge of the macromolecule graph. This representation enables the encoding of the raw
+chain connectivity of macromolecules with explicit featurization of the stereochemistry and topol-
+ogy. Moreover, it provides a single framework to represent both natural and synthetic, linear and
+non-linear macromolecules.
+To compute the similarity between 2 or more macromolecule graphs, we used GED and graph kernel
+(Figure 1B, Section E). GED (Abu-Aisheh et al., 2015) computes the similarity between two graphs
+by assigning node and edge substitution scores, similar to local sequence alignment methods, such
+as BLAST (Altschul et al., 1990). Instead of evolutionary statistics-based substitution matrices like
+BLOSUM62, we used Tanimoto chemical similarity matrices that compute the similarity between
+molecular ﬁngerprints. Tanimoto similarity also extends to unnatural monomers. Since computing
+exact graph edit distances is an NP-hard problem, we used propagation attribute graph kernels to
+obtain approximate similarity matrices for large datasets (Neumann et al., 2016; Siglidis et al., 2020).
+This graph kernel captures local monomer node information and propagates this information along
+the bond edges, making it an ideal choice for macromolecule graphs. We have demonstrated the
+similarity computation for a linear glycan with six additional glycans of different topology and/or
+monomer chemistry, as well as with itself, using Tanimoto chemical similarity matrix (Figure 2A,
+B).
+2
+
+Pre-print.
+A
+B
+0.00
+C
+D
+● Immunogenic  
+● Non-immunogenic
+1.0
+0.8
+0.6
+0.4
+0.2
+0.0
+0.0
+0.2
+0.4
+0.6
+0.8
+1.0
+False Positive Rate
+True Positive Rate
+E
+1.0
+0.8
+0.6
+0.4
+0.2
+0.0
+Activation
+Xylose
+Fucose
+◼ Gal
+◼ Xyl
+◼ Glc 
+◼ Fuc
+Fingerprint
+Fingerprint
+Similarity
+Learning
+Attribution
+HO
+OH
+OH
+OH
+O
+OH
+OH
+HO
+HO
+O
+Unsupervised
+Supervised
+3.00
+6.00
+12.00
+2.05
+4.28
+18.50
+Topology
+Monomer
+Chemistry
+Glc
+Xyl 
+Fuc
+Figure 2: Analysis using GLAMOUR provides deeper insights into immunogenicity of glycans.
+A. Pairwise chemical similarity between glycan monomers using Tanimoto distance on ECFP ﬁnger-
+prints is typically low. B. Similarities between a linear glycan consisting of six glucose monomers
+with itself and six additional glycans with modiﬁed topology and monomer chemistry were com-
+puted using exact graph edit distances, combined with the Tanimoto substitution matrices (A). C.
+2-component UMAP over the similarity matrix, colored by immunogenicity, for 1313 glycans with
+immunogenicity labels. D. Mean ROC-AUC curve for classiﬁcation of immunogenic and non-
+immunogenic glycans, averaged across all 25 Attentive FP models (5 random seeds, with top 5
+sets of hyperparameters), with the standard deviation shaded in light blue too insigniﬁcant to be
+visible in the graph. E. Attribution analysis using Attentive FP model architecture and integrated
+gradients attribution method for a representative glycan shows that xylose (Xyl) contributes the most
+to immunogenicity. In xylose, the substructure centered on the anomeric carbon, C1, is shown to be
+the key contributor. A similar substructure analysis has been shown for fucose. In the glycan graph,
+the size of the node corresponds to the importance, and the color corresponds to the monomer. In
+the ﬁngerprint, only the indices with positive contribution to immunogenicity have been visualized,
+with the color corresponding to the normalized importance
+Because quantifying graph similarity enables unsupervised learning over similarities rather than
+raw features, we used dimensionality reduction methods, such as uniform manifold approximation
+and projection (UMAP) (McInnes et al., 2018) and t-stochastic neighbor embeddings (t-SNE) (Van
+Der Maaten & Hinton, 2008), over the similarity matrices for unsupervised learning (Section F).
+For glycans with immunogenicity labels, we observed that the non-immunogenic and immunogenic
+glycans are in nearly distinct regions (Figure 2C).
+For supervised learning, we trained ﬁve different GNN model architectures to classify glycans by
+immunogenicity and taxonomy levels, and predict the anti-microbial activity of peptides (Section
+G). Each model architecture was trained over ﬁngerprint and one-hot node and edge attributes on
+60%, validated on 20%, and tested on held-out 20% data set, all determined via random splits. Hy-
+perparameter optimization was carried out for 1000 iterations using SigOpt (Clark & Hayes, 2019).
+To report ﬁnal metrics on validation and test datasets, for each model architecture, we averaged val-
+ues obtained from 25 individual models – top 5 hyperparameter sets, each trained with 5 random
+seeds. For glycans, our models outperformed metrics for classiﬁcation for four out of eight tasks
+and achieved comparable results for the rest four, against results reported in the literature (Figure
+2D, Table A.5) (Burkholz et al., 2021).
+Attribution analysis on the pre-trained models ﬁnds features – both nodes and substructures – that
+are key to the model’s decision-making (Section H). To avoid spurious hypotheses (McCloskey
+et al., 2019) that may occur in NN attribution on molecular models, we chose the combination of
+GNN architecture and attribution method, in this case Attentive FP - integrated gradients, that pro-
+3
+
+Pre-print.
+duced the most consistent results across all immunogenic glycans over 25 replicates (Figure A.45).
+N-glycolylneuraminic acid, xylose, and fucose were found to be the key monomers responsible for
+immunogenicity, consistent with experimental ﬁndings due to the low prevalence of these monomers
+in human glycans (Planinc et al., 2016) (Table A.7). For a representative glycan, we observed that
+xylose, followed by galectin, were the monomers that contributed most signiﬁcantly to immuno-
+genicity (Figure 2E). In addition to the importance of individual nodes, attribution identiﬁes the
+critical substructures in the monomers that contributed most to immunogenicity, such as the sub-
+structure centered on the anomeric carbon of xylose. These critical features help understand the
+fundamental structure-function relationships that underpin immunogenicity, postulate very explicit
+hypotheses that can be validated in the lab, and may help in further design of immunogenic or
+non-immunogenic scaffolds.
+3
+CONCLUSION
+GLAMOUR provides a generalized method for representing macromolecules as hierarchical graphs
+with molecular ﬁngerprints to capture chemical information which can be used to compute structural
+similarity between macromolecules with different composition and topology, and perform unsuper-
+vised and supervised learning. The unsupervised learning enables visualization of the complex land-
+scape of different classes of macromolecules and understanding of the subtle differences between
+similar macromolecules. The attribution analysis helps in cracking open the black-box of supervised
+GNN models, which in turn can help elucidate fundamental design principles of otherwise opaque
+structure-property relationships and assist with hypothesis generation for future experimental stud-
+ies. The codebase and data sets have been open-sourced (Mohapatra, 2021). We therefore expect
+that this toolkit will be used by both experimentalists and computational practitioners in chemistry,
+biology and materials science for a variety of macromolecule property prediction tasks, ultimately
+driving the design of improved macromolecules.
+DATA AVAILABILITY
+Data
+used
+for
+training
+of
+the
+model
+is
+available
+at
+https://github.com/learningmatter-
+mit/GLAMOUR, and archived in the Zenodo repository (Mohapatra, 2021).
+CODE AVAILABILITY
+All the code used for model training and analysis is available at https://github.com/learningmatter-
+mit/GLAMOUR, and archived in Zenodo repository (Mohapatra, 2021).
+ACKNOWLEDGEMENTS
+SM acknowledges funding from Novo Nordisk and MIT’s Jameel Clinic, JA acknowledges funding
+from MIT’s UROP ofﬁce. The authors thank Dr Daria Kim and Sarah Antilla from the Department
+of Chemistry, MIT for valuable comments.
+4
+
+Pre-print.
+REFERENCES
+Zeina Abu-Aisheh, Romain Raveaux, Jean-Yves Ramel, and Patrick Martineau. An Exact Graph
+Edit Distance Algorithm for Solving Pattern Recognition Problems. 4th International Conference
+on Pattern Recognition Applications and Methods, 2015.
+Ethan C Alley, Grigory Khimulya, Surojit Biswas, Mohammed AlQuraishi, and George M Church.
+Uniﬁed rational protein engineering with sequence-based deep representation learning. Nature
+methods, 16(12):1315–1322, 2019.
+Stephen F Altschul, Warren Gish, Webb Miller, Eugene W Myers, and David J Lipman. Basic local
+alignment search tool. Journal of molecular biology, 215(3):403–410, 1990.
+Stephen F Altschul, Thomas L Madden, Alejandro A Sch¨affer, Jinghui Zhang, Zheng Zhang, Webb
+Miller, and David J Lipman. Gapped blast and psi-blast: a new generation of protein database
+search programs. Nucleic acids research, 25(17):3389–3402, 1997.
+Kiyoko F Aoki, Atsuko Yamaguchi, Yasushi Okuno, Tatsuya Akutsu, Nobuhisa Ueda, Minoru Kane-
+hisa, and Hiroshi Mamitsuka. Efﬁcient tree-matching methods for accurate carbohydrate database
+queries. Genome informatics, 14:134–143, 2003.
+H M Berman.
+The Protein Data Bank.
+Nucleic Acids Research, 28(1):235–242, jan 2000.
+ISSN 13624962.
+doi: 10.1093/nar/28.1.235.
+URL http://www.ncbi.nlm.nih.gov/
+pubmed/10592235http://www.pubmedcentral.nih.gov/articlerender.
+fcgi?artid=PMC102472https://academic.oup.com/nar/article-lookup/
+doi/10.1093/nar/28.1.235.
+Maxwell L. Bileschi, David Belanger, Drew Bryant, Theo Sanderson, Brandon Carter, D. Sculley,
+Mark A. DePristo, and Lucy J. Colwell. Using Deep Learning to Annotate the Protein Universe.
+bioRxiv:10.1101/626507, 2019.
+David B Blumenthal and Johann Gamper. On the exact computation of the graph edit distance.
+Pattern Recognition Letters, 134:46–57, 2020.
+Daniel Bojar, Rani K. Powers, Diogo M. Camacho, and James J. Collins. Deep-Learning Resources
+for Studying Glycan-Mediated Host-Microbe Interactions. Cell Host and Microbe, 29(1):132–
+144.e3, 2021.
+Grzegorz M Boratyn, Jean Thierry-Mieg, Danielle Thierry-Mieg, Ben Busby, and Thomas L Mad-
+den. Magic-blast, an accurate rna-seq aligner for long and short reads. BMC bioinformatics, 20
+(1):1–19, 2019.
+Karsten Borgwardt, Elisabetta Ghisu, Felipe Llinares-l´opez, Leslie O Bray, and Bastian Rieck.
+Graph Kernels. arXiv:2011.03854v2, 2020.
+Rebekka Burkholz, John Quackenbush, and Daniel Bojar. Using graph convolutional neural net-
+works to learn a representation for glycans. Cell Reports, 35(11):109251, 2021.
+Lihua Chen, Ghanshyam Pilania, Rohit Batra, Tran Doan Huan, Chiho Kim, Christopher Kuenneth,
+and Rampi Ramprasad. Polymer informatics: Current status and critical next steps. Materials
+Science and Engineering: R: Reports, 144:100595, 2021.
+Scott Clark and Patrick Hayes. SigOpt Web page. https://sigopt.com, 2019. URL https:
+//sigopt.com.
+Lachlan Coff, Jeffrey Chan, Paul A Ramsland, and Andrew J Guy. Identifying glycan motifs using
+a novel subtree mining approach. BMC bioinformatics, 21(1):42, 2020.
+Axel Drefahl. Curlysmiles: a chemical language to customize and annotate encodings of molecular
+and nanodevice structures. Journal of cheminformatics, 3(1):1–7, 2011.
+Sean R Eddy. Where did the BLOSUM62 alignment score matrix come from? Nature biotechnol-
+ogy, 22(8):1035, 2004.
+5
+
+Pre-print.
+Justin Gilmer, Samuel S. Schoenholz, Patrick F. Riley, Oriol Vinyals, and George E. Dahl. Neural
+Message Passing for Quantum Chemistry. arXiv:1704.01212v2, 2017.
+Aric A Hagberg, Daniel A Schult, and Pieter J Swart. Exploring Network Structure, Dynamics,
+and Function using NetworkX. In Ga¨el Varoquaux, Travis Vaught, and Jarrod Millman (eds.),
+Proceedings of the 7th Python in Science Conference, pp. 11–15, Pasadena, CA USA, 2008.
+William L Hamilton, Rex Ying, and Jure Leskovec. Representation learning on graphs: Methods
+and applications. arXiv preprint arXiv:1709.05584, 2017.
+Stephen R Heller, Alan McNaught, Igor Pletnev, Stephen Stein, and Dmitrii Tchekhovskoi. Inchi,
+the iupac international chemical identiﬁer. Journal of cheminformatics, 7(1):1–34, 2015.
+Masae Hosoda, Yukie Akune, and Kiyoko F. Aoki-Kinoshita. Development and application of an
+algorithm to compute weighted multiple glycan alignments. Bioinformatics, 33(9):1317–1323,
+2017.
+Tommi Jaakkola, Mark Diekhans, and David Haussler. A discriminative framework for detecting
+remote protein homologies. Journal of Computational Biology, 7(1-2):95–114, 2000.
+Wengong Jin, Regina Barzilay, and Tommi Jaakkola. Hierarchical generation of molecular graphs
+using structural motifs.
+In International Conference on Machine Learning, pp. 4839–4848.
+PMLR, 2020.
+Steven Kearnes, Kevin McCloskey, Marc Berndl, Vijay Pande, and Patrick F. Riley. Molecular graph
+convolutions: moving beyond ﬁngerprints. Journal of Computer-Aided Molecular Design, 30(8):
+595–608, 2016.
+Chiho Kim, Anand Chandrasekaran, Tran Doan Huan, Deya Das, and Rampi Ramprasad. Polymer
+Genome: A Data-Powered Polymer Informatics Platform for Property Predictions. Journal of
+Physical Chemistry C, 122(31):17575–17585, 2018.
+Sunghwan Kim, Jie Chen, Tiejun Cheng, Asta Gindulyte, Jia He, Siqian He, Qingliang Li, Ben-
+jamin A Shoemaker, Paul A Thiessen, Bo Yu, et al. Pubchem 2019 update: improved access to
+chemical data. Nucleic acids research, 47(D1):D1102–D1109, 2019.
+Thomas N. Kipf and Max Welling. Semi-supervised classiﬁcation with graph convolutional net-
+works. 5th International Conference on Learning Representations, ICLR 2017 - Conference Track
+Proceedings, 2019.
+NM Kriege, FD Johansson, and C Morris. A survey on graph kernels. appl netw sci 5 (1): 6, 2020.
+Greg Landrum. RDKit: Open-source cheminformatics, 2006.
+Chee-Kong Lee, Chengqiang Lu, Yue Yu, Qiming Sun, Chang-Yu Hsieh, Shengyu Zhang, Qi Liu,
+and Liang Shi. Transfer learning with graph neural networks for optoelectronic properties of
+conjugated oligomers. The Journal of Chemical Physics, 154(2):024906, 2021.
+Christina Leslie, Eleazar Eskin, and William Stafford Noble. The spectrum kernel: A string kernel
+for svm protein classiﬁcation. In Biocomputing 2002, pp. 564–575. World Scientiﬁc, 2001.
+Limin Li, Wai Ki Ching, Takako Yamaguchi, and Kiyoko F. Aoki-Kinoshita. A weighted q-gram
+method for glycan structure classiﬁcation. BMC Bioinformatics, 11:1–6, 2010.
+Tzyy-Shyang Lin, Connor W Coley, Hidenobu Mochigase, Haley K Beech, Wencong Wang,
+Zi Wang, Eliot Woods, Stephen L Craig, Jeremiah A Johnson, and Julia A Kalow. BigSMILES: a
+structurally-based line notation for describing macromolecules. ACS central science, 5(9):1523–
+1531, 2019.
+Kevin McCloskey, Ankur Taly, Federico Monti, Michael P. Brenner, and Lucy J. Colwell. Using
+attribution to decode binding mechanism in neural network models for chemistry. Proceedings of
+the National Academy of Sciences of the United States of America, 116(24):11624–11629, 2019.
+ISSN 10916490. doi: 10.1073/pnas.1820657116.
+6
+
+Pre-print.
+Leland McInnes, John Healy, and Steve Astels. hdbscan: Hierarchical density based clustering.
+Journal of Open Source Software, 2(11):205, 2017.
+Leland McInnes, John Healy, Nathaniel Saul, and Lukas Großberger. UMAP: Uniform Manifold
+Approximation and Projection. Journal of Open Source Software, 3(29):861, 2018.
+Somesh Mohapatra. learningmatter-mit/glamour: v0.1, August 2021. URL https://doi.org/
+10.5281/zenodo.5237237.
+Saul B. Needleman and Christian D. Wunsch. A general method applicable to the search for similar-
+ities in the amino acid sequence of two proteins. Journal of Molecular Biology, 48(3):443–453,
+1970.
+Marion Neumann, Roman Garnett, Christian Bauckhage, and Kristian Kersting. Propagation ker-
+nels: efﬁcient graph kernels from propagated information. Machine Learning, 102(2):209–245,
+2016.
+Fabian Pedregosa, Ga¨el Varoquaux, Alexandre Gramfort, Vincent Michel, Bertrand Thirion, Olivier
+Grisel, Mathieu Blondel, Peter Prettenhofer, Ron Weiss, Vincent Dubourg, et al. Scikit-learn:
+Machine learning in python. the Journal of machine Learning research, 12:2825–2830, 2011.
+Malak Pirtskhalava, Andrei Gabrielian, Phillip Cruz, Hannah L Griggs, R Burke Squires, Darrell E
+Hurt, Maia Grigolava, Mindia Chubinidze, George Gogoladze, Boris Vishnepolsky, et al. Dbaasp
+v. 2: an enhanced database of structure and antimicrobial/cytotoxic activity of natural and syn-
+thetic peptides. Nucleic acids research, 44(D1):D1104–D1112, 2016.
+Ana Planinc, Jonathan Bones, Bieke Dejaegher, Pierre Van Antwerpen, and C´edric Delporte. Glycan
+characterization of biopharmaceuticals: updates and perspectives. Analytica chimica acta, 921:
+13–27, 2016.
+Bo Qiao, Somesh Mohapatra, Jeffrey Lopez, Graham M. Leverick, Ryoichi Tatara, Yoshiki Shibuya,
+Yivan Jiang, Arthur France-Lanord, Jeffrey C. Grossman, Rafael G´omez-Bombarelli, Jeremiah A.
+Johnson, and Yang Shao-Horn. Quantitative Mapping of Molecular Substituents to Macroscopic
+Properties Enables Predictive Design of Oligoethylene Glycol-Based Lithium Electrolytes. ACS
+Central Science, 6(7):1115–1128, 2020.
+Kaspar Riesen and Horst Bunke. Approximate graph edit distance computation by means of bipartite
+graph matching. Image and Vision Computing, 27(7):950–959, 2009.
+David Rogers and Mathew Hahn. Extended-Connectivity Fingerprints. J. Chem. Inf. Model., 50(5):
+742–754, 2010.
+Benjamin Sanchez-Lengeling, Jennifer N Wei, Brian K Lee, Richard C Gerkin, Al´an Aspuru-Guzik,
+and Alexander B Wiltschko. Machine learning for scent: learning generalizable perceptual repre-
+sentations of small molecules. arXiv preprint arXiv:1910.10685, 2019.
+Benjamin Sanchez-Lengeling, Jennifer Wei, Brian Lee, Emily Reif, Peter Y Wang, Wei Qian, Kevin
+Mccloskey, Lucy Colwell, and Alexander Wiltschko. Evaluating Attribution for Graph Neural
+Networks. Proceeedings of the Neural Information Processing Systems Conference, (NeurIPS),
+2020.
+Carly K Schissel, Somesh Mohapatra, Justin M Wolfe, Colin M Fadzen, Kamela Bellovoda, Chia-
+Ling Wu, Jenna A Wood, Annika B Malmberg, Andrei Loas, Rafael G´omez-Bombarelli, et al.
+Deep learning to design nuclear-targeting abiotic miniproteins. Nature Chemistry, pp. 1–9, 2021.
+Kristof T. Sch¨utt, P.-J J. Pieter-Jan P.-J Pieter-Jan Kindermans, Huziel E. Sauceda, Stefan Chmiela,
+Alexandre Tkatchenko, and Klaus-Robert R. K.-R M¨uller.
+SchNet: A continuous-ﬁlter con-
+volutional neural network for modeling quantum interactions. Advances in Neural Information
+Processing Systems, 2017-Decem(1):992–1002, jun 2017. URL http://arxiv.org/abs/
+1706.08566www.quantum-machine.org.
+Seokjun Seo, Minsik Oh, Youngjune Park, and Sun Kim. Deepfam: deep learning based alignment-
+free method for protein family modeling and prediction. Bioinformatics, 34(13):i254–i262, 2018.
+7
+
+Pre-print.
+Avanti Shrikumar, Peyton Greenside, and Anshul Kundaje. Learning important features through
+propagating activation differences. arXiv:1704.02685, 2017.
+Giannis Siglidis, Giannis Nikolentzos, Stratis Limnios, Christos Giatsidis, and Michalis Vazirgian-
+nis. GraKeL : A Graph Kernel Library in Python. Journal of Machine Learning Research, 21:
+1–5, 2020.
+Temple F Smith and Michael S Waterman. Identiﬁcation of common molecular subsequences. Jour-
+nal of molecular biology, 147(1):195–197, 1981.
+Peter C. St John, Caleb Phillips, Travis W. Kemper, A. Nolan Wilson, Yanfei Guan, Michael F.
+Crowley, Mark R. Nimlos, and Ross E. Larsen.
+Message-passing neural networks for high-
+throughput polymer screening. Journal of Chemical Physics, 150(23), 2019.
+Mahito Sugiyama, M. Elisabetta Ghisu, Felipe Llinares-L´opez, and Karsten Borgwardt. Graphker-
+nels: R and Python packages for graph comparison. Bioinformatics, 34(3):530–532, 2018.
+Mukund Sundararajan, Ankur Taly, and Qiqi Yan.
+Axiomatic attribution for deep networks.
+arXiv:1703.01365, 2017.
+Laurens Van Der Maaten and Geoffrey Hinton. Visualizing Data using t-SNE. Journal of Machine
+Learning Research, 9:2579–2605, 2008.
+Petar Velickovic, Guillem Cucurull, Arantxa Casanova, Adriana Romero, Pietro Lio, and Yoshua
+Bengio. Graph Attention Networks. arXiv:1710.10903, 2017.
+Minjie Wang, Da Zheng, Zihao Ye, Quan Gan, Mufei Li, Xiang Song, Jinjing Zhou, Chao Ma,
+Lingfan Yu, Yu Gai, Tianjun Xiao, Tong He, George Karypis, Jinyang Li, and Zheng Zhang.
+Deep Graph Library: A Graph-Centric, Highly-Performant Package for Graph Neural Networks.
+arXiv:1909.01315, 2019.
+Zhaoping Xiong, Dingyan Wang, Xiaohong Liu, Feisheng Zhong, Xiaozhe Wan, Xutong Li, Zhao-
+jun Li, Xiaomin Luo, Kaixian Chen, Hualiang Jiang, and Mingyue Zheng. Pushing the boundaries
+of molecular representation for drug discovery with the graph attention mechanism. Journal of
+Medicinal Chemistry, 63(16):8749–8760, 2020.
+Yoshihiro Yamanishi, Francis Bach, and Jean-Philippe Vert. Glycan classiﬁcation with tree kernels.
+Bioinformatics, 23(10):1211–1216, 2007.
+Kevin Yang, Kyle Swanson, Wengong Jin, Connor Coley, Philipp Eiden, Hua Gao, Angel Guzman-
+Perez, Timothy Hopper, Brian Kelley, Miriam Mathea, et al. Analyzing learned molecular repre-
+sentations for property prediction. Journal of chemical information and modeling, 59(8):3370–
+3388, 2019.
+Minggang Zeng, Jatin Nitin Kumar, Zeng Zeng, Ramasamy Savitha, Vijay Ramaseshan Chan-
+drasekhar, Kedar Hippalgaonkar, and Electronic Materials. Graph Convolutional Neural Net-
+works for Polymers. arXiv:1811.06231v1, 2018.
+Tianhong Zhang, Hongli Li, Hualin Xi, Robert V Stanton, and Sergio H Rotstein. Helm: a hierar-
+chical notation language for complex biomolecule structure representation, 2012.
+Zhenjie Zhang, Marios Hadjieleftheriou, Beng Chin Ooi, and Divesh Srivastava. Bed-tree: an all-
+purpose index structure for string similarity search based on edit distance. In Proceedings of the
+2010 ACM SIGMOD International Conference on Management of data, pp. 915–926, 2010.
+Jie Zhou, Ganqu Cui, Zhengyan Zhang, Cheng Yang, Zhiyuan Liu, Lifeng Wang, Changcheng
+Li, and Maosong Sun.
+Graph Neural Networks: A Review of Methods and Applications.
+arXiv:1812.08434v4, 2018.
+8
+
+Pre-print.
+APPENDIX
+A
+RELATED WORK
+Representation. Macromolecules can be represented as strings, using hierarchical editing language
+for macromolecules (HELM) (Zhang et al., 2012), International Union of Pure and Applied Chem-
+istry (IUPAC) international chemical identiﬁer (InChI) (Heller et al., 2015), CurlySMILES (Drefahl,
+2011) (where SMILES is Simpliﬁed Molecular-Input Line-Entry System) and BigSMILES (Lin
+et al., 2019). Line notations do not always support all topologies, require a fair amount of customiza-
+tion, and have non-canonical variants. One exception to this is linear biological macromolecules,
+such as proteins and DNA/RNA, which are represented as sequences of one/three-letter monomer
+codes. In a recent attempt, glycans (non-linear biological macromolecules) were represented as
+sequences, where groups of monosaccharides were clubbed into ’glycowords’ and placed in hierar-
+chical brackets (Bojar et al., 2021). Representing glycans presents a signiﬁcant advance in notation
+but falls short in terms of comparison (limited to linear glycans) and machine learning tasks.
+Hierarchical ﬁngerprinting is another approach, which follows a hierarchy of atomic (categorical
+encoding of presence/absence of contiguous atom-sets), physicochemical (e.g., fraction of rings,
+molecular surface area), and morphological descriptors (e.g., length of side chain, length of main
+chain) (Kim et al., 2018). This approach is limited in its coverage of chemical space, ability to
+differentiate stereochemistry, and capturing long range through-space interactions.
+Similarity computation. In recent times, there have been signiﬁcant advances in computation of sim-
+ilarity using graph edit distances (Blumenthal & Gamper, 2020) (GED) and graph kernels (Borg-
+wardt et al., 2020; Kriege et al., 2020). Development of software packages, such as graphkernels
+(Sugiyama et al., 2018) and GraKeL (Siglidis et al., 2020), has provided fast implementations of
+graph kernels.
+For linear biological macromolecules, such as proteins, DNA/RNA and linear glycans, there are
+several works for computation of sequence similarities (Bojar et al., 2021; Altschul et al., 1990;
+1997; Boratyn et al., 2019). Usually, sequence alignment is done using Smith-Waterman (Smith
+& Waterman, 1981) or Needleman-Wunsch (Needleman & Wunsch, 1970) algorithms, and scored
+with substitution matrices, such as BLOSUM62 (Eddy, 2004) (for proteins) and GLYSUM (Bojar
+et al., 2021) (for glycans). These substitution matrices are based on evolutionary statistics thereby
+biasing the scoring towards the statistical frequency of a particular monomer’s occurrence in the
+course of evolution, rather than chemical similarity. Apart from sequence alignment in linear macro-
+molecules, edit distances (Riesen & Bunke, 2009; Zhang et al., 2010), linear kernels (Leslie et al.,
+2001; Jaakkola et al., 2000) and deep learning methods (Bileschi et al., 2019; Seo et al., 2018) have
+been proposed to compute similarity. In the case of non-linear macromolecules, alignment of gly-
+cans has been explored using q-grams (Li et al., 2010), tree matching methods (Aoki et al., 2003;
+Hosoda et al., 2017; Coff et al., 2020), and using tree kernels (Yamanishi et al., 2007). Unfortu-
+nately, the aforementioned methods are limited to biological macromolecules, and do not extend to
+the general macromolecular chemical space. Moreover, existing tools do not allow incorporation of
+unnatural monomers and non-linear topologies (except glycans).
+Machine learning. The ﬁeld of graph neural networks (GNN) has seen substantial developments
+in both model architecture and attribution. The different model architectures have demonstrated
+state-of-the-art results across various domains - graph convolutional network (GCN), graph attention
+network (GAT), message passing neural network (MPNN), SchNet, Weave (a variant of GCN),
+and AttentiveFP (a variant of GAT) (Zhou et al., 2018; Sch¨utt et al., 2017; Kearnes et al., 2016;
+Xiong et al., 2020). Graph attribution has been recently studied quantitatively across four metrics –
+accuracy, stability, faithfulness and consistency - for a wide variety of tasks and model architectures
+(Sanchez-Lengeling et al., 2020).
+For macromolecular property prediction, Polymer Genome and similar works using hierarchical ﬁn-
+gerprints predict glass transition temperature, dielectric point and other macromolecular properties
+(Kim et al., 2018; Chen et al., 2021). There have been several attempts to extrapolate macromolec-
+ular property by training over monomer input features (St John et al., 2019; Qiao et al., 2020; Lee
+et al., 2021). GCN over macromolecule graphs with one-hot node and edge attributes has been
+shown to outperform ﬁngerprint-based models (Zeng et al., 2018). For ﬁngerprint-based models,
+9
+
+Pre-print.
+the lack of a good macromolecule representation limits the model performance, while the GCN
+model is limited by the lack of chemical information in the graph representation.
+B
+DATASET PROCESSING
+B.1
+GLYCANS
+B.1.1
+DATASET DOWNLOAD
+A dataset of 19299 glycans was accessed and downloaded from GlycoBase (accessed on November
+2, 2020) (Bojar et al., 2021). The ﬁle contained GlycoBase ID, sequence, link (N, O, free, or none),
+species, and immunogenicity information for each glycan.
+For each glycan sequence string the brackets denote branches, with the point of attachment/bonding
+of the branch as the monomer immediately after the brackets. The ﬁrst element within the bracket
+is the monomer most distant from the point of attachment, and the last element within the bracket
+is the abbreviation of the bond that connects the branch to the original main chain. Nested brackets
+indicate additional sub-branches off of branches, and multiple sets of brackets next to each other
+indicate several branches off of the same monomer.
+B.1.2
+DATASET PRE-PROCESSING
+7 modiﬁcations and 152 deletions of glycan sequences were made before the process for situations
+such as an unequal number of opening and closing brackets and dangling branches without speciﬁed
+connectivity. Additional glycan sequences were removed due to missing SMILES sequences for a
+number of monomers. The original GlycoBase.csv ﬁle was curated to reﬂect the modiﬁcation and
+deletion changes, resulting in a total of 19147 glycans.
+Using the curated database, we visualized the distribution of species of origin, link, and immuno-
+genicity of the glycans (Figures A.1, A.2, A.3).
+Escherichia coli
+Homo sapiens
+Bos taurus
+Sus scrofa
+Mus musculus
+Rattus norvegicus
+Saccharomyces cerevisiae
+Gallus gallus
+Shigella dysenteriae
+Pseudomonas sp
+Schizosaccharomyces pombe
+Helicobacter pylori
+Shigella flexneri
+Haemophilus influenzae
+Salmonella sp
+Nicotiana tabacum
+Pseudomonas aeruginosa
+Hafnia alvei
+Arabidopsis thaliana
+Streptococcus pneumoniae
+Acer pseudoplatanus
+Klebsiella pneumoniae
+Proteus penneri
+Bradyrhizobium japonicum
+Xanthomonas campestris
+Leishmania major
+Salmonella enterica
+Burkholderia cepacia
+Triticum aestivum
+Sinorhizobium sp
+Neisseria meningitidis
+Shigella boydii
+Yersinia pestis
+Sinorhizobium fredii
+Stenotrophomonas maltophilia
+Leishmania mexicana
+Providencia alcalifaciens
+Pseudomonas fluorescens
+Lactococcus lactis
+Neisseria gonorrhoeae
+Phaseolus vulgaris
+Tamarindus indica
+Leuconostoc mesenteroides
+HumanImmunoDeficiency Virus
+Acinetobacter baumannii
+Cryptococcus neoformans
+Vibrio cholerae
+MurineLeukemia Virus
+Agrobacterium tumefaciens
+Pasteurella multocida
+Species
+102
+103
+Count
+Figure A.1: Top 50 most common glycan species of origin, sorted in descending order of count with
+y-axis on a logarithmic scale.
+B.1.3
+SMILES COMPILATION
+The chemical composition and formula of the 959 monomers (also known as glycoletters in Gly-
+coBase) and 53 bonds were expressed as isomeric simpliﬁed molecular-input line-entry system
+(SMILES) sequences.
+In the dataset retrieved from GlycoBase, all position-speciﬁc information about monomer modiﬁ-
+cations was removed. The supplementary information of SweetTalk contains all the raw glycan se-
+quences before position-speciﬁc modiﬁcation information was removed (Bojar et al., 2021). While
+10
+
+Pre-print.
+None
+N
+O
+Free
+Link
+102
+103
+104
+Count
+Figure A.2: Four types of glycan links sorted in descending order of count with y-axis on a logarith-
+mic scale.
+Unknown
+No
+Yes
+Immunogenic
+103
+104
+Count
+Figure A.3: Three different types of glycan immunogenicity labels sorted in descending order of
+count, with y-axis on a logarithmic scale.
+insufﬁcient information is provided to directly match the raw sequences with the corresponding
+edited sequences, the raw sequences can be used to look for trends and most common modiﬁca-
+tion positions for each monomer. A dictionary was created to describe the number of times each
+monomer appears in all the raw sequences. A couple of terms should be deﬁned for consistency:
+• “Monosaccharides” refer to the individual glycoletters without any modiﬁcations, such as
+D-glucose (D-Glu) and galactose (D-Gal). The term “monosaccharide” is simplistic be-
+cause it also covers alcohols, acids, and other classes of molecules, but the term will be
+employed for the sake of consistency and clarity.
+• “Modiﬁcations” refer to substitutions or additions to the original monosaccharide sequence
+such as a nitrogen-linked acetyl group (NAc) and oxygen-linked methyl group (OMe). In
+this dataset, monosaccharides can have between 0-4 modiﬁcations.
+• “Monomers” refer to the combination of the monosaccharide and modiﬁcation(s), also
+known as glycoletters in GlycoBase.
+Using the raw monomers dictionary, the positions of the modiﬁcations for each monomer in the
+corresponding SMILES were set using a list of consistent rules outlined below. The rules are listed
+in order of priority.
+1. For each monomer/glycoletter, if at least one monomer with the same monosaccharide and
+set of modiﬁcations exists in the raw monomers dictionary, assume the set of positions with
+the highest frequency. If no monomer exists in the raw monomers dictionary with the same
+monosaccharide and set of modiﬁcations, proceed to the following steps.
+2. If the monomer has a hydroxyl group at the 2 position, is not a furanose or ketose, and
+contains a nitrogen-linked modiﬁcation (N, NBut, NMe, etc.), assign the ﬁrst occurrence
+of a nitrogen-linked modiﬁcation to the 2 position.
+3. If the monomer is a hexose or deoxy-hexose and contains a pyruvate acetal (OPyr), assume
+that the acetal connects the 4 and 6 positions.
+11
+
+Pre-print.
+4. If the monomer contains an O-linked phosphate (OP) or sulfate (OS) modiﬁcation, search
+the raw monomers dictionary for instances of the monosaccharide with only the OP/OS
+modiﬁcation and assume the most frequent position.
+5. If the monomer contains a variant of the O-linked phosphate modiﬁcation (OPEtn, OPPEtn,
+etc.), assign the OP-variant modiﬁcation the same position as the most common position
+for the OP modiﬁcation on the monosaccharide.
+6. If the monomer contains two modiﬁcations, search the raw glycans dictionary for instances
+of the monosaccharide with only each modiﬁcation separately but not at the same time.
+Assign each modiﬁcation the position of highest frequency. If either monosaccharide and
+modiﬁcation combination does not exist in the raw monomers dictionary and the monomer
+is a hexose, assign positions in the following order: 2, 4, 3, 6. If the position is already
+occupied from previous steps or does not exist in a deoxy hexose, skip to the position with
+next highest priority.
+7. If the monomer is a hexose or deoxy-hexose and contains more than two modiﬁcations,
+assign positions in the following order: 2, 3, 4, 6. If the position is already occupied from
+previous steps or does not exist in a deoxy hexose, skip to the position with next highest
+priority.
+8. Assume all amino acids are connected to the monosaccharide via the oxygen on the car-
+boxyl. If the connectivity is not speciﬁed for a group following the amino acid (CysAc,
+AlaFo), assume that the group following the amino acid is connected to the amino acid via
+the amine group.
+9. For neuraminic acid (Neu), ketodeoxynononic acid (Kdn), pseudaminic acid (Pse), legion-
+aminic acid (Leg), and other similar ketose-based acids, assign modiﬁcation positions in
+the following order: 1, 4.
+10. For fructofuranose and similar furanoses for which the 1-position is not part of the ring,
+assign modiﬁcations in the following order: 1, 3, 4.
+11. For alcohols, follow the same rules that apply to the oxidized form of the alcohol. For
+example, for glucitol follow the same rules that apply to glucose.
+12. Assume all rare monosaccharides (denoted as Sug) are hexoses with no speciﬁed stereo-
+chemistry.
+Because the 959 monomers contained some repeat SMILES sequences with different monomer
+names, 13 redundant names were deleted so that each distinct monomer SMILES only appears once
+in the SMILES compilation.
+The SMILES for the 53 bond types differ in stereochemistry alone (alpha, beta, or unspeciﬁed) but
+all have the same chemical composition of a glycosidic bond. Each bond is expressed as a variation
+of the SMILES sequence CC(OC)CC, which consists of the glycosidic bond C-O-C with one of
+the C atoms also connected to both a methyl and ethyl group. The chiral C with the four different
+attached groups is used to specify the alpha or beta stereochemistry displayed in the bond name.
+The stereochemistry at the tetrahedral C is consistently S for all alpha bonds, R for all beta bonds,
+and not speciﬁed for all unspeciﬁed bonds. The 53 bond names were condensed into 3 distinct bond
+types differing in stereochemistry alone.
+B.2
+ANTI-MICROBIAL PEPTIDES
+B.2.1
+DATASET DOWNLOAD
+A dataset of 15864 antimicrobial peptides (AMPs), including 15450 monomers, 200 multimers,
+and 214 multi-peptides, from the Database of Antimicrobial Activity and Structure of Peptides
+(DBAASP) was accessed and downloaded on October 6, 2020 (Pirtskhalava et al., 2016).
+Each peptide was represented in the dataset as an individual .json ﬁle containing information about
+the peptide ID, name, sequence(s), unusual amino acids, connectivity, terminal modiﬁcations, com-
+plexity, synthesis type, target groups and objects, and target species. The term “target species” is
+used loosely and actually encompasses both species and sub-classiﬁcation information such as sub-
+species, strain for bacteria, and forma speciales for fungi. For each target species for any given
+12
+
+Pre-print.
+peptide, the dataset provides the antimicrobial peptide concentration in units of mostly either µM or
+µg/mL as a function of four unique variables: activity measure, salt type, medium, and CFU.
+The dataset includes three different types of peptide complexities: monomers, multimers, and multi-
+peptides. In the DBAASP dataset, monomers consist of a single sequence, multimers between 2 and
+4 separate sequences connected via interchain bonds, and multi-peptides between 2 and 4 separate
+sequences connected not via covalent bonds but instead weaker intermolecular forces.
+B.2.2
+DATASET PRE-PROCESSING
+The information from each .json ﬁle was inputted into a combined table and the antimicrobial pep-
+tide concentrations for each target species was converted into a ﬂoat value by removing symbols like
+‘>’ and ‘<’, taking the average whenever the dataset provides a range, and disregarding uncertainty
+values.
+9 peptide monomer types included in a total of 86 peptides were removed due to ambiguity of the
+molecular structure, bringing the total number of peptides to 15,778. This condensed dataset was
+further processed to visualize the distribution of target species data points. For each “target species,”
+the species name was separated from any sub-classiﬁcations (subspecies, strain, forma speciales,
+serovar, pathovar, biovar, etc.).
+Using the processed database, we visualized the distribution of species, activity measure, salt types,
+mediums, units, and CFU in the target species data points (Figures A.4-A.9).
+Escherichia coli
+Staphylococcus aureus
+Pseudomonas aeruginosa
+Candida albicans
+Salmonella enterica
+Bacillus subtilis
+Klebsiella pneumoniae
+Staphylococcus epidermidis
+Acinetobacter baumannii
+Enterococcus faecalis
+Micrococcus luteus
+HIV-1
+Enterococcus faecium
+Bacillus cereus
+Listeria monocytogenes
+Cryptococcus neoformans
+Pseudomonas syringae
+Human breast adenocarcinoma
+Human cervical carcinoma
+Bacillus megaterium
+Saccharomyces cerevisiae
+Enterobacter cloacae
+Candida tropicalis
+Streptococcus mutans
+Mycobacterium tuberculosis
+Fusarium oxysporum
+Human lung carcinoma
+Candida parapsilosis
+Streptococcus pneumoniae
+Streptococcus pyogenes
+Candida glabrata
+Proteus mirabilis
+Human colon adenocarcinoma
+Erwinia amylovora
+Stenotrophomonas maltophilia
+Proteus vulgaris
+Serratia marcescens
+Aspergillus niger
+Botrytis cinerea
+Candida krusei
+Aspergillus fumigatus
+Human hepatocellular carcinoma
+Enterobacter aerogenes
+Xanthomonas axonopodis
+Fusarium culmorum
+Listeria innocua
+Bacillus anthracis
+Lactococcus lactis
+Hepatitis C virus (HCV)
+Vibrio parahaemolyticus
+Species
+103
+104
+Count
+Figure A.4: Top 50 species with greatest number of data points sorted in descending order of count,
+with y-axis on a logarithmic scale.
+As evident from the bar plots, the vast majority of data points belong to either Escherichia coli
+or Staphylococcus aereus. To understand whether the overall dataset could be further ﬁltered to
+limit the variability in conditions for more meaningful comparison of peptide concentrations, we
+visualized the distribution of activity measure and salt type for both E. coli (Figures A.10, A.11) and
+S. aereus (Figures A.12, A.13).
+For both E. coli and S. aereus, the majority of data points have an activity measure of MIC and no
+added salt. Due to the clear majority for both activity measure and salt type as well as the difﬁculty
+of interconversion between the units of µM and µg/mL, the overall dataset was ﬁltered into two
+separate, smaller datasets: one containing only data points falling into all of the categories of E.
+coli, MIC, no salt, and µM data points and the other containing only data points falling into all of
+the categories of S. aereus, MIC, no salt, and µM. Each of the two sub-datasets was further ﬁltered
+to remove any peptides for which the standard deviation of the peptide concentrations meeting the
+criteria for the sub-dataset was not zero, resulting in a total of 4,445 peptides for the E. coli dataset
+and 3,686 peptides for the S. aereus dataset.
+13
+
+Pre-print.
+MIC
+MBC
+IC50
+LC
+MIC90
+LD50
+MFC
+MIC50
+EC50
+IC50 REP
+MEC
+LC50
+IC50 F
+MBC50
+CC50
+ED50
+LD90
+IC50 IN 3'EP
+IC90
+100% inhibition
+MSC
+100% Killing
+50% Cytotoxicity
+IC50 IN ST
+50% Killing
+50% Cell death
+MLC
+0% Killing
+95% Inhibition
+LC90
+MBC90
+90% Killing
+99% Killing
+IC50 P
+MBC99
+0% Inhibition
+10% Killing
+>90% Killing
+IC50 PR
+100% Inhibition
+LD
+20% Killing
+LD99
+5% Killing
+IC90 F
+IC50 RT RDDP
+25% Killing
+80% Inhibition
+0% Cytotoxicity
+Activity Measure
+102
+103
+104
+105
+Count
+Figure A.5: Top 50 activity measures with greatest number of data points sorted in descending order
+of count, with y-axis on a logarithmic scale.
+NaCl
+MgCl2
+CaCl2
+CaCl2 + KCl
+KCl
+FeCl3
+NH4Cl
+ZnCl2
+Na2HPO4/NaH2PO4
+NaCl/MgCl2
+NaCl + ZnCl2
+NaCl/CaCl2
+NaCl (0.9%)
+Ca2+, Mg2+
+NaH2PO4
+Cu2+ ions
+CaCl2  + KCl
+NaCl + NaHCO3 + MgCl2 + CaCl2 + KCl
+KCl/MgCl2
+NaCl+KCl+Na2HPO4+KH2PO4
+NaCl/KCl
+NaCl + NaHCO3 + ZnSO4
+NaCl/MgCl2/CaCl2
+NaN3
+MgCl2/CaCl2
+NaCl/MgCl2/FeCl3
+Zn2+
+ZnCl2/FeCl3
+NH4Cl/MgCl2/ZnCl2/FeCl3
+0.9% NaCl
+Zn(ClO4)2
+MgCl2/FeCl3
+NaCl + CaCl2 + MgCl2
+NaCl+KCl+NH4Cl+MgCl2+CaCl2+ZnCl2+FeCl3
+NaCl/KCl/MgCl2
+NH4Cl/FeCl3
+citrate
+KCl/CaCl2
+CaCl2 + MgCl2 + KCl
+Zn+2
+MgCl2/ZnCl2
+Cu+2
+KCl/ZnCl2
+NaCl/KCl/NH4Cl
+KCl/NH4Cl/MgCl2/ZnCl2/FeCl3
+NH4Cl/ZnCl2/FeCl3
+CaCl2/ZnCl2
+KCl/FeCl3
+NaCl/FeCl3
+Salt Type
+101
+102
+103
+104
+105
+Count
+Figure A.6: Top 50 salt types with greatest number of data points sorted in descending order of
+count, with y-axis on a logarithmic scale. The blank label for the ﬁrst column indicates the absence
+of any added salt.
+MHB
+LBB
+TSB
+MHA
+CAMHB
+PDB
+LBA
+PB
+TSA
+RPMI-1640
+BHIB
+YEPD
+NB
+SDB
+PBM
+M7H9B
+AM3
+TYE
+NA
+SDA
+BHIA
+MRSM
+NZCYM
+THB
+YMM
+LYM
+CAMHA
+SMF
+PDA
+SGB
+BrB
+YPG
+ISB
+M17-G
+TB
+M9
+MM
+WM
+YPGM
+MEB
+GCA
+TSBYE
+CBA
+AM3A
+2xty
+THA
+BlA
+SGA
+PPLO
+Medium
+102
+103
+104
+Count
+Figure A.7: Top 50 mediums with greatest number of data points sorted in descending order of
+count, with y-axis on a logarithmic scale.
+14
+
+Pre-print.
+µM
+µg/ml
+nmol/g
+µg/g
+MIC
+pmol/mg
+Unit
+100
+101
+102
+103
+104
+105
+Count
+Figure A.8: All peptide concentration units sorted in descending order of count, with y-axis on a
+logarithmic scale.
+5E5
+1E6
+1E5
+2E6
+1E4
+2E5-7E5
+2E5
+5E4-1E5
+1E5-1E6
+5E4
+5E6
+1E7
+5E5-1E6
+1E5-5E5
+1E6-1E8
+4E5
+2E3
+2.5E5
+2E4
+1E4-5E4
+1E4-1E5
+1E8
+1E5-2E5
+1E3
+2.5E3
+1.2E3-7.5E3
+4E6
+5E3
+5E7
+5E2-1E3
+1.5E3
+1E6-2E6
+1.5E5
+3E5
+1E4-5E5
+2E5-8E5
+1E6-5E6
+7.5E5
+1.5E7
+5E2-2.5E3
+2E5-5E5
+1E6-4E6
+1.5E8
+0.5E6-1E6
+1E3-5E3
+0.4E4-5E4
+2E4-2E5
+2E7
+1.5E3-2E3
+CFU
+102
+103
+104
+Count
+Figure A.9: Top 50 CFUs with greatest number of data points sorted in descending order of count,
+with y-axis on a logarithmic scale.
+MIC
+MBC
+IC50
+LC
+MIC90
+MIC50
+MEC
+LD50
+MBC50
+MSC
+LD90
+100% inhibition
+EC50
+IC90
+50% Killing
+LC50
+0% Killing
+LC90
+MBC99
+99% Killing
+90% Killing
+100% Killing
+95% Inhibition
+>90% Killing
+MLC
+ED50
+LD99
+MBC90
+100% Inhibition
+0% Inhibition
+ED90
+70% Killing
+LD
+20% Killing
+90-100% Killing
+40.5% Killing
+40% Inhibition
+60% Inhibition
+95% inhibition
+65% Killing
+80% Killing
+20% inhibition
+10% inhibition
+87% Killing
+85% inhibition
+80% Inhibition
+8.5% Inhibition
+92% Inhibition
+92% inhibition
+85% Inhibition
+Activity Measure
+101
+102
+103
+104
+Count
+Figure A.10: Top 50 activity measures for E. coli data points with greatest number of occurrences
+sorted in descending order of count, with y-axis on a logarithmic scale.
+B.2.3
+SMILES COMPILATION
+The chemical composition and formula of the 332 amino acids, 93 N-termini modiﬁcations, 37
+C-termini modiﬁcations, and 22 bonds were expressed as isomeric simpliﬁed molecular-input line-
+entry system (SMILES) sequences. The majority of isomeric SMILES sequences were found on
+PubChem from the National Library of Medicine (Kim et al., 2019). The remaining SMILES were
+collected through review of literature cited in the DBAASP peptide cards of peptides containing the
+corresponding monomers or bonds.
+15
+
+Pre-print.
+NaCl
+MgCl2
+CaCl2
+KCl
+FeCl3
+NH4Cl
+ZnCl2
+Na2HPO4/NaH2PO4
+NaCl/MgCl2
+NaCl/CaCl2
+Cu2+ ions
+NaCl/MgCl2/CaCl2
+MgCl2/CaCl2
+Zn2+
+NaCl (0.9%)
+NaH2PO4
+KCl/ZnCl2
+MgCl2/ZnCl2
+NH4Cl/FeCl3
+MgCl2/FeCl3
+ZnCl2/FeCl3
+NaCl + NaHCO3 + MgCl2 + CaCl2 + KCl
+Ca2+, Mg2+
+CaCl2/ZnCl2
+NaCl + NaHCO3 + ZnSO4
+NaCl + ZnCl2
+KCl/FeCl3
+NaCl/KCl/NH4Cl
+NaCl/KCl
+NaCl+KCl+NH4Cl+MgCl2+CaCl2+ZnCl2+FeCl3
+NH4Cl/ZnCl2
+NaCl/KCl/NH4Cl/MgCl2/FeCl3
+0.9% NaCl
+NaCl/MgCl2/FeCl3
+NaCl/CaCl2/MgCl2
+NaCl/FeCl3
+NaCl/KCl/MgCl2
+NaCl/KCl/CaCl2
+citrate
+KCl/MgCl2
+KCl/CaCl2/FeCl3
+CaCl2/FeCl3
+KCl/CaCl2
+KCl+MgCl2
+NH4Cl/MgCl2/CaCl2/ZnCl2/FeCl3
+NaCl/MgCl2/ZnCl2
+NaCl/KCl/NH4Cl/MgCl2/CaCl2/ZnCl2
+NaCl/KCl/NH4Cl/MgCl2/CaCl2/ZnCl2/FeCl3
+NaCl/KCl/NH4Cl/MgCl2/ZnCl2/FeCl3
+Salt Type
+101
+102
+103
+104
+Count
+Figure A.11: Top 50 salt types for E. coli data points with greatest number of occurrences sorted in
+descending order of count, with y-axis on a logarithmic scale. The blank label for the ﬁrst column
+indicates the absence of any added salt.
+MIC
+MBC
+LC
+IC50
+MIC90
+MIC50
+MEC
+MBC50
+LD50
+EC50
+MSC
+MBC90
+LD90
+MBC99
+99% Killing
+50% Killing
+100% Killing
+LC90
+95% Inhibition
+LC50
+IC90
+90% Killing
+0% Inhibition
+MLC
+ED50
+>90% Killing
+98% inhibition
+LD99
+ED90
+0% Killing
+LD
+95% Killing
+30% Inhibition
+87% inhibition
+85% Killing
+60% inhibition
+56% Killing
+40% inhibition
+25% inhibition
+12% inhibition
+18% Inhibition
+90-100% Killing
+97.6±0.1% inhibition
+100% Inhibition
+EC90
+100% inhibition
+11% inhibition
+99.1% Inhibition
+12% Inhibition
+Activity Measure
+101
+102
+103
+104
+Count
+Figure A.12: Top 50 activity measures for S. aereus data points with greatest number of occurrences
+sorted in descending order of count, with y-axis on a logarithmic scale.
+For the monomers, no additional sequences beyond those of the 20 standard L-amino acids and
+unusual amino acids, C-termini modiﬁcations, and N-termini modiﬁcations found in the Help section
+of the DBAASP website were included in the SMILES compilation. 8 monomers had repeat names
+between the three different types of monomers, and the names were changed so that each monomer
+corresponds with a unique name. For the bonds, the sidechain-mainchain bonds (SMB) were split
+into 7 subtypes determined through review of the literature. In addition, 6 additional bond types
+were added for cases in which the connection between the N or C-termini modiﬁcation and terminal
+amino acid is not an amide bond. The 7 SMB subtypes, 6 additional terminal bond types, and 9
+intrachain bond types in the Help section of the DBAASP website resulted in a total of 22 bonds.
+16
+
+Pre-print.
+NaCl
+MgCl2
+CaCl2
+KCl
+NH4Cl
+ZnCl2
+FeCl3
+NaCl+KCl+Na2HPO4+KH2PO4
+NaH2PO4
+Na2HPO4/NaH2PO4
+KCl/MgCl2
+NaCl/CaCl2
+NaCl/MgCl2/FeCl3
+NaCl/MgCl2
+Ca2+, Mg2+
+NaCl + NaHCO3 + MgCl2 + CaCl2 + KCl
+NaCl (0.9%)
+NaCl+KCl+NH4Cl+MgCl2+CaCl2+ZnCl2+FeCl3
+NaCl + ZnCl2
+NaCl/KCl/NH4Cl
+NaCl/KCl/MgCl2
+MgCl2/ZnCl2/FeCl3
+MgCl2/FeCl3
+ZnCl2/FeCl3
+KCl/NH4Cl/MgCl2/ZnCl2/FeCl3
+KCl/CaCl2
+CaCl2/MgCl2/NH4Cl
+0.9% NaCl
+NH4Cl/ZnCl2/FeCl3
+KCl/NH4Cl
+KCl/MgCl2/CaCl2
+MgCl2, CaCl2
+CaCl2/FeCl2
+NaCl/KCl/MgCl2/FeCl3
+CaCl2/MgCl2
+NaCl/KCl/NH4Cl/CaCl2
+NaCl/KCl/NH4Cl/ZnCl2/CaCl2
+CaCl2/FeCl3
+NaCl/NH4Cl/FeCl3
+NaCl/MgCl2/ZnCl2
+NaCl/KCl/CaCl2/MgCl2
+NaCl/NH4Cl/ZnCl2/FeCl3
+NaCl/ZnCl2
+CaCl2+MgCl2
+Zn(ClO4)2
+CaCl2 / MgCl2
+ZnCl2+NaCl2
+NaCl/KCl/FeCl3
+NaCl/CaCl2/MgCl2
+Salt Type
+101
+102
+103
+104
+Count
+Figure A.13: Top 50 salt types for S. aereus data points with greatest number of occurrences sorted
+in descending order of count, with y-axis on a logarithmic scale. The blank label for the ﬁrst column
+indicates the absence of any added salt.
+C
+TEXT FILE SYSTEM
+C.1
+FORMAT
+The text ﬁles to convert each macromolecule structure into machine-readable format consist of three
+sections: the SMILES sequences for each unique monomer or bond, the positions of each monomer,
+and the two monomer positions connected by each bond. Each section starts with a header to indicate
+the start of a new part. The ﬁrst section contains the abbreviation of each unique monomer or bond
+in the glycan followed by the corresponding SMILES sequence, with each entry on a separate line.
+The monomers section consists of the monomer position followed by the monomer abbreviation.
+The bonds section contains the two connectivity positions in the glycan for the bond separated by a
+space, followed by the bond abbreviation (Figure A.14).
+C.2
+TEXT FILE PARSER
+A text ﬁle parser converts the macromolecule information stored in the .txt ﬁle to a NetworkX graph
+with monomers expressed as nodes and bonds expressed as edges. The parser goes through the
+.txt ﬁle line by line, stores the monomer information in a dictionary with keys as integer positions
+and values as monomer abbreviations, and stores the bond information in a dictionary with keys as
+tuples containing bond connectivities and values as bond abbreviations. Afterwards, the reader uses
+NetworkX to add each key in the monomer dictionary as a node and each key in the bond dictionary
+as an edge, storing the abbreviations as attributes for the corresponding node or edge. The resulting
+NetworkX graphs include both linear and highly branched architectures (Figure A.15, A.16).
+D
+NODE AND EDGE ATTRIBUTES
+D.1
+FINGERPRINTS – GENERATION AND OPTIMIZATION OF HYPERPARAMETERS
+We used RDKit to generate stereochemical extended connectivity ﬁngerprints (Landrum, 2006;
+Rogers & Hahn, 2010). Radius and number of bits were optimized by calculating mean and stan-
+dard deviation, and visualizing the distribution of Tanimoto similarity of all monomers in the glycans
+dataset (Figure A.17A-C). We aimed to obtain ﬁngerprints with lower number of bits and optimal
+radius that could represent the monomer aptly in both similarity computation and graph neural net-
+work models. For 64 bits, we observed that the mean similarity was as high as 0.4 and standard
+17
+
+Pre-print.
+SMILES of unique monomers and bonds
+Monomer positions and abbreviations
+Bond connectivities and abbreviations
+Figure A.14: Standard text ﬁle format with three sections: SMILES of unique monomers and bonds,
+monomer positions and abbreviations, and bond connectivities and abbreviations.
+Linear
+Branched
+Figure A.15: NetworkX graph representations of glycans that consist of both linear and highly
+branched architectures of varying molecular weights and complexities.
+deviation for similarity went up after radius 3 indicating higher hash collision and lesser differen-
+tiability. For 128 bits, the mean and standard deviation plateaued around 0.3 and 0.08, respectively.
+Further, the similarity distribution was qualitatively spread over a larger range, as compared to ﬁn-
+gerprints with larger number of bits. For ﬁngerprint bits longer than 128, we observed lower mean
+and standard deviation, and decreasing spread in the similarity distribution. The decreasing trend
+18
+
+Pre-print.
+Monomer
+Multimer
+Multi-Peptide
+Figure A.16: NetworkX graph representations of peptides of all three complexities of varying molec-
+ular weights.
+indicates that the ﬁngerprints with bits higher than 128 are equally dissimilar, thus, if used, will lead
+to glycans with equally high dissimilar scores. Hence, we chose ﬁngerprints with 128 bits and radius
+3 to generate node attributes for glycans. For edge attributes, we had 3 types of glycosidic bonds
+differing by the stereochemistry alone, hence, we chose ﬁngerprints with 16 bits and radius 3. We
+employed similar reasoning for the peptides to select 128 bits and radius 3 for both monomers and
+bonds.
+We observed that there were 3 sets with 7 glycans which had exact ﬁngerprints (Figure A.17D).
+Since, the difference was in the number of carbon atoms in the aliphatic chain, we used the ﬁnger-
+prints as is.
+D.2
+ONE-HOT ENCODING BENCHMARK
+One-hot encodings of the 946 monomer and 3 bond types for glycans and the 461 monomer and 22
+bond types for peptides were also employed as feature types for benchmarking with featurization
+using molecular ﬁngerprints. The dimensions of the node and edge one-hot encoding features are
+946 and 3, respectively, for glycans and 461 and 22, respectively, for peptides.
+E
+SIMILARITY COMPUTATION
+E.1
+ANALYSIS OF GRAPHS
+Most glycan graphs are sparse (Figure A.8). Complete graphs have density of 1, while graphs with
+density > 0.5 have been deﬁned as dense (Borgwardt et al., 2020).
+19
+
+Pre-print.
+10
+OH
+O
+H
+N
+O
+NH2
+O
+O
+O
+OH
+13
+OH
+O
+H
+N
+O
+NH2
+O
+O
+O
+OH
+15
+GlcNMeOCmOPam
+GlcNMeOCmOSte
+OH
+O
+NH2
+OH
+O
+O
+OH
+13
+OH
+O
+NH2
+OH
+O
+O
+OH
+14
+OH
+O
+NH2
+OH
+O
+O
+OH
+15
+GlcNOPam
+GlcNOSte
+GlcNOMar
+GlcOAcOPam
+GlcOAcOSte
+OH
+O
+O
+O
+OH
+O
+O
+OH
+15
+OH
+O
+O
+O
+OH
+O
+O
+OH
+13
+A
+B
+C
+D
+Figure A.17: A. Mean, B. standard deviation and C. distribution of Tanimoto similarity of all
+monomers in the glycans dataset, calculated using stereochemical extended connectivity ﬁngerprints
+of different radii and bits. D. Glycans in the same box have the exact ﬁngerprint for radius 3 and
+128 bits.
+A
+B
+C
+Figure A.18: Distribution of number of A. nodes, B. edges and C. density for glycan graphs.
+E.2
+SIMILARITY MATRIX
+We computed the (n × n) similarity matrix for all glycans with labels on at least one taxonomic
+level using propagation attribute kernel in GraKeL (Figure A.18) (Siglidis et al., 2020). Each pair
+of graph similarity was computed for a maximum of 100 iterations. This resulted in 5% of the pairs
+being assigned a 0 similarity (10% of all indices in the similarity matrix are 0).
+It may be noted that the computation of similarity using graph kernels is way more accessible than
+graph edit distances. The current computation was done on in minutes (wall time), parallelized
+across 24 cores. From visual inspection using htop, only about 30% of 2 cores were being used
+at any particular time, and less than 5% of all other cores were used, although there were 24 jobs
+running in parallel.
+20
+
+Pre-print.
+0
+2000
+4000
+6000
+8000
+Glycans
+0
+2000
+4000
+6000
+8000
+Glycans
+0.0
+0.2
+0.4
+0.6
+0.8
+1.0
+Similarity
+Figure A.19: 2D plot for the (n × n) similarity matrix of glycans. This is not symmetric because
+each row is normalized by its maximum.
+E.3
+DISSIMILARITY COMPUTATION USING EXACT GRAPH EDIT DISTANCES
+We performed a grid search over combinations of possible node/edge substitution costs and multi-
+pliers for node/edge insertion/deletion costs to ﬁnd an optimal set of values. Instead of similarity, we
+use the opposite – dissimilarity – as it is more intuitive when compared to a baseline case. We use
+the representative glycans in Figure 2B for this experiment, and present them here in Figure A.20
+with the names we use in Table A.1.
+For node/edge substitution, the Tanimoto distance between the stereochemical ﬁngerprints, a value
+in the range of 0 and 1 (where 0 is a perfect match), is multiplied by the substitution cost to obtain the
+ﬁnal graph edit distance. For node/edge insertion/deletion, a constant value which is the node/edge
+insertion/deletion is added to the graph edit distance. The baseline case where the edit distance is
+calculated for the macromolecule with itself is 0.
+E.4
+SIMILARITY COMPUTATION USING GRAPH KERNELS
+We performed a grid search over hyperparameters of propagation attribute kernel – bin width 1, 3,
+10, 100, and the preserved distance metric on local sensitive hashing ‘L1-norm’, ‘L2-norm’. We
+used 30 as the maximum number of iterations for the kernel computation for this experiment. We
+use the representative glycans Figure A.20, and present the results in Table A.2.
+21
+
+Pre-print.
+L-glc
+M-glc
+B1-glc
+B2-glc
+L-glc-xyl
+L-glc-xyl-fuc
+B-glc-xyl-fuc
+Topology
+Monomer
+Chemistry
+Glc
+Xyl
+Fuc
+Topology 
+and
+Monomer
+Chemistry
+Baseline
+Figure A.20: Representative glycans used in the hyperparameter search for dissimilarity computa-
+tion using exact graph edit distances, and similarity computation using graph kernels.
+Table A.1: Dissimilarities computed using exact graph edit distances using different node/edge in-
+sertion/deletion and substitution multipliers. The remarks column notes down the hyperparameters,
+and baseline and other classes of glycans. Abbreviations - Hparam: hyperparameter, L: linear, B:
+branched, glc: glucose, xyl: xylose, fuc: fucose.
+Remarks
+Hyperparameters/Glycans
+Cases
+HParam1
+Insertion/Deletion Cost
+1
+1
+1
+1
+3
+3
+3
+3
+5
+5
+5
+5
+10
+10
+10
+10
+HParam2
+Substitution Cost
+1
+3
+5
+10
+1
+3
+5
+10
+1
+3
+5
+10
+1
+3
+5
+10
+Baseline
+L-glc
+0
+0
+0
+0
+0
+0
+0
+0
+0
+0
+0
+0
+0
+0
+0
+0
+Topology
+M-glc
+1
+1
+1
+1
+3
+3
+3
+3
+5
+5
+5
+5
+10
+10
+10
+10
+B1-glc
+2
+2
+2
+2
+6
+6
+6
+6
+10
+10
+10
+10
+20
+20
+20
+20
+B2-glc
+4
+4
+4
+4
+12
+12
+12
+12
+20
+20
+20
+20
+40
+40
+40
+40
+Monomer Chemistry
+L-glc-xyl
+0.68
+6
+6
+6
+0.68
+2.05
+3.42
+18
+0.68
+2.05
+3.42
+6.84
+0.68
+2.05
+3.42
+6.84
+L-glc-xyl-fuc
+1.43
+12
+12
+12
+1.43
+4.28
+7.13
+36
+1.43
+4.28
+7.13
+14.26
+1.43
+4.28
+7.13
+14.26
+Topology and Chemistry
+B-glc-xyl-fuc
+6.17
+14
+14
+14
+14.17
+18.5
+22.84
+42
+22.17
+26.5
+30.84
+41.67
+42.17
+46.5
+50.84
+61.67
+22
+
+Pre-print.
+Table A.2: Similarities computed using graph kernels with different values of bin width and distance
+metric. The remarks column notes down the hyperparameters, and baseline and other classes of
+glycans. Abbreviations - Hparam: hyperparameter, L: linear, B: branched, glc: glucose, xyl: xylose,
+fuc: fucose.
+Remarks
+Hyperparameters/Glycans
+Cases
+HParam1
+Bin width
+1
+1
+3
+3
+10
+10
+100
+100
+HParam2
+Distance metric
+L1
+L2
+L1
+L2
+L1
+L2
+L1
+L2
+Baseline
+L-glc
+230
+230
+230
+230
+230
+230
+230
+230
+Topology
+M-glc
+61
+61
+61
+61
+61
+61
+61
+61
+B1-glc
+56
+56
+56
+56
+56
+56
+56
+56
+B2-glc
+51
+51
+51
+51
+51
+51
+51
+51
+Monomer Chemistry
+L-glc-xyl
+50
+50
+50
+50
+50
+55
+56
+61
+L-glc-xyl-fuc
+39
+39
+39
+39
+45
+44
+51
+61
+Topology and Chemistry
+B-glc-xyl-fuc
+23
+23
+23
+23
+35
+33
+46
+51
+F
+DIMENSIONALITY REDUCTION
+F.1
+HYPERPARAMETER OPTIMIZATION FOR UNIFORM MANIFOLD APPROXIMATION AND
+PROJECTION (UMAP)
+Number of neighbors was optimized for 2-component UMAP dimensionality reduction of similarity
+vectors (Figure A.21) (McInnes et al., 2018). From visual inspection, UMAP with 128 neighbors
+seems to resolve into optimal size and number of clusters. The subplot shows distinct regions for the
+immunogenic and non-immunogenic glycans. We note that there is more to similarity than graph
+kernel distances, and observe that it has been effectively captured using the GNN models (Appendix
+G).
+UMAP dimensionality reduction for higher number of components does not provide more informa-
+tion. The 3 components UMAP looked similar to the 2 components, with slightly more disentangled
+families (Figure A.22). We limited our visual analysis to 3 components. To check if more compo-
+nents can help in ﬁnding distinct clusters, we did dimensionality reduction for {2, 3, 5, 10, 30, 50}
+components and let HDBSCAN - an unsupervised clustering algorithm – to ﬁgure out how many
+clusters are there (McInnes et al., 2017). We noted that the number of clusters are pretty similar, and
+in low 400s (Figure A.23). The high number of clusters indicates the diversity of the space, and the
+differences in terms of taxonomy. As a further check to see if the distribution of glycans in different
+clusters is different, we plotted the histograms of the glycans assigned to each cluster. Across all
+the components, the histograms seem to be consistent with the number of glycans in each of them
+(Figure A.24).
+F.2
+T-SNE BENCHMARK
+We benchmarked the dimensionality reduction results obtained from UMAP against a broad range of
+t-stochastic neighbor embeddings (t-SNE) models (Van Der Maaten & Hinton, 2008). For the differ-
+ent models, we varied perplexity as {2, 5, 30, 50, 100}, and number of steps as {500, 1000, 5000}.
+From the scatter plot, colored by immunogenicity labels, we noted that dimensionality reduction us-
+ing t-SNE was not able to deduce the differences and getting the glycans into distinct areas (Figure
+A.25).
+G
+SUPERVISED LEARNING WITH GRAPH NEURAL NETWORKS
+G.1
+DEEP GRAPHS LIBRARY (DGL) GRAPHS
+Following featurization, NetworkX graphs were converted into undirected, unweighted, and ho-
+mogenous DGL graphs (Wang et al., 2019). For GCN and GAT model architectures, self-loops
+23
+
+Pre-print.
+20
+0
+20
+2
+4
+8
+16
+0
+50
+20
+0
+20
+32
+0
+50
+64
+0
+50
+128
+0
+50
+256
+0.0
+0.2
+0.4
+0.6
+0.8
+1.0
+UMAP C1
+0.0
+0.2
+0.4
+0.6
+0.8
+1.0
+UMAP C2
+Figure A.21: Visualization of scatter plots for UMAP components, obtained by dimensionality re-
+duction of similarity vectors. The number of neighbors for each UMAP computation has been noted
+in the title of the respective sub-plot. Coloration is by immunogenicity (red: immunogenic, blue:
+non-immunogenic glycans).
+A
+●Eukarya
+●Bacteria
+●Virus
+●Archaea
+Virus
+# 107
+𝛂= 1
+Archaea
+# 27
+𝛂= 1
+Bacteria
+# 5044
+𝛂= 0.03
+Eukarya
+# 3837
+𝛂= 0.03
+B
+C
+Figure A.22: Visualization of A. 2 and B. 3 components UMAP, colored by domain. C. Glycans
+corresponding to individual domains are shown, with the text noting the domain, number of glycans,
+and transparency (α) of each point on a scale of 0 to 1, where 1 is opaque
+were added to the DGL graphs to prevent silent performance regression due to zero-in-degree nodes
+during training.
+24
+
+Pre-print.
+0
+10
+20
+30
+40
+50
+Number of UMAP components
+405
+410
+415
+420
+Number of unique clusters
+Figure A.23: Number of HDBSCAN unsupervised clusters obtained from UMAP dimensionality
+reduction for different components.
+Figure A.24: Distribution of glycans in each cluster for HDBSCAN unsupervised clusters obtained
+from UMAP dimensionality reduction for different components. The components have been noted
+as titles for the sub-plots.
+G.2
+MODEL ARCHITECTURES
+We performed graph classiﬁcation using ﬁve distinct graph neural network model architectures de-
+tailed below:
+• Weave (Kearnes et al., 2016)
+• Message Passing Neural Networks (MPNNs) (Gilmer et al., 2017)
+• Attentive FP (Xiong et al., 2020)
+• Graph convolutional networks (GCN) (Kipf & Welling, 2019)
+• Graph Attention Networks (GAT) (Velickovic et al., 2017)
+While Weave, MPNN, and Attentive FP utilize both node and edge attributes in prediction, GCN
+and GAT only consider node attributes. The models were trained using implementations in the DGL
+LifeSci library (Wang et al., 2019). For classiﬁcation, the optimization was done by minimization of
+average cross-entropy loss between batches and additional metrics such as F1 score, recall, precision
+and accuracy were noted. For regression, the optimization was done by minimization of root-mean-
+squared-error loss on the validation dataset.
+25
+
+Pre-print.
+250
+0
+250
+(2, 500)
+(2, 1000)
+(2, 5000)
+250
+0
+250
+(5, 500)
+(5, 1000)
+(5, 5000)
+250
+0
+250
+(30, 500)
+(30, 1000)
+(30, 5000)
+250
+0
+250
+(50, 500)
+(50, 1000)
+(50, 5000)
+250 0 250
+250
+0
+250
+(100, 500)
+250 0 250
+(100, 1000)
+250 0 250
+(100, 5000)
+0.0
+0.2
+0.4
+0.6
+0.8
+1.0
+t-SNE C1
+0.0
+0.2
+0.4
+0.6
+0.8
+1.0
+t-SNE C2
+Figure A.25: Visualization of scatter plots for t-SNE components, obtained by dimensionality reduc-
+tion of similarity vectors. The (perplexity, number of steps) for each t-SNE computation has been
+noted in the title of the respective sub-plot. Coloration is by immunogenicity (red: immunogenic,
+blue: non-immunogenic glycans).
+G.3
+GLYCAN GRAPHS CLASSIFICATION
+G.3.1
+IMMUNOGENICITY
+Dataset. 1313 glycans in the database have immunogenicity labels, 631 of which are immunogenic
+and 682 of which are not immunogenic. The training was performed on 60%, validated on 20%, and
+tested on held-out 20% data.
+Models. We classiﬁed immunogenicity using 5 model architectures combined with 2 different node
+and edge featurization types, for a total of 10 model architecture-attribute pairs. For each benchmark,
+hyperparameter optimization against minimization of binary cross entropy loss was performed on
+SigOpt, a standardized hyperparameter optimization platform, for 1000 observations and the 5 best
+sets of hyperparameters were extracted. Each model architecture and featurization combination
+was trained using the 5 best sets of hyperparameters from SigOpt using 5 distinct random seeds
+for splitting the dataset into train-validation-test datasets, for a total of 25 trainings per model per
+attribute type. The tables below report the metrics for the most optimal set of hyperparameters,
+the values of the most optimal hyperparameters, and mean metrics for each training across all 25
+runs. All models achieve stellar performance on all metrics, with little meaningful difference in
+performance between ﬁngerprint and one-hot encoding featurization (Figures A.26-A.28 ; Table
+A.3).
+G.3.2
+TAXONOMY
+Dataset. The taxonomy of the glycans was considered on eight levels: domain, kingdom, phylum,
+class, order, genus, and species. First, the classiﬁcation of each species into the other seven taxo-
+nomic levels was obtained from the supplementary tables of SweetOrigins (Bojar et al., 2021). For
+each glycan with species information, taxonomic information was added in a new .csv ﬁle, with mul-
+tiple labels on the same taxonomic level separated by commas. Afterwards, any labels with fewer
+than ﬁve glycans were removed, and any species names ending with “sp” that are therefore genus
+26
+
+Pre-print.
+A
+B
+Figure A.26: ROC-AUC curves for ﬁngerprint and one-hot encoding-featurized graphs. A. Mean
+ROC-AUC curve of all 25 ﬁngerprint-featurized experiments (5 model architectures with 5 sets of
+hyperparameters for each architecture), with the standard deviation shaded in light blue too insignif-
+icant to be visible in the graph. B. Mean ROC-AUC curve of all 25 one-hot encoding-featurized
+experiments.
+Weave
+MPNN
+Attentive FP
+GCN
+GAT
+Figure A.27: Mean ROC-AUC curves for ﬁngerprint-featurized experiments for each of the ﬁve
+model architectures (Weave, MPNN, Attentive FP, GCN, and GAT), with the standard deviation
+shaded in light blue too insigniﬁcant to be visible. A standard deviation of 0.000 denotes a value
+of <0.001.
+labels in disguise were ﬁltered out to produce the ﬁnal dataset for taxonomic training. The ﬁnal
+dataset consists of 8899 unique glycans with labels on at least one taxonomic level encompassing 4
+domains, 9 kingdoms, 33 phyla, 70 classes, 144 orders, 253 families, 400 genus, and 567 species.
+The training was performed on 60%, validated on 20%, and tested on held-out 20% data.
+Graph labels were generated as one-hot encodings for each taxonomic level, with the length of each
+one-hot encoding tensor corresponding with the number of unique labels in the taxonomic level.
+The taxonomy labels accommodate cases in which glycans possess multiple labels within the same
+taxonomic level.
+Models. Benchmarks of multi-label classiﬁcation were performed using a similar process as with
+immunogenicity classiﬁcation for 5 different model architectures, 2 different node and edge attribu-
+tion types, and 8 different taxonomic levels for a total of 80 model architecture–attribute–taxonomic
+level combination. For each combination, hyperparameter optimization against minimization of
+binary cross entropy loss was performed on SigOpt for 1000 observations and the 5 best sets of
+27
+
+Pre-print.
+Weave
+MPNN
+Attentive FP
+GCN
+GAT
+Figure A.28: Mean ROC-AUC curves for one-hot encoding-featurized experiments for each of the
+ﬁve model architectures (Weave, MPNN, Attentive FP, GCN, and GAT), with the standard deviation
+shaded in light blue too insigniﬁcant to be visible. A standard deviation of 0.000 denotes a value
+of <0.001.
+Table A.3: Test dataset metrics for the most optimal set of hyperparameters, or the set of hyperpa-
+rameters that results in the lowest loss. For each metric, the mean µ and standard deviation σ are
+displayed across all 5 random seeds. “FP” denotes condensed ﬁngerprint featurization, and “One-
+hot” denotes one-hot encoding featurization.
+Model
+Attribute Type
+ROC-AUC
+F1
+Recall
+Precision
+Accuracy
+Loss
+µ
+σ
+µ
+σ
+µ
+σ
+µ
+σ
+µ
+σ
+µ
+σ
+Weave
+FP
+0.990
+0.005
+0.956
+0.011
+0.955
+0.012
+0.957
+0.011
+0.956
+0.011
+0.133
+0.106
+One-hot
+0.992
+0.005
+0.962
+0.007
+0.962
+0.007
+0.962
+0.007
+0.962
+0.007
+0.105
+0.055
+MPNN
+FP
+0.985
+0.009
+0.955
+0.012
+0.955
+0.012
+0.957
+0.012
+0.955
+0.012
+0.137
+0.100
+One-hot
+0.988
+0.006
+0.953
+0.010
+0.953
+0.010
+0.954
+0.010
+0.953
+0.010
+0.123
+0.052
+AttentiveFP
+FP
+0.990
+0.005
+0.954
+0.011
+0.953
+0.011
+0.955
+0.012
+0.954
+0.011
+0.125
+0.104
+One-hot
+0.990
+0.005
+0.951
+0.011
+0.951
+0.012
+0.952
+0.011
+0.952
+0.011
+0.120
+0.084
+GCN
+FP
+0.992
+0.004
+0.953
+0.013
+0.953
+0.013
+0.954
+0.012
+0.953
+0.012
+0.110
+0.086
+One-hot
+0.990
+0.006
+0.955
+0.012
+0.956
+0.012
+0.956
+0.013
+0.956
+0.012
+0.123
+0.110
+GAT
+FP
+0.991
+0.006
+0.954
+0.014
+0.954
+0.013
+0.954
+0.014
+0.954
+0.014
+0.109
+0.081
+One-hot
+0.991
+0.004
+0.954
+0.011
+0.954
+0.011
+0.955
+0.010
+0.955
+0.011
+0.119
+0.085
+hyperparameters were extracted. Each model architecture, featurization, and taxonomic level com-
+bination was trained using the 5 best sets of hyperparameters from SigOpt using 5 distinct random
+seeds for splitting the dataset into train-validation-test datasets, for a total of 25 trainings per com-
+bination. The pipeline and models achieve state-of-the-art performance on multilabel taxonomic
+classiﬁcation on all taxonomic levels (Figures A.29-A.36, Table A.4). Additional supplementary
+tables display the validation and test metrics for the most optimal set of hyperparameters, the val-
+ues of the most optimal hyperparameters, and mean test metrics for each training across all 25 runs
+(Supplementary Tables 1-2).
+28
+
+Pre-print.
+Table A.4: The most optimal model architecture and node/edge attribute type that results in the
+lowest loss for prediction of all taxonomic levels. For each metric, the mean µ and standard deviation
+σ are displayed across all 5 random seeds. “FP” denotes condensed ﬁngerprint featurization, and
+“One-hot” denotes one-hot encoding featurization.
+Taxonomic Level
+Model, Attribute Type
+ROC-AUC
+F1
+Recall
+Precision
+Accuracy
+Loss
+Hamming Loss
+µ
+σ
+µ
+σ
+µ
+σ
+µ
+σ
+µ
+σ
+µ
+σ
+µ
+σ
+Domain
+Attentive FP, FP
+0.993
+0
+0.938
+0.002
+0.935
+0.004
+0.941
+0.001
+0.925
+0.001
+0.087
+0.002
+0.03
+0.001
+Kingdom
+Attentive FP, FP
+0.994
+0
+0.912
+0.001
+0.891
+0.003
+0.934
+0.002
+0.892
+0.005
+0.056
+0.003
+0.019
+0
+Phylum
+GCN, FP
+0.99
+0
+0.84
+0.009
+0.8
+0.011
+0.885
+0.009
+0.802
+0.01
+0.029
+0.001
+0.009
+0
+Class
+GCN, FP
+0.986
+0.001
+0.741
+0.008
+0.666
+0.01
+0.836
+0.006
+0.67
+0.009
+0.022
+0
+0.007
+0
+Order
+GCN, FP
+0.979
+0.001
+0.638
+0.012
+0.541
+0.023
+0.778
+0.018
+0.548
+0.016
+0.017
+0
+0.004
+0
+Family
+GAT, FP
+0.975
+0.003
+0.557
+0.015
+0.456
+0.017
+0.715
+0.015
+0.469
+0.019
+0.013
+0
+0.003
+0
+Genus
+GCN, One-hot
+0.963
+0.003
+0.513
+0.015
+0.397
+0.015
+0.723
+0.020
+0.412
+0.010
+0.009
+0
+0.002
+0
+Species
+GCN, FP
+0.968
+0.003
+0.487
+0.021
+0.382
+0.031
+0.675
+0.018
+0.395
+0.020
+0.007
+0
+0.002
+0
+A
+B
+Attentive FP
+Weave
+GCN
+GAT
+Attentive FP
+Weave
+GCN
+GAT
+Figure A.29: ROC-AUC curves for classiﬁcation on the domain level for each of four model archi-
+tectures (Weave, Attentive FP, GCN, and GAT), with the standard deviation shaded in light blue too
+insigniﬁcant to be visible. A standard deviation of 0.000 denotes a value of <0.001. A. Mean ROC-
+AUC curves for ﬁngerprint-featurized experiments, with each graph displaying the mean and stan-
+dard deviation across 5 sets of hyperparameters. B. Mean ROC-AUC curves for one-hot encoding-
+featurized experiments.
+29
+
+Pre-print.
+A
+B
+Attentive FP
+Weave
+GCN
+GAT
+Attentive FP
+Weave
+GCN
+GAT
+Figure A.30: ROC-AUC curves for classiﬁcation on the kingdom level for each of four model archi-
+tectures (Weave, Attentive FP, GCN, and GAT), with the standard deviation shaded in light blue too
+insigniﬁcant to be visible. A standard deviation of 0.000 denotes a value of <0.001. A. Mean ROC-
+AUC curves for ﬁngerprint-featurized experiments, with each graph displaying the mean and stan-
+dard deviation across 5 sets of hyperparameters. B. Mean ROC-AUC curves for one-hot encoding-
+featurized experiments.
+A
+B
+Attentive FP
+Weave
+GCN
+GAT
+Attentive FP
+Weave
+GCN
+GAT
+Figure A.31: ROC-AUC curves for classiﬁcation on the phylum level for each of four model archi-
+tectures (Weave, Attentive FP, GCN, and GAT), with the standard deviation shaded in light blue too
+insigniﬁcant to be visible. A standard deviation of 0.000 denotes a value of <0.001. A. Mean ROC-
+AUC curves for ﬁngerprint-featurized experiments, with each graph displaying the mean and stan-
+dard deviation across 5 sets of hyperparameters. B. Mean ROC-AUC curves for one-hot encoding-
+featurized experiments.
+30
+
+Pre-print.
+A
+B
+Attentive FP
+Weave
+GCN
+GAT
+Attentive FP
+Weave
+GCN
+GAT
+Figure A.32: ROC-AUC curves for classiﬁcation on the class level for each of four model architec-
+tures (Weave, Attentive FP, GCN, and GAT), with the standard deviation shaded in light blue too
+insigniﬁcant to be visible. A standard deviation of 0.000 denotes a value of <0.001. A. Mean ROC-
+AUC curves for ﬁngerprint-featurized experiments, with each graph displaying the mean and stan-
+dard deviation across 5 sets of hyperparameters. B. Mean ROC-AUC curves for one-hot encoding-
+featurized experiments.
+A
+B
+Attentive FP
+Weave
+GCN
+GAT
+Attentive FP
+Weave
+GCN
+GAT
+Figure A.33: ROC-AUC curves for classiﬁcation on the order level for each of four model architec-
+tures (Weave, Attentive FP, GCN, and GAT), with the standard deviation shaded in light blue too
+insigniﬁcant to be visible. A standard deviation of 0.000 denotes a value of <0.001. A. Mean ROC-
+AUC curves for ﬁngerprint-featurized experiments, with each graph displaying the mean and stan-
+dard deviation across 5 sets of hyperparameters. B. Mean ROC-AUC curves for one-hot encoding-
+featurized experiments.
+31
+
+Pre-print.
+A
+B
+Attentive FP
+Weave
+GCN
+GAT
+Attentive FP
+Weave
+GCN
+GAT
+Figure A.34: ROC-AUC curves for classiﬁcation on the family level for each of four model archi-
+tectures (Weave, Attentive FP, GCN, and GAT), with the standard deviation shaded in light blue too
+insigniﬁcant to be visible. A standard deviation of 0.000 denotes a value of <0.001. A. Mean ROC-
+AUC curves for ﬁngerprint-featurized experiments, with each graph displaying the mean and stan-
+dard deviation across 5 sets of hyperparameters. B. Mean ROC-AUC curves for one-hot encoding-
+featurized experiments.
+A
+B
+Attentive FP
+Weave
+GCN
+GAT
+Attentive FP
+Weave
+GCN
+GAT
+Figure A.35: ROC-AUC curves for classiﬁcation on the genus level for each of four model archi-
+tectures (Weave, Attentive FP, GCN, and GAT), with the standard deviation shaded in light blue too
+insigniﬁcant to be visible. A standard deviation of 0.000 denotes a value of <0.001. A. Mean ROC-
+AUC curves for ﬁngerprint-featurized experiments, with each graph displaying the mean and stan-
+dard deviation across 5 sets of hyperparameters. B. Mean ROC-AUC curves for one-hot encoding-
+featurized experiments.
+32
+
+Pre-print.
+A
+B
+Attentive FP
+Weave
+GCN
+GAT
+Attentive FP
+Weave
+GCN
+GAT
+Figure A.36: ROC-AUC curves for classiﬁcation on the species level for each of four model archi-
+tectures (Weave, Attentive FP, GCN, and GAT), with the standard deviation shaded in light blue too
+insigniﬁcant to be visible. A standard deviation of 0.000 denotes a value of <0.001. A. Mean ROC-
+AUC curves for ﬁngerprint-featurized experiments, with each graph displaying the mean and stan-
+dard deviation across 5 sets of hyperparameters. B. Mean ROC-AUC curves for one-hot encoding-
+featurized experiments.
+G.4
+BENCHMARKING TOP GNN MODELS AGAINST RESULTS REPORTED IN LITERATURE -
+GLYCANS
+For the top-performing models in Tables A.3 and A.4, hyperparameter optimization on SigOpt was
+performed again using the same method as the benchmarks in the work by Burkholz et al. (2021):
+training on 80% of the dataset and reporting metrics on the remaining 20% used as a validation
+dataset (Table A.5). The experiment on SigOpt was optimized through minimization of the loss,
+and the remaining metrics (ROC-AUC, F1, recall, precision, and accuracy) were obtained as stored
+metrics in the SigOpt experiment. However, to obtain more robust metrics, we averaged across 25
+models, instead of the 5 models in Burkholz et al. (2021). In 4 out of 8 tasks, the models presented
+in our work perform better, and are comparable for the rest 4.
+G.5
+PEPTIDE GRAPHS REGRESSION
+Dataset. As explained in Appendix Section B.2, the overall peptides dataset was ﬁltered into two
+sub-datasets, one for E. coli and one for S. aereus. The E. coli dataset contains 4,445 peptides,
+including 4330 monomers, 71 multimers, and 44 multi-peptides. The S. aereus dataset contains
+3,686 peptides, including 3617 monomers, 61 multimers, and 8 multi-peptides. The training for
+prediction of the target activity, or antimicrobial concentration, of the peptides was performed on
+60%, validated on 20%, and tested on held-out 20% data.
+Models. We performed target activity regression using 5 model architectures combined with 2 dif-
+ferent node and edge featurization types and 2 dataset normalization types, for a total of 20 model
+combinations for each of the two species. The 2 normalization methods were standard scaler and
+quantile transform from scikit-learn (Pedregosa et al., 2011). For each benchmark, hyperparame-
+ter optimization against minimization of root mean square error (RMSE) was performed on SigOpt
+(Clark & Hayes, 2019), for 500 observations and the 5 best sets of hyperparameters were extracted.
+Each model architecture and featurization combination was trained using the 5 best sets of hyperpa-
+rameters from SigOpt using 5 distinct random seeds for splitting the dataset into train-validation-test
+datasets, for a total of 25 trainings per model combination. All models achieve stellar performance
+on all metrics, with little meaningful difference in performance between ﬁngerprint and one-hot
+encoding featurization (Figures A.37-A.44, Appendix Table A.6). Additional supplementary tables
+display the validation and test metrics for the most optimal set of hyperparameters, the values of the
+most optimal hyperparameters, and mean test metrics for each training across all 25 runs (Supple-
+mentary Tables 3-4).
+33
+
+Pre-print.
+Table A.5: Validation metrics of the top-performing model architecture and attribute combinations
+for immunogenicity and taxonomic levels obtained from SigOpt using a 0.8, 0.2 train-validation
+split of the dataset. The subset accuracy values are compared directly with the results for augmented
+models presented in Table 1 of Burkholz et al. (2021). The higher value is bolded for each task. In
+4 out of 8 tasks, the models presented in our work perform better, and are comparable for the rest 4.
+Class
+Paper
+Model + Attribute Type
+ROC-AUC
+F1
+Recall
+Precision
+Accuracy
+CE Loss
+Hamming Loss
+Immunogenicity
+This Work
+Weave, one-hot
+0.999
+0.989
+0.989
+0.989
+0.989
+0.018
+-
+Burkholz, et. al.
+-
+-
+-
+-
+-
+0.942
+0.149
+-
+Domain
+This Work
+Attentive FP, fp
+0.994
+0.946
+0.941
+0.951
+0.935
+0.081
+0.027
+Burkholz, et. al.
+-
+-
+-
+-
+-
+0.939
+0.181
+-
+Kingdom
+This Work
+Attentive FP, fp
+0.997
+0.936
+0.895
+0.922
+0.921
+0.043
+0.014
+Burkholz, et. al.
+-
+-
+-
+-
+-
+0.907
+0.301
+-
+Phylum
+This Work
+GCN, fp
+0.991
+0.845
+0.806
+0.889
+0.808
+0.029
+0.009
+Burkholz, et. al.
+-
+-
+-
+-
+-
+0.841
+0.603
+-
+Class
+This Work
+GCN, FP
+0.987
+0.776
+0.713
+0.850
+0.718
+0.021
+0.006
+Burkholz, et. al.
+-
+-
+-
+-
+-
+0.745
+0.976
+-
+Order
+This Work
+GCN, fp
+0.979
+0.638
+0.541
+0.778
+0.548
+0.017
+0.004
+Burkholz, et. al.
+-
+-
+-
+-
+-
+0.582
+1.728
+-
+Family
+This Work
+GAT, fp
+0.984
+0.617
+0.525
+0.748
+0.542
+0.011
+0.003
+Burkholz, et. al.
+-
+-
+-
+-
+-
+0.535
+2.051
+-
+Genus
+This Work
+GCN, fp
+0.975
+0.546
+0.453
+0.688
+0.456
+0.009
+0.002
+Burkholz, et. al.
+-
+-
+-
+-
+-
+0.475
+2.320
+-
+Species
+This Work
+GCN, fp
+0.976
+0.510
+0.403
+0.694
+0.438
+0.007
+0.002
+Burkholz, et. al.
+-
+-
+-
+-
+-
+0.428
+2.505
+-
+Table A.6: The most optimal model architecture, node/edge attribute type, and normalization
+method that results in the lowest RMSE for target activity regression. For each metric, the mean
+µ and standard deviation σ are displayed across all 5 random seeds. “FP” denotes condensed ﬁnger-
+print featurization, and “One-hot” denotes one-hot encoding featurization.
+Species
+Model, Attribute, Normalization Type
+Pearson r2
+MAE
+RMSE
+Spearman r
+Kendall’s Tau
+Loss
+µ
+σ
+µ
+σ
+µ
+σ
+µ
+σ
+µ
+σ
+µ
+σ
+E. coli
+Weave, FP, Quantile transform
+0.465
+0.023
+0.166
+0.004
+0.212
+0.006
+0.68
+0.019
+0.501
+0.014
+0.023
+0.002
+S. aereus
+GCN, One-hot, Quantile transform
+0.38
+0.032
+0.185
+0.008
+0.229
+0.007
+0.62
+0.027
+0.451
+0.023
+0.026
+0.002
+A
+B
+Attentive FP
+Weave
+MPNN
+GCN
+GAT
+Attentive FP
+Weave
+MPNN
+GCN
+GAT
+Count
+2
+3
+4
+5
+Figure A.37: Parity plots for Escherichia coli validation dataset normalized with standard scaler
+for regression of peptide target activity for each of ﬁve model architectures (Attentive FP, Weave,
+MPNN, GCN, and GAT), all using the same train-validation-test dataset split. A. Parity plots for
+ﬁngerprint-featurized experiments, with each graph displaying the top set of hyperparameters. B.
+Parity plots for one-hot encoding-featurized experiments, with each graph displaying the top set of
+hyperparameters.
+34
+
+Pre-print.
+A
+B
+Attentive FP
+Weave
+MPNN
+GCN
+GAT
+Attentive FP
+Weave
+MPNN
+GCN
+GAT
+Count
+2
+3
+4
+5
+Figure A.38: Parity plots for Escherichia coli test dataset normalized with standard scaler for re-
+gression of peptide target activity for each of ﬁve model architectures (Attentive FP, Weave, MPNN,
+GCN, and GAT), all using the same train-validation-test dataset split. A. Parity plots for ﬁngerprint-
+featurized experiments, with each graph displaying the top set of hyperparameters. B. Parity plots
+for one-hot encoding-featurized experiments, with each graph displaying the top set of hyperparam-
+eters.
+A
+B
+Attentive FP
+Weave
+MPNN
+GCN
+GAT
+Attentive FP
+Weave
+MPNN
+GCN
+GAT
+Count
+2
+3
+4
+5
+Figure A.39: Parity plots for Escherichia coli validation dataset normalized with quantile transform
+for regression of peptide target activity for each of ﬁve model architectures (Attentive FP, Weave,
+MPNN, GCN, and GAT). A. Parity plots for ﬁngerprint-featurized experiments, each graph for the
+top set of hyperparameters and the same train-validation-test dataset split. B. Parity plots for one-
+hot encoding-featurized experiments, each graph for the top set of hyperparameters and the same
+train-validation-test dataset split.
+35
+
+Pre-print.
+A
+B
+Attentive FP
+Weave
+MPNN
+GCN
+GAT
+Attentive FP
+Weave
+MPNN
+GCN
+GAT
+Count
+2
+3
+4
+5
+Figure A.40: Parity plots for Escherichia coli test dataset normalized with quantile transform for re-
+gression of peptide target activity for each of ﬁve model architectures (Attentive FP, Weave, MPNN,
+GCN, and GAT). A. Parity plots for ﬁngerprint-featurized experiments, each graph for the top set
+of hyperparameters with the same train-validation-test dataset split across all plots. B. Parity plots
+for one-hot encoding-featurized experiments, each graph for the top set of hyperparameters with the
+same train-validation-test dataset split across all plots.
+A
+B
+Attentive FP
+Weave
+MPNN
+GCN
+GAT
+Attentive FP
+Weave
+MPNN
+GCN
+GAT
+Count
+2
+3
+4
+5
+Figure A.41: Parity plots for Staphylococcus aereus validation dataset normalized with standard
+scaler for regression of peptide target activity for each of ﬁve model architectures (Attentive FP,
+Weave, MPNN, GCN, and GAT). A. Parity plots for ﬁngerprint-featurized experiments, each graph
+for the top set of hyperparameters with the same train-validation-test dataset split across all plots. B.
+Parity plots for one-hot encoding-featurized experiments, each graph for the top set of hyperparam-
+eters with the same train-validation-test dataset split across all plots.
+36
+
+Pre-print.
+A
+B
+Attentive FP
+Weave
+MPNN
+GCN
+GAT
+Attentive FP
+Weave
+MPNN
+GCN
+GAT
+Count
+2
+3
+4
+5
+Figure A.42: Parity plots for Staphylococcus aereus test dataset normalized with standard scaler
+for regression of peptide target activity for each of ﬁve model architectures (Attentive FP, Weave,
+MPNN, GCN, and GAT). A. Parity plots for ﬁngerprint-featurized experiments, each graph for the
+top set of hyperparameters with the same train-validation-test dataset split across all plots. B. Par-
+ity plots for one-hot encoding-featurized experiments, with each graph displaying the top set of
+hyperparameters with the same train-validation-test dataset split across all plots.
+A
+B
+Attentive FP
+Weave
+MPNN
+GCN
+GAT
+Attentive FP
+Weave
+MPNN
+GCN
+GAT
+Count
+2
+3
+4
+5
+Figure A.43: Parity plots for Staphylococcus aereus validation dataset normalized with quantile
+transform for regression of peptide target activity for each of ﬁve model architectures (Attentive
+FP, Weave, MPNN, GCN, and GAT). A. Parity plots for ﬁngerprint-featurized experiments, each
+graph for the top set of hyperparameters with the same train-validation-test dataset split across all
+plots. B. Parity plots for one-hot encoding-featurized experiments, each graph for the top set of
+hyperparameters with the same train-validation-test dataset split across all plots.
+37
+
+Pre-print.
+A
+B
+Attentive FP
+Weave
+MPNN
+GCN
+GAT
+Attentive FP
+Weave
+MPNN
+GCN
+GAT
+Count
+2
+3
+4
+5
+Figure A.44: Parity plots for Staphylococcus aereus test dataset normalized with quantile transform
+for regression of peptide target activity for each of ﬁve model architectures (Attentive FP, Weave,
+MPNN, GCN, and GAT). A. Parity plots for ﬁngerprint-featurized experiments, each graph for the
+top set of hyperparameters with the same train-validation-test dataset split across all plots. B. Parity
+plots for one-hot encoding-featurized experiments, each graph for the top set of hyperparameters
+with the same train-validation-test dataset split across all plots.
+H
+ATTRIBUTION ANALYSIS
+H.1
+SELECTION OF MODEL ARCHITECTURE - ATTRIBUTION METHOD
+We used integrated gradients (IGs) (Sundararajan et al., 2017) and Input x Grad (InpGrad) (Shriku-
+mar et al., 2017) for the attribution analysis of the GNNs - Weave, Attentive FP and MPNN. The
+model architecture selection was done to have one of each type of architecture – Weave (graph
+convolution), Attentive FP (graph attention), and MPNN (message passing).
+The macromolecule is represented as a graph, G(V, E), where V represents monomers at ver-
+tices/nodes, and E represents connecting bonds at the edges.
+IGs interpolate between the input graph and a baseline graph, where all features are zero, and ac-
+cumulate the gradient values for each node (Equation 1). The notation follows (Sanchez-Lengeling
+et al., 2020).
+GA = (G −G′)
+Z 1
+α=0
+dy (G′ + α (G −G′))
+dG
+dα
+(1)
+InpGrad is the element-wise product of the input graph and the gradient.
+GA =
+ dˆy
+dG
+T
+G
+(2)
+For the attention-based GNN, AttentiveFP, in addition to IGs and InpGrad, we evaluated attribu-
+tion using attention weights, where the node attention weights are obtained by averaging over the
+attention scores of the adjacent nodes.
+For each attribution method, we obtained the node weights by multiplying the positive weights with
+the input ﬁngerprint vectors -
+n =
+X
+nodes
+G+
+A G,
+(3)
+The node weights were normalized to the maximum node weight to obtain the normalized weights.
+nnorm =
+n
+max(n)
+(4)
+38
+
+Pre-print.
+Consistency of node weights, as deﬁned in Sanchez-Lengeling et al. (2020), was used for evaluation
+of different attribution methods and model architectures.
+The distribution of standard deviation for the node weights calculated using IG and InpGrad have
+varying attribution consistency, both across attribution methods and model architectures (Figure
+A.45). By visual inspection, Attentive FP - IG has the smallest mean amongst all other distributions,
+thus the most consistent model architecture - attribution. All further attribution analysis has been
+done using node weights obtained from Attentive FP - IG.
+0.0
+0.2
+0.4
+STD
+0
+1
+2
+3
+4
+5
+6
+7
+Density
+Weave-IG
+Weave-InpGrad
+MPNN-IG
+MPNN-InpGrad
+AttentiveFP-IG
+AttentiveFP-InpGrad
+AttentiveFP-Att_Wt
+Figure A.45: Distribution of normalized node weights for different model architecture - attribution
+methods. Standard deviation of node weights obtained from 25 different model implementations –
+top 5 hyperparameter sets and 5 random seeds – were pooled across all immunogenic glycans to
+calculate the distribution for each model architecture and attribution combination.
+Table A.7: Top monomers contributing to glycan immunogenicity, arranged in descending order
+of average node weight. Monomers which occur at least 20 times in the entire data set have been
+included in the table. The node weights have been obtained using Attentive FP – IG combination.
+Monomer
+Mean Node Weight
+NeuNGc
+0.73
+Xyl
+0.65
+Fuc
+0.65
+Glc
+0.64
+ManNAc
+0.64
+Galf
+0.63
+NeuNAc
+0.62
+FucNAc
+0.61
+QuiNAc
+0.61
+39
+
+Pre-print.
+H.2
+VISUALIZATION OF KEY SUBSTRUCTURES
+To visualize the responsible substructures in the monomers, we used GA in Equation 1, and mul-
+tiplied the weights of the with the respective monomer ﬁngerprint. This approach resulted in a
+weights vector with the same size as the ﬁngerprint, with the most positively to the most negatively
+inﬂuencing substructure for the prediction. Using RDKit, we visualized the chemical substructures
+at different ﬁngerprint indices and mapped it to the weights.
+H.3
+ABLATION ANALYSIS
+We performed ablation analysis to check if the monomer importance or node weights changed when
+we assigned a zero tensor to one or more nodes (Figure A.46). For node- and monomer type-speciﬁc
+ablation, we observed that the importance of non-ablated nodes remained consistent.
+Xyl
+(0, 2, 5, 6)
+Glc
+(1, 4)
+Gal
+(7, 8, 9, 10, 11)
+Fuc
+(3)
+Baseline
+Xyl - 0
+Xyl - 2
+Xyl - 5
+Xyl - 6
+◼ Gal
+◼ Xyl
+◼ Glc 
+◼ Fuc
+A
+B
+C
+Figure A.46: Ablation analysis for immunogenic glycans shows that the importance of non-ablated
+monomers remains consistent, irrespective of node- and monomer-speciﬁc ablation. A. Glycan with-
+out any ablations is visualized as the baseline case. B. Monomer-speciﬁc ablation shows that abla-
+tion of a particular monomer has a negligible impact on the importance/weight of other monomers.
+Ablation was done by assigning zero tensors to nodes of respective monomers. This experiment was
+done by subsequently mutating all nodes corresponding to Gal, Xyl, Glc, and Fuc. C. Node-speciﬁc
+ablation shows that other nodes of a particular monomer have a negligible change when one of the
+nodes is assigned a zero tensor. This experiment was done by mutating all 4 nodes corresponding to
+Xyl, one at a time.
+40
+
+Pre-print.
+SUPPLEMENTARY TABLES
+Supplementary Table 1: Validation and test metrics for the top performing sets of model hyperpa-
+rameters averaged across model implementations with 5 random seeds for glycan classiﬁcation, as
+well as test metrics averaged across 25 model implementations (5 hyperparameter sets and 5 random
+seeds)
+Supplementary Table 2: GNN model hyperparameter sets for the top performing glycan classiﬁca-
+tion models
+Supplementary Table 3: Validation and test metrics for the top performing sets of model hyper-
+parameters averaged across model implementations with 5 random seeds for peptide regression, as
+well as test metrics averaged across 25 model implementations (5 hyperparameter sets and 5 random
+seeds)
+Supplementary Table 4: GNN model hyperparameter sets for the top performing peptide regression
+models
+41

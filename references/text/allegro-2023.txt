@@ -1,0 +1,3075 @@
+Learning Local Equivariant Representations for Large-Scale Atomistic Dynamics
+Albert Musaelian∗,1 Simon Batzner∗,†,1
+Anders Johansson,1 Lixin Sun,1 Cameron J. Owen,1 Mordechai Kornbluth,2 and Boris Kozinsky†1, 2
+1Harvard University
+2Robert Bosch LLC Research and Technology Center
+A simultaneously accurate and computationally eﬃcient parametrization of the energy and atomic
+forces of molecules and materials is a long-standing goal in the natural sciences. In pursuit of this
+goal, neural message passing has lead to a paradigm shift by describing many-body correlations
+of atoms through iteratively passing messages along an atomistic graph.
+This propagation of
+information, however, makes parallel computation diﬃcult and limits the length scales that can
+be studied. Strictly local descriptor-based methods, on the other hand, can scale to large systems
+but do not currently match the high accuracy observed with message passing approaches. This
+work introduces Allegro, a strictly local equivariant deep learning interatomic potential that
+simultaneously exhibits excellent accuracy and scalability of parallel computation. Allegro learns
+many-body functions of atomic coordinates using a series of tensor products of learned equivariant
+representations, but without relying on message passing. Allegro obtains improvements over state-
+of-the-art methods on the QM9 and revised MD-17 data sets.
+A single tensor product layer is
+shown to outperform existing deep message passing neural networks and transformers on the QM9
+benchmark. Furthermore, Allegro displays remarkable generalization to out-of-distribution data.
+Molecular dynamics simulations based on Allegro recover structural and kinetic properties of an
+amorphous phosphate electrolyte in excellent agreement with ﬁrst principles calculations. Finally,
+we demonstrate the parallel scaling of Allegro with a dynamics simulation of 100 million atoms.
+INTRODUCTION
+Molecular dynamics (MD) and Monte-Carlo (MC)
+simulation methods for the study of properties of
+molecules and materials are a core pillar of computational
+chemistry, materials science, and biology. Common to a
+diverse set of applications ranging from energy materials
+[1] to protein folding [2] is the requirement that
+predictions of the potential energy and the atomic forces
+must be both accurate and computationally eﬃcient to
+faithfully describe the evolution of complex systems over
+long time scales.
+While ﬁrst-principles methods such
+as density functional theory (DFT), which explicitly
+treat the electrons of the system, provide an accurate
+and transferable description of the system, they exhibit
+poor scaling with system size and thus limit practical
+applications to small systems and short simulation
+times.
+Classical force-ﬁelds based on simple functions
+of atomic coordinates are able to scale to large systems
+and long time scales but are inherently limited in their
+ﬁdelity and can yield unfaithful dynamics. Descriptions
+of the potential energy surface (PES) using machine
+learning (ML) have emerged as a promising approach
+to move past this trade-oﬀ[3–24].
+Machine learning
+*Equal Contribution. Order is random.
+†Corresponding authors
+S.B., E-mail: batzner@g.harvard.edu
+B.K., E-mail: bkoz@seas.harvard.edu
+interatomic potentials (MLIPs) aim to approximate a
+set of high-ﬁdelity energy and force labels at improved
+computational eﬃciency that scales linearly with the
+number of atoms.
+A variety of diﬀerent approaches
+have been proposed, from shallow neural networks and
+kernel-based approaches [3–6] to more recent methods
+based on deep learning [14, 15, 20, 25, 26]. In particular,
+a class of MLIPs based on message passing neural
+networks (MPNNs) has shown remarkable accuracy
+[9, 11, 14, 15, 26, 27]. In interatomic potentials based on
+MPNNs, an atomistic graph is induced by connecting
+with edges each atom (node) to all neighboring atoms
+inside a ﬁnite cutoﬀsphere surrounding the central atom.
+Information is then iteratively propagated along this
+graph, allowing MPNNs to learn many-body correlations
+and access non-local information outside of the local
+cutoﬀ.
+This iterated propagation, however, leads to
+large receptive ﬁelds with many eﬀective neighbors for
+each atom, which slows down parallel computation and
+limits the length scales accessible to message passing
+MLIPs.
+MLIPs using strictly local descriptors such as
+Behler-Parrinello neural networks [5], GAP [6], SNAP
+[7], DeepMD [20], Moment Tensor Potentials [8], or ACE
+[12] do not suﬀer from this obstacle due to their strict
+locality. As a result they can easily be parallelized across
+devices and have successfully been scaled to extremely
+large system sizes [28–31].
+Approaches based on local
+atom-density based descriptors, however, have so far
+fallen behind in accuracy compared to state-of-the-art
+equivariant message passing interatomic potentials [15].
+arXiv:2204.05249v1  [physics.comp-ph]  11 Apr 2022
+
+2
+In this work, we present Allegro, an equivariant deep
+learning approach that retains the high accuracy of the
+recently proposed class of equivariant MPNNs [15, 26, 27,
+32–34] while combining it with strict locality and thus the
+ability to scale to large systems. We demonstrate that
+Allegro not only obtains state-of-the-art accuracy on a
+series of diﬀerent benchmarks but can also be parallelized
+across devices to access hundreds of millions of atoms.
+We further ﬁnd that Allegro displays a high level of
+transferability to out-of-distribution data, signiﬁcantly
+outperforming other local MLIPs, in particular including
+body-ordered approaches. Finally, we show that Allegro
+can faithfully recover structural and kinetic properties
+from molecular dynamics simulations of Li3PO4,
+a
+complex phosphate electrolyte.
+Related Work
+Message Passing Interatomic Potentials
+Message passing neural networks (MPNNs) based
+on
+learned
+atomistic
+representations
+have
+recently
+gained
+popularity
+in
+atomistic
+machine
+learning
+due to advantages in accuracy compared to hand-
+crafted
+descriptors.
+Message
+passing
+interatomic
+potentials operate on an atomistic graph constructed
+by representing atoms as nodes and deﬁning edges
+between atoms within a ﬁxed cutoﬀdistance of one
+another.
+Each node is then represented by a hidden
+state ht
+i ∈Rc representing the state of atom i at layer t,
+and edges are represented by edge feature eij, for which
+the interatomic distance dij is often used. The message
+passing formalism can then be concisely described as
+[35]:
+mt+1
+i
+=
+X
+j∈N(i)
+Mt(ht
+i, ht
+j, eij)
+(1)
+ht+1
+i
+= Ut(ht
+i, mt+1
+i
+)
+(2)
+where Mt and Ut are an arbitrary message function
+and node update function, respectively.
+From this
+propagation mechanism, it is immediately apparent that
+as messages are communicated over a sequence of t
+steps, the local receptive ﬁeld of an atom i, i.e.
+the
+eﬀective set of neighbors that contribute to the ﬁnal
+state of atom i, increases approximately cubically with
+the eﬀective cutoﬀradius rc,e.
+In particular, given
+a MPNN with Nlayer message passing steps and local
+cutoﬀradius of rc,l, the resulting eﬀective cutoﬀis
+rc,e = Nlayerrc,l.
+Information from all atoms inside
+this receptive ﬁeld ends up on a central atom’s state
+hi at the ﬁnal layer of the network. Due to the cubic
+growth of the number of atoms inside the receptive
+ﬁeld cutoﬀrc,e, parallel computation can quickly become
+unmanageable, especially for extended periodic systems.
+As an illustrative example, we may take a structure
+of 64 molecules of liquid water at pressure P = 1 bar
+and temperature T
+= 300 K.
+For a typical setting
+of Nt = 6 message passing layers with a local cutoﬀ
+of rc,l = 6˚A this would result in an eﬀective cutoﬀ
+cutoﬀof rc,e
+=
+36˚A. While each atom only has
+approximately 96 atoms in its local 6˚A environment
+(including the central atom), it has 20,834 atoms inside
+the extended 36 ˚A environment.
+Due to the message
+passing mechanism, information from each of these
+atoms ﬂow into the current central atom. In a parallel
+scheme, each worker must have access to the high-
+dimensional feature vectors hi of all 20,834 nodes, while
+the strictly local scheme only needs to have access to
+approximately 63 = 216 times fewer atoms’ states. From
+this simple example it becomes obvious that massive
+improvements in memory consumption and therefore
+scalability can be obtained from strict locality in machine
+learning interatomic potentials. It should be noted that
+conventional message passing allows for the possibility, in
+principle, to capture long-range interactions (up to rc,e)
+and can induce many-body correlations.
+The relative
+importance of these eﬀects in describing molecules and
+materials is an open question, and one of the aims of this
+work is to explore whether many-body interactions can
+be eﬃciently captured without increasing the eﬀective
+cutoﬀ.
+Equivariant Neural Networks
+The physics of atomic systems is unchanged under the
+action of a number of geometric symmetries—rotation,
+inversion, and translation—which together comprise the
+Euclidean group E(3) (rotation alone is SO(3), and
+rotation and inversion together comprise O(3)). Scalar
+quantities such as the potential energy are invariant to
+these symmetry group operations, while vector quantities
+such as the atomic forces are equivariant to them and
+transform correspondingly when the atomic geometry is
+transformed. More formally, a function between vector
+spaces f : X →Y is equivariant to a group G if
+f(DX[g]x) = DY [g]f(x)
+∀g ∈G, ∀x ∈X
+(3)
+where DX[g] ∈GL(X) is the representation of the group
+element g in the vector space X.
+The function f is
+invariant if DY [g] is the identity operator on Y : in this
+case the output is unchanged by the action of symmetry
+operations on the input x.
+Most existing MLIPs guarantee the invariance of
+their predicted energies by acting only on invariant
+inputs.
+In
+invariant
+message
+passing
+interatomic
+potentials in particular,
+each atom’s hidden latent
+
+3
+space is a feature vector consisting solely of invariant
+scalars [25]. More recently, however, a class of models
+known as equivariant neural networks [36–39] have
+been developed which can act directly on non-invariant
+geometric inputs, such as displacement vectors, in a
+symmetry-respecting way.
+This is achieved by using
+only E(3)-equivariant operations,
+yielding a model
+whose internal features are equivariant with respect
+to the Euclidean group.
+Building on these concepts,
+equivariant
+architectures
+have
+been
+explored
+for
+developing interatomic potential models.
+Notably, the
+NequIP model [15], followed by several other equivariant
+implementations [26, 27, 33, 34, 40],
+demonstrated
+unprecedentedly low error on a large range of molecular
+and materials systems, accurately describes structural
+and kinetic properties of complex materials, and exhibits
+remarkable sample eﬃciency. In both the present work
+and in NequIP, the representation DX[g] of an operation
+g ∈O(3) on an internal feature space X takes the
+form of a direct sum of irreducible representations
+(commonly referred to as irreps) of O(3). This means
+that the feature vectors themselves are naturally divided
+into sections based on which irrep they correspond to,
+or equivalently, how those features transform under
+symmetry operations. The irreps of O(3), and thus the
+features, are indexed by a rotation order ℓ≥0 and a
+parity p ∈(−1, 1). A tensor that transforms according
+to the irrep ℓ, p is said to “inhabit” that irrep.
+A key operation in such equivariant networks is
+the tensor product of representations, an equivariant
+operation that combines two tensors x and y with irreps
+ℓ1, p1 and ℓ2, p2 to give an output inhabiting an irrep
+ℓout, pout satisfying |ℓ1 −ℓ2| ≤ℓout ≤|ℓ1 + ℓ2| and
+pout = p1p2:
+(x ⊗y)ℓout,mout =
+X
+m1,m2
+ ℓ1
+ℓ2
+ℓout
+m1 m2 mout
+
+xℓ1,m1yℓ2,m2
+(4)
+where
+
+ℓ1
+ℓ2
+ℓout
+m1 m2 mout
+
+is the Wigner 3j symbol. Two
+key properties of the tensor product are that it is bilinear
+(linear in both x and y) and that it combines tensors
+inhabiting diﬀerent irreps in a symmetrically valid way.
+Many simple operations are encompassed by the tensor
+product, such as for example:
+• scalar-scalar multiplication: (ℓ1 = 0, p1 = 1), (ℓ2 =
+0, p2 = 1) →(ℓout = 0, pout = 1)
+• vector dot product:
+(ℓ1 = 1, p1 = −1), (ℓ2 =
+1, p2 = −1) →(ℓout = 0, pout = 1)
+• vector cross product, resulting in a pseudovector:
+(ℓ1 = 1, p1 = −1), (ℓ2 = 1, p2 = −1) →(ℓout =
+1, pout = 1).
+The message function Mt(ht
+i, ht
+j, eij) of the NequIP
+model, for example, uses this tensor product to deﬁne a
+message from atom j to i as a tensor product between
+equivariant features of the edge ij and the equivariant
+features of the neighboring node j.
+Atom-density Representations
+In parallel to message passing interatomic potentials,
+the Atomic Cluster Expansion (ACE) has been developed
+as a unifying framework for various descriptor-based
+MLIPs [12]. ACE is a systematic scheme for representing
+local atomic environments in a body-ordered expansion.
+The coeﬃcients of the expansion of a particular atomic
+environment serve as an invariant description of that
+environment. To expand a local atomic environment, the
+local atomic density is ﬁrst projected onto a combination
+of radial basis functions R and spherical harmonic
+angular basis functions⃗Y :
+Aznℓ=
+X
+j∈N(i) s.t. zj=z
+Rnℓ(rij)⃗Y m
+ℓ(ˆrij)
+(5)
+where z runs over all atom species in the system, zj
+is the species of atom j, N(i) is the set of all atoms
+within the cutoﬀdistance of atom i, also known as its
+“neighborhood”, and the n index runs over the radial
+basis functions. The m index on A is implicit. The basis
+projection of body order ν + 1 is then deﬁned as:
+B(ν=1)
+z1,n1 = Az1n1ℓ1=0
+(6)
+B(ν=2)
+z1,z2,n1,n2
+ℓ1,ℓ2
+= Az1n1ℓ1 ⊗Az2n2ℓ2
+(7)
+...
+(8)
+B(ν)
+z1...zν,n1...nν
+ℓ1...ℓν
+=
+O
+α=1,...,ν
+Azαnαℓα.
+(9)
+Only tensor products outputting scalars—which are
+invariant, like the ﬁnal target total energy—are retained
+here. For example, in equation 7, only tensor products
+combining basis functions inhabiting the same rotation
+order ℓ1 = ℓ2 can produce scalar outputs.
+The ﬁnal
+energy is then ﬁt as a linear model over all the scalars B
+up to some chosen maximum body-order ν + 1.
+It is apparent from equation 9 that a core bottleneck in
+the Atomic Cluster Expansion is the polynomial scaling
+of the computational cost of evaluating the B terms
+with respect to the total number of two-body radial-
+chemical basis functions Nfull-basis as the body order ν+1
+increases: O(N ν
+full-basis).
+In the basic ACE descriptor
+given above, Nfull-basis = Nbasis × S is the number
+of radial basis functions times the number of species.
+Species embeddings have been proposed for ACE to
+remove the direct dependence on S [41].
+It retains,
+
+4
+however, the O(N ν
+full-basis) scaling in the dimension
+of the embedded basis Nfull-basis.
+NequIP and some
+other existing equivariant neural networks avert this
+unfavorable scaling by only computing tensor products
+of a more limited set of combinations of input tensors.
+RESULTS
+In the following, we describe the proposed method for
+learning high-dimensional potential energy surfaces using
+strictly local many-body equivariant representations.
+Energy decomposition
+We start by decomposing the potential energy of a
+system into per-atom energies Ei, in line with previous
+approaches [5, 6, 25]:
+Esystem =
+N
+X
+i
+σZiEi + µZi
+(10)
+where σZi
+and µZi
+are per-species scale and shift
+parameters, which may be trainable.
+Unlike standard
+practice in existing MLIPs, we further decompose the
+per-atom energy into a sum over pairwise energies,
+indexed by the central atom and one of its neighbors
+Ei =
+X
+j∈N(i)
+σZi,ZjEij
+(11)
+where j ranges over the neighbors of atom i, and again
+one may optionally apply a per-species-pair scaling factor
+σZi,Zj. It is important to note that while these pairwise
+energies are indexed by the atom i and its neighbor j,
+they may depend on all neighbors k ∈N(i). Because
+Eij and Eji contribute to diﬀerent site energies Ei and
+Ej, respectively, we choose that they depend only on the
+environments of the corresponding central atoms. As a
+result and by design, Eij̸ = Eji. Finally, the force acting
+on atom i,⃗Fi, is computed using autodiﬀerentiation
+according to its deﬁnition as the negative gradient of the
+total energy with respect to the position of atom i:⃗
+Fi = −∇iEsystem
+which gives an energy-conserving force ﬁeld.
+The Allegro model
+The Allegro architecture,
+shown in ﬁgure 1,
+is
+an arbitrarily deep equivariant neural network with
+Nlayer ≥1 layers. The architecture learns representations
+associated with pairs of neighboring atoms using two
+latent spaces: an invariant latent space, which consists
+of scalar (ℓ= 0) features, and an equivariant latent
+space, which processes tensors of arbitrary rank ℓ≥0.
+The two latent spaces interact with each other at every
+layer. The ﬁnal pair energy Eij is then computed by a
+multi-layer perceptron (MLP) acting on the ﬁnal layer’s
+scalar features.
+We use the following notations:⃗
+ri: position of the i-th atom in the system⃗
+rij: relative displacement vector⃗rj −⃗ri from i to j
+rij: corresponding interatomic distance
+ˆrij: unit vector of⃗rij⃗
+Y ij
+ℓ,p: projection of
+ˆrij
+onto the ℓ-th real spherical
+harmonic which has parity p = (−1)ℓ. We omit the
+m = −ℓ, ..., 0, ...ℓindex within the representation
+from the notation for compactness
+Zi: chemical species of atom i
+MLP(...): multi-layer perceptron — a fully-connected
+scalar neural network, possibly with nonlinearities
+xij,L: invariant scalar latent features of the ordered pair
+of atoms ij at layer L
+Vij,L
+n,ℓ,p: equivariant latent features of the ordered pair of
+atoms ij at layer L.
+These transform according
+to a direct sum of irreps indexed by the rotation
+order ℓ∈0, 1, ..., ℓmax and parity p ∈−1, 1 and
+thus consist of both scalars (ℓ= 0) and higher-
+order tensors (ℓ> 0). The hyperparameter ℓmax
+controls the maximum rotation order to which
+features in the network are truncated. In Allegro,
+n denotes the channel index which runs over
+0, ..., nequivariant −1. We omit the m index within
+each irreducible representation from the notation
+for compactness
+Two-body latent embedding
+Before the ﬁrst tensor product layer,
+the scalar
+properties of the pair ij are embedded through a
+nonlinear MLP to give the initial scalar latent features
+xij,L=0:
+xij,L=0 = MLPtwo-body
+ 1Hot(Zi) ∥1Hot(Zj) ∥B(rij)
+
+(12)
+where ∥denotes concatenation, 1Hot(·) is a one-hot
+encoding of the center and neighbor atom species Zi and
+Zj, and
+B(rij) =
+ B1(rij) ∥... ∥BNbasis(rij))
+
+(13)
+
+5
+FIG. 1: The Allegro network. Left: the Allegro model architecture. Right: a tensor product layer. Blue and red
+arrows represent scalar and tensor information, respectively, ⊗denotes the tensor product, and ⊕is concatenation.
+is the projection of the interatomic distance rij onto a
+radial basis.
+We use the Bessel basis function with a
+polynomial envelope function as proposed in [14]. The
+basis is normalized as described in Appendix A and
+plotted in Figure 6.
+The initial equivariant features Vij,L=0
+n,ℓ,p
+are computed
+as
+a
+linear
+embedding
+of
+the
+spherical
+harmonic
+projection of ˆrij:
+Vij,L=0
+n,ℓ,p
+= wij,L=0
+n,ℓ,p⃗Y ij
+ℓ,p
+(14)
+where the channel index n = 0, ..., nequivariant −1 and
+the scalar weights wij,L=0
+n,ℓ,p
+for each center-neighbor pair
+ij are computed from the initial two-body scalar latent
+features:
+wij,L=0
+n,ℓ,p
+= MLPL=0
+embed(xij,L=0)n,ℓ,p.
+(15)
+Layer architecture
+Each Allegro tensor product layer consists of four
+components:
+1. a MLP that generates weights to embed the central
+atom’s environment
+2. an equivariant tensor product using those weights
+3. a MLP to update the scalar latent space with scalar
+information resulting from the tensor product
+4. an equivariant linear layer that mixes channels in
+the equivariant latent space.
+Tensor
+product
+Our
+goal
+is
+to
+incorporate
+interactions
+between
+the
+current
+equivariant
+state
+of the center-neighbor pair and other neighbors in the
+environment, and the most natural operation with which
+to interact equivariant features is the tensor product.
+We thus deﬁne the updated equivariant features on the
+
+6
+pair ij as a weighted sum of the tensor products of the
+current features with the geometry of the various other
+neighbor pairs ik in the local environment of i:
+Vij,L
+n,(ℓ1,p1,ℓ2,p2)→(ℓout,pout) =
+X
+k∈N(i)
+wik,L
+n,ℓ2,p2
+
+Vij,L−1
+n,ℓ1,p1 ⊗⃗Y ik
+ℓ2,p2
+
+(16)
+=
+X
+k∈N(i)
+Vij,L−1
+n,ℓ1,p1 ⊗
+
+wik,L
+n,ℓ2,p2⃗Y ik
+ℓ2,p2
+
+(17)
+= Vij,L−1
+n,ℓ1,p1 ⊗
+
+X
+k∈N(i)
+wik,L
+n,ℓ2,p2⃗Y ik
+ℓ2,p2
+
+
+(18)
+where k ∈N(i) ranges over the neighborhood N(i) of
+the central atom i.
+In the second and third lines we
+exploit the bilinearity of the tensor product in order to
+express the update in terms of one tensor product, rather
+than one for each neighbor k, which saves signiﬁcant
+computational eﬀort. This is commonly referred to as
+the “density trick” [6, 42].
+Note that it is allowed for (ℓ1, p1)̸
+=
+(ℓ2, p2)̸
+=
+(ℓout, pout):
+valid tensor product paths are all those
+satisfying |ℓ1 −ℓ2| ≤ℓout ≤|ℓ1 +ℓ2| and pout = p1p2. We
+additionally enforce ℓout ≤ℓmax. Which tensor product
+paths to include is a hyperparameter choice.
+In this
+work we include all allowable paths but other choices,
+such as restricting (ℓout, pout) to be among the values of
+(ℓ1, p1), are possible.
+Environment embedding
+The second argument to
+the tensor product, P
+k∈N(i) wik,L
+n,ℓ2,p2⃗Y ik
+ℓ2,p2, is a weighted
+sum of the spherical harmonic projections of the various
+neighbor atoms in the local environment. This can be
+viewed as a weighted spherical harmonic basis projection
+of the atomic density, similar to the projection onto a
+spherical-radial basis used in ACE [12] and SOAP [42].
+For this reason, we refer to P
+k∈N(i) wik,L
+n,ℓ2,p2⃗Y ik
+ℓ2,p2 as the
+“embedded environment” of atom i.
+A
+central
+diﬀerence
+from
+the
+atomic
+density
+projections used in descriptor methods, however, is that
+the weights of the sum are learned.
+In descriptor
+approaches such as ACE, the n index runs over a
+pre-determined set of radial-chemical basis functions,
+which means that the size of the basis must increase
+with both the number of species and the desired radial
+resolution. In Allegro, we instead leverage the previously
+learned scalar featurization of each center-neighbor pair
+to further learn
+wik,L
+n,ℓ2,p2 = MLPL
+embed(xik,L−1)n,ℓ2,p2
+(19)
+which yields an embedded environment with a ﬁxed,
+chosen number of channels nequivariant. It is important to
+note that wik,L
+n,ℓ2,p2 is learned as a function of the existing
+scalar latent representation of the center-neighbor pair
+ik from previous layers. At later layers this can contain
+signiﬁcantly more information about the environment
+of i than a two-body radial basis. We typically choose
+MLPembed to be a simple one-layer linear projection of
+the scalar latent space.
+Latent MLP
+Following the tensor product deﬁned in
+Equation 16, the scalar outputs of the tensor product are
+reintroducted into the scalar latent space as follows:
+xij,L = MLPL
+latent
+
+xij,L−1 ∥
+M
+(ℓ1,p1,ℓ2,p2)
+Vij,L
+n,(ℓ1,p1,ℓ2,p2)→(ℓout=0,pout=1)
+
+· u(rij)
+(20)
+where
+∥
+denotes
+concatenation
+and
+⊕
+denotes
+concatenation over all tensor product paths whose
+outputs are scalars (ℓout
+=
+0, pout
+=
+1), each of
+which contributes nequivariant scalars.
+The function
+u(rij) : R →R by which the output is multiplied is
+the same smooth cutoﬀenvelope function as used in
+the initial radial basis function of equation 13.
+The
+purpose of the latent MLP is to compress and integrate
+information from the tensor product,
+whatever its
+dimension, into the ﬁxed dimension invariant latent
+
+7
+space.
+This operation completes the coupling of the
+scalar and equivariant latent spaces since the scalars
+taken from the tensor product contain information about
+non-scalars previously only available to the equivariant
+latent space.
+Mixing equivariant features
+Finally, the outputs of
+various tensor product paths with the same irrep
+(ℓout, pout)
+are
+linearly
+mixed
+to
+generate
+output
+equivariant features Vij,L
+n,ℓ,p with the same number of
+channels indexed by n as the input features had:
+Vij,L
+n,ℓ,p =
+X
+n′
+(ℓ1,p1,ℓ2,p2)
+wL
+n,n′,(ℓ1,p1,ℓ2,p2)→(ℓ,p)Vij,L
+n′,(ℓ1,p1,ℓ2,p2)→(ℓ,p).
+(21)
+The weights wL
+n,n′,(ℓ1,p1,ℓ2,p2)→(ℓ,p) are learned.
+This
+operation compresses the equivariant information from
+various paths with the same output irrep (ℓ, p) into a
+single output space regardless of the number of paths.
+We ﬁnally note that an SE(3)-equivariant version of
+Allegro, which is sometimes useful for computational
+eﬃciency, can be constructed identically to the E(3)-
+equivariant model described here by simply omitting all
+parity subscripts p.
+Residual update
+After each layer, Allegro uses a residual update [43] in
+the scalar latent space that updates the previous scalar
+features from layer L −1 by adding the new features
+to them (see appendix B). The residual update allows
+the network to easily propagate scalar information from
+earlier layers forward.
+Output block
+Finally, to predict the pair energy Eij, we apply a fully-
+connected neural network with output dimension 1 to the
+latent features output by the ﬁnal layer:
+Eij = MLPoutput(xij,L=Nlayer)
+(22)
+Normalization
+Internal normalization
+The normalization of neural networks’ internal features
+is
+known
+to
+be
+of
+great
+importance
+to
+training.
+In this work we follow the normalization scheme of
+the e3nn framework [44], in which the initial weight
+distributions and normalization constants are chosen so
+that all components of the network produce outputs
+that element-wise have approximately zero mean and
+unit variance.
+In particular, all sums over multiple
+features are normalized by dividing by the square root
+of the number of terms in the sum, which follows
+from the simplifying assumption that the terms are
+uncorrelated and thus that their variances add.
+Two
+consequences of this scheme that merit explicit mention
+are the normalization of the embedded environment
+and atomic energy.
+Both the embedded environment
+(equation 4) and atomic energy (equation 11) are sums
+over all neighbors of a central atom.
+Thus we divide
+both by
+p
+⟨|N(i)|⟩where ⟨|N(i)|⟩is the average number
+of neighbors over all environments in the entire training
+data set.
+Normalization of targets
+We
+found
+the
+normalization
+of
+the
+targets,
+or
+equivalently the choice of ﬁnal scale and shift parameters
+for the network’s predictions (see equation 10), to be
+of high importance.
+For systems of ﬁxed chemical
+composition, our default initialization is the following:
+µZ is set for all species Z to the average per-atom
+potential energy over all training frames ⟨Econfig
+N
+⟩; σZ
+is set for all species Z to the root-mean-square of the
+components of the forces on all atoms in the training
+data set.
+This scheme ensures size extensivity of the
+potential energy, which is required if one wants to
+evaluate the potential on systems of diﬀerent size than
+what it was trained on. We note that the widely used
+normalization scheme of subtracting the mean total
+potential energy across the training set violates size
+extensivity.
+For systems with varying chemical composition, we
+found it helpful to normalize the targets using a linear
+pre-ﬁtting scheme that explicitly takes into account
+the varying chemical compositions:
+µZ is computed
+by [Nconﬁg,Z]−1 [Econﬁg], where [Nconﬁg,Z] is a matrix
+containing the number of atoms of each species in the
+reference structures, and [Econﬁg] is a vector of reference
+energies. Details of the normalization calculations and
+
+8
+the comparison between diﬀerent schemes can be found
+in [45].
+Small molecule dynamics
+We benchmark Allegro’s ability to accurately learn
+energies and forces of small molecules on the revised MD-
+17 data set [46], a recomputed version of the original
+MD-17 data set [10, 50, 51] that contains 10 small,
+organic molecules at DFT accuracy. As shown in table
+I, we ﬁnd that Allegro obtains state-of-the-art accuracy
+in the mean absolute error (MAE) in force components,
+while on some molecules, NequIP performs better on the
+energies. The authors note that while an older version
+of the MD-17 data set which has widely been used to
+benchmark MLIPs exists [10, 50, 51], it has been observed
+to contain noisy labels [46] and is thus only of limited use
+for comparing the accuracy of MLIPs.
+Transferability to higher temperatures
+For an interatomic potential to be useful in practice,
+it is crucial that it be transferable to new structures
+that
+might
+be
+visited
+over
+the
+course
+of
+a
+long
+molecular dynamics simulation.
+As a test of Allegro’s
+generalization capabilities, we test the transferability
+to conformations sampled from higher-temperature MD
+simulations.
+We use the temperature transferability
+benchmark introduced in [24]: here, a series of data were
+computed using DFT for the ﬂexible drug-like molecule
+3-(benzyloxy)pyridin-2-amine (3PBA) at temperatures
+of 300K, 600K, and 1200K. A series of state-of-the-
+art methods were then benchmarked by training on
+500 structures from the T=300K data set and then
+evaluating the trained models on data sampled at all
+three temperatures.
+Table II shows a comparison of
+Allegro against existing approaches as they were reported
+in [24]. In particular, we compare against linear ACE
+[12], sGDML [10], GAP [6], a classical force-ﬁeld based
+on the GAFF functional form [52, 53] as well as two
+ANI parametrizations [47, 48]: ANI-pretrained refers to
+a version of ANI that was pre-trained on 8.9 million
+structures and ﬁne-tuned on this data set, while ANI-
+2x refers to the original parametrization trained on 8.9
+million structures, but not ﬁne-tuned on the 3BPA data
+set. The equivariant neural networks Allegro and NequIP
+are seen to generalize signiﬁcantly better than all other
+approaches. We found it particularly important to use
+a low exponent p in the polynomial envelope function.
+We hypothesize that this is due to the fact that a
+lower exponent provides a stronger decay with increasing
+interatomic distance (see Figure 6), thereby inducing a
+stronger inductive bias that atoms j further away from a
+central atom i should have smaller pair energies Eij and
+thus contribute less to atom i’s site energy Ei.
+Quantum-chemical properties of small molecules
+Next, we assess Allegro’s ability to accurately model
+properties of small molecules across chemical space on
+the widely used QM9 data set [59]. The QM9 data set
+contains approximately 134k minimum-energy structures
+with chemical elements (C, H, O, N F) containing up
+to 9 heavy atoms (C, O, N, F) together with a series of
+corresponding molecular properties computed with DFT.
+We benchmark Allegro on four energy-related targets, in
+particular: a) U0, the internal energy of the system at
+T = 0 K b) U, the internal energy at T = 298.15 K,
+c) H, the enthalpy at T = 298.15 K, and d) G, the
+free energy at T = 298.15 K.
+This test is in contrast
+with other experiments conducted in this work that
+probed conformational degrees of freedom, while here,
+we assess the ability of Allegro to describe properties
+across compositional degrees of freedom. Table III shows
+a comparison with a series of state-of-the-art methods
+that also learn the properties described above as a direct
+mapping from atomic coordinates and species. We used
+110,000 molecular structures for training, 10,000 for
+validation, and evaluated the test error on all remaining
+structures, in line with previous approaches [9, 27]. We
+note that Cormorant and EGNN are trained on 100,000
+structures, L1Net is trained on 109,000 structures while
+NoisyNodes is trained on 114,000 structures. To give an
+estimate of variability of training as a function of random
+seed, we report for the U0 target the mean and standard
+deviation across three diﬀerent random seeds, resulting
+in diﬀerent samples of training set as well as diﬀerent
+weight initialization. We ﬁnd that Allegro outperforms
+all existing methods. Surprisingly, even an Allegro model
+with a single tensor product layer obtains higher accuracy
+than all existing methods based on message passing
+neural networks and transformers. We note that the 1-
+layer and 3-layer Allegro networks have 7,375,237 and
+17,926,533 parameters, respectively.
+Li-ion dynamics in an Phosphate Electrolyte
+In order to examine Allegro’s ability to describe
+kinetic properties from MD simulations,
+we use it
+to study amorphous structure formation and Li-ion
+migration in the Li3PO4 solid electrolyte (see Figure 4).
+This class of solid-state electrolytes is characterized by
+the intricate dependence of conductivity and mechanical
+properties on the degree of crystallinity [60–63].
+In particular, the Li3PO4 data set used in this work
+consists of two parts:
+a 50 ps ab-initio molecular
+dynamics (AIMD) simulation in the melted state at
+
+9
+Molecule
+FCHL19 [13, 46]
+UNiTE [26]
+GAP [6]
+ANI-pretrained [47, 48]
+ANI-random [47, 48]
+ACE [12]
+GemNet-(T/Q) [49]
+NequIP (l=3) [15]
+Allegro
+Aspirin
+Energy
+6.2
+2.4
+17.7
+16.6
+25.4
+6.1
+-
+2.3
+2.3
+Forces
+20.9
+7.6
+44.9
+40.6
+75.0
+17.9
+9.5
+8.2
+7.3
+Azobenzene
+Energy
+2.8
+1.1
+8.5
+15.9
+19.0
+3.6
+-
+0.7
+1.2
+Forces
+10.8
+4.2
+24.5
+35.4
+52.1
+10.9
+-
+2.9
+2.6
+Benzene
+Energy
+0.3
+0.07
+0.75
+3.3
+3.4
+0.04
+-
+0.04
+0.3
+Forces
+2.6
+0.73
+6.0
+10.0
+17.5
+0.5
+0.5
+0.3
+0.2
+Ethanol
+Energy
+0.9
+0.62
+3.5
+2.5
+7.7
+1.2
+-
+0.4
+0.4
+Forces
+6.2
+3.7
+18.1
+13.4
+45.6
+7.3
+3.6
+2.8
+2.1
+Malonaldehyde
+Energy
+1.5
+1.1
+4.8
+4.6
+9.4
+1.7
+-
+0.8
+0.6
+Forces
+10.2
+6.6
+26.4
+24.5
+52.4
+11.1
+6.6
+5.1
+3.6
+Naphthalene
+Energy
+1.2
+0.46
+3.8
+11.3
+16.0
+0.9
+-
+0.2
+0.5
+Forces
+6.5
+2.6
+16.5
+29.2
+52.2
+5.1
+1.9
+1.3
+0.9
+Paracetamol
+Energy
+2.9
+1.9
+8.5
+11.5
+18.2
+4.0
+-
+1.4
+1.5
+Forces
+12.2
+7.1
+28.9
+30.4
+63.3
+12.7
+-
+5.9
+4.9
+Salicylic acid
+Energy
+1.8
+0.73
+5.6
+9.2
+13.5
+1.8
+-
+0.7
+0.9
+Forces
+9.5
+3.8
+24.7
+29.7
+52.0
+9.3
+5.3
+4.0
+2.9
+Toluene
+Energy
+1.6
+0.45
+4.0
+7.7
+12.6
+1.1
+-
+0.3
+0.4
+Forces
+8.8
+2.5
+17.8
+24.3
+52.9
+6.5
+2.2
+1.6
+1.8
+Uracil
+Energy
+0.6
+0.58
+3.0
+5.1
+8.3
+1.1
+-
+0.4
+0.6
+Forces
+4.2
+3.8
+17.6
+21.4
+44.1
+6.6
+3.8
+3.1
+1.8
+TABLE I: MAE on the revised MD-17 data set for energies and force components, in units of [meV] and [meV/˚A],
+respectively. Results for GAP, ANI, and ACE as reported in [24]. Best results are marked in bold. ANI-pretrained
+refers to a version of ANI that was pre-trained on 8.9 million structures and ﬁne-tuned on the revMD17 data set,
+ANI-random refers to a randomly initialized model trained from scratch.
+ACE [12]
+sGDML [10]
+GAP [6]
+FF [52, 53]
+ANI-pretrained [47, 48]
+ANI-2x [47, 48]
+NequIP [15]
+Allegro
+Fit to 300K
+300 K, E
+7.1
+9.1
+22.8
+60.8
+23.5
+38.6
+3.28 (0.10)
+3.84 (0.08)
+300 K, F
+27.1
+46.2
+87.3
+302.8
+42.8
+84.4
+10.77 (0.19)
+12.98 (0.17)
+600 K, E
+24.0
+484.8
+61.4
+136.8
+37.8
+54.5
+11.16 (0.14)
+12.07 (0.45)
+600 K, F
+64.3
+439.2
+151.9
+407.9
+71.7
+102.8
+26.37 (0.09)
+29.11 (0.22)
+1200 K, E
+85.3
+774.5
+166.8
+325.5
+76.8
+88.8
+38.52 (1.63)
+42.57 (1.46)
+1200 K, F
+187.0
+711.1
+305.5
+670.9
+129.6
+139.6
+76.18 (1.11)
+82.96 (1.77)
+TABLE II: Energy and Force RMSE for the 3BPA temperature transferability data set, reported in units of [meV]
+and [meV/˚A]. All models were trained on T=300K. Results for all models except for NequIP and Allegro from [24].
+Best results are marked in bold. Models on the right of the vertical line are equivariant neural networks. For NequIP
+and Allegro we report the mean over 3 diﬀerent seeds as well as the population standard deviation in parentheses.
+Model
+U0
+U
+H
+G
+Schnet [25]
+14
+19
+14
+14
+DimeNet++ [54]
+6.3
+6.3
+6.5
+7.6
+Cormorant [23]
+22
+21
+21
+20
+LieConv [55]
+19
+19
+24
+22
+L1Net [56]
+13.5
+13.8
+14.4
+14.0
+SphereNet [57]
+6.3
+7.3
+6.4
+8.0
+EGNN [32]
+11
+12
+12
+12
+ET [40]
+6.2
+6.3
+6.5
+7.6
+NoisyNodes [58]
+7.3
+7.6
+7.4
+8.3
+PaiNN [27]
+5.9
+5.7
+6.0
+7.4
+Allegro, 1 layer
+5.7 (0.2)
+5.3
+5.3
+6.6
+Allegro, 3 layers
+4.7 (0.2)
+4.4
+4.4
+5.7
+TABLE III: Comparison of models on the QM9 data set, measured by the MAE in units of [meV]. Allegro
+outperforms all existing message passing and transformer-based models, in particular even with a single layer. Best
+methods in bold, second-best method underlined.
+T=3000K, followed by a 50 ps AIMD simulation in the
+quenched state at T=600K. We train a potential on
+structures from the melted and the quenched trajectories.
+The model used here is computationally eﬃcient due
+to a relatively small number of parameters and tensor
+products and is identical to the one used in scaling
+experiments detailed below.
+When evaluated on the
+quenched amorphous state, which the simulation is
+performed on, a MAE in the energies of 1.7 meV/atom
+was obtained, as well as a MAE in the force components
+of 75.7 meV/˚A. We note that models of higher accuracy
+can be obtained by choosing larger networks, but we
+found the small, fast model to work suﬃciently well
+to capture complex structural and kinetic properties
+under a phase change.
+We then run a series of
+ten MD simulations starting from the initial structure
+of the quenched AIMD simulation, all of length 50
+ps at T=600K in the quenched state to compare
+how well Allegro recovers the structure and kinetics
+compared to AIMD. To assess the quality of the structure
+under the phase change,
+we compare the all-to-all
+radial distribution functions (RDF) and the angular
+distribution functions (ADF) of the tetrahedral angle P-
+O-O (P central atom). We show in Figure 2 that Allegro
+
+10
+0
+1
+2
+3
+4
+5
+6
+r [Å]
+0.0
+0.1
+0.2
+0.3
+0.4
+0.5
+0.6
+0.7
+g(r)
+AIMD
+Allegro
+0
+25
+50
+75
+100
+125
+150
+175
+ [deg]
+0
+1
+2
+3
+4
+5
+p( )
+AIMD
+Allegro
+FIG. 2: Structural Properties. Left: Radial Distribution Function, right: Angular Distribution Function of
+tetrahedral bond angle. All deﬁned as probability density functions.
+100
+101
+ [ps]
+100
+MSD [Å2]
+Allegro
+AIMD
+FIG. 3: Li Dynamics. Comparison of the Li MSD of
+AIMD vs. Allegro. Results are averaged over 10 runs of
+Allegro, shading indicates +/- one standard deviation.
+can correctly recover both distribution functions. Next,
+we test how well Allegro can model the Li mean-square-
+displacement (MSD) in the quenched state.
+We again
+ﬁnd excellent agreement with AIMD, as shown in Figure
+3.
+FIG. 4: The quenched Li3PO4 structure at T=600K
+Scaling
+Many interesting phenomena in materials science,
+chemistry, and biology require large numbers of atoms,
+long time scales, a diversity of chemical elements, or often
+all three.
+Scaling to large numbers of atoms requires
+parallelization across multiple workers, which is diﬃcult
+in MPNNs because the iterative propagation of atomic
+state information along the atomistic graph increases the
+size of the receptive ﬁeld as a function of the number of
+layers. Allegro is designed to avoid this issue by strict
+locality and scales as
+• O(N) in the number of atoms in the system N,
+in contrast to the O(N 2) scaling of some global
+descriptor methods such as sGDML [10];
+• O(M) in the number of neighbors per atom M, in
+contrast to the quadratic O(M 2) scaling of some
+deep learning approaches such as DimeNet [14] or
+Equivariant Transformers [40, 64];
+• O(1) in the number of species S, unlike local
+descriptors
+such
+as
+SOAP
+(O(S2))
+or
+ACE
+(O(Sbody order−1)) [12].
+In particular, in addition to scaling as O(N) in the
+number of atoms, Allegro is strictly local within the
+chosen cutoﬀand thus easy to parallelize. Recall that
+equations 10 and 11 deﬁne the total energy of a system
+in Allegro as a sum over scaled pairwise energies Eij.
+Thus by linearity, the force on atom a⃗
+Fa = −∇aEsystem = −
+X
+i,j
+∇aEij
+ignoring
+per-species
+scaling
+coeﬃcients
+for
+clarity.
+Because each Eij
+depends only the atoms in the
+neighborhood of atom i, −∇aEij̸ = 0 only when a is in
+the neighborhood of i. Further, for the same reason, pair
+energy terms Eij with diﬀerent central atom indices i
+are independent. As a result, these groups of terms may
+
+11
+be computed independently for each central atom, which
+facilitates parallelization: the contributions to the force
+on atom a due to the neighborhoods of various diﬀerent
+atoms can be computed in parallel by whichever worker
+is currently assigned the relevant center’s neighborhood.
+The ﬁnal forces are then a simple sum reduction over
+force terms from various workers.
+We ﬁrst demonstrate the favorable scaling of Allegro
+in system size by parallelizing the method across GPUs
+on a single compute node as well as across multiple GPU
+nodes.
+The experiments were performed on NVIDIA
+DGX A100s on the Theta-GPU cluster at the Argonne
+Leadership
+Computing
+Facility,
+where
+each
+node
+contains 8 GPUs and a total of 320 GB of GPU memory.
+We choose two test systems for the scaling experiments:
+a) the quenched state structures of the multi-component
+electrolyte Li3PO4 and b) the Ag bulk crystal with a
+vacancy, simulated at 90% of the melting temperature.
+The Ag model used 1,000 structures for training and
+validation, resulting in energy MAE of 0.397 meV/atom
+and force MAE of 16.8 meV/˚A. Scaling numbers are
+dependent on a variety of hyperparameter choices,
+such as network size and radial cutoﬀ, that control
+the trade-oﬀbetween evaluation speed and accuracy.
+For Li3PO4, we explicitly choose these identically to
+those used in the previous set of experiments in order
+to demonstrate how well an Allegro potential scales
+that we demonstrated to give highly accurate prediction
+of structure and kinetics.
+We use the a time step
+of 2 fs, identical to the reference AIMD simulations,
+ﬂoat32 precision, and a temperature of T=600K on
+the quenched structure, identical to the production
+simulations used above. For Ag, we use a time step of 5
+fs, a temperature of T=300K and again ﬂoat32 precision.
+Simulations were performed for 1,000 time steps after
+initial warm-up.
+Table IV show the computational
+eﬃciency on a series of system of varying size and
+computational resources.
+We are able to simulate the
+Ag system with over 100 million atoms on 16 GPU nodes.
+Scalability across devices is achieved by implementing
+an
+Allegro
+extension
+to
+the
+LAMMPS
+molecular
+dynamics
+code
+[65].
+The
+local
+nature
+of
+the
+Allegro
+model
+is
+perfectly
+compatible
+with
+the
+spatial decomposition approach used in LAMMPS. All
+communication between MPI ranks is handled by existing
+LAMMPS functionality.
+The Allegro extension simply
+transforms the LAMMPS neighbor lists into the format
+required by the Allegro PyTorch model and stores
+the resulting forces and energies in the LAMMPS
+data structures.
+These operations are performed on
+the GPU by implementing an additional extension to
+LAMMPS’s KOKKOS package, which uses the Kokkos
+performance portability library [66] to entirely avoid
+expensive CPU work or CPU-GPU data transfer. This
+FIG. 5: Strong Scaling results on a Li3PO4 structure of
+421,824 atoms, performed in LAMMPS.
+parallel architecture also allows multiple GPUs to be used
+to increase the speed of the potential calculation for a
+ﬁxed size system.
+Figure 5 shows such strong scaling
+results on a 421, 824 atom Li3PO4 structure. The system
+size was kept constant while the number of A100 GPUs
+used ranged over {1, 2, 4, 8, 16, 32, 64}.
+Theoretical Analysis
+In this section, we provide a theoretical analysis of the
+suggested method. We do so by highlighting similarities
+and diﬀerences to the Atomic Cluster Expansion (ACE)
+framework [12].
+Throughout this section we omit
+representation indices ℓand p from the notation for
+conciseness: every weight or feature that carries ℓand p
+indices previously implicitly carries them in this section.
+Starting from the initial equivariant features for the pair
+of atoms ij at layer L = 0
+Vij,L=0
+n0
+= wij,L=0
+n0⃗
+Y ij
+(23)
+the ﬁrst Allegro layer computes a sum over tensor
+products between Vij,L=0
+n0
+and the spherical harmonics
+projection of all neighbors k ∈N(i):
+
+12
+Material
+Number of atoms
+Number of GPUs
+Speed in ns/day
+microseconds / (atom · step)
+Li3PO4
+192
+1
+32.391
+27.785
+Li3PO4
+421,824
+1
+0.518
+0.552
+Li3PO4
+421,824
+2
+1.006
+0.284
+Li3PO4
+421,824
+4
+1.994
+0.143
+Li3PO4
+421,824
+8
+3.810
+0.075
+Li3PO4
+421,824
+16
+6.974
+0.041
+Li3PO4
+421,824
+32
+11.530
+0.025
+Li3PO4
+421,824
+64
+15.515
+0.018
+Li3PO4
+50,331,648
+128
+0.274
+0.013
+Ag
+71
+1
+90.190
+67.463
+Ag
+1,022,400
+1
+1.461
+0.289
+Ag
+1,022,400
+2
+2.648
+0.160
+Ag
+1,022,400
+4
+5.319
+0.079
+Ag
+1,022,400
+8
+10.180
+0.042
+Ag
+1,022,400
+16
+18.812
+0.022
+Ag
+1,022,400
+32
+28.156
+0.015
+Ag
+1,022,400
+64
+43.438
+0.010
+Ag
+1,022,400
+128
+49.395
+0.009
+Ag
+100,640,512
+128
+1.539
+0.003
+TABLE IV: Simulation times obtainable in [ns/day] and time required per atom per step in [microseconds] for
+varying number of atoms and computational resources.
+Vij,L=1
+n1
+=
+X
+n′
+1
+paths
+wL=1
+n1,n′
+1,path
+X
+k1∈N(i)
+wik1,L=1
+n′
+1
+ wij,L=0
+n′
+1⃗
+Y ij ⊗⃗Y ik1
+(24)
+=
+X
+n′
+1
+paths
+wL=1
+n1,n′
+1,path
+X
+k1∈N(i)
+wik1,L=1
+n′
+1
+wij,L=0
+n′
+1
+ ⃗
+Y ij ⊗⃗Y ik1
+(25)
+which follows from the bilinearity of the tensor product.
+The sum over “paths” in this equation indicates the sum
+over all symmetrically valid combinations of implicit irrep
+indices on the various tensors present in the equation
+as written out explicitly in equation 21. Repeating this
+substitution, we can express the equivariant features at
+layer L = 2 and reveal a general recursive relationship:
+Vij,L=2
+n2,ℓ2,p2 =
+X
+n′
+2
+paths
+wL=2
+n2,n′
+2,path
+X
+k2∈N(i)
+wik2,L=2
+n′
+2
+ Vij,L=1
+n′
+2
+⊗⃗Y ik2
+(26)
+=
+X
+n′
+1,n′
+2
+paths
+wL=2
+n2,n′
+2,pathwL=1
+n′
+2,n′
+1,path
+
+X
+k2∈N(i)
+X
+k1∈N(i)
+wik2,L=2
+n′
+2
+wik1,L=1
+n′
+1
+wij,L=0
+n′
+1
+ ⃗
+Y ij ⊗⃗Y ik1 ⊗⃗Y ik2
+
+
+(27)
+Vij,L
+nL,ℓL,pL =
+X
+k1,...,kL
+n′
+1,...,n′
+L
+paths
+
+
+
+
+Y
+α∈1,...,L
+wL=α
+n′
+α+1,n′
+α,path
+
+
+
+
+Y
+α∈0,...,L
+wikα,L=α
+n′α
+
+
+
+
+O
+α∈0,...,L⃗
+Y ikα
+
+
+
+
+(28)
+where k0 = j, n′
+L+1 = nL, and n′
+0 = n′
+1.
+ACE can be expanded similarly using the bilinearity
+
+13
+of the tensor product.
+We start from equation 6 and
+collapse the radial and chemical bases into one index n
+of size Nfull-basis = S × Nbasis for clarity:
+B(ν)
+n1...nν =
+O
+α=1,...,ν
+Ani
+(29)
+=
+O
+α=1,...,ν
+
+
+X
+kα∈N(i)
+Rnα(rikα, zkα)⃗Y ikα
+
+
+(30)
+=
+X
+k1,...,kν
+" 
+Y
+α∈1,...,ν
+Rnα(rikα, zkα)
+! O
+α∈1,...,ν⃗
+Y ikα
+!#
+(31)
+Comparing equations 28 and 31 it is immediately
+evident that an Allegro model with Nlayer layers and
+an ACE expansion of body order ν + 1 = Nlayer + 2
+share the core equivariant iterated tensor products⃗
+Y ij ⊗⃗Y ik1 ⊗... ⊗⃗Y ikNlayer.
+The equivariant Allegro
+features Vij,L
+n
+are analogous — but not equivalent — to
+the full equivariant ACE basis functions B(L+1)
+n1...nL+1.
+The comparison of these expansions of the two models
+emphasizes, as discussed earlier in the scaling section,
+that the ACE basis functions carry a full set of nα indices
+(which label radial-chemical two-body basis functions),
+the number of which increases at each iteration, while
+the Allegro features do not exhibit this increase as a
+function of the number of layers. This diﬀerence is the
+root of the contrast between the O(N ν
+full-basis) scaling of
+ACE in the size of the radial-chemical basis Nfull-basis
+and the O(1) of Allegro.
+Allegro achieves this more
+favorable scaling through the learnable channel mixing
+weights.
+A key diﬀerence between Allegro and ACE, made
+clear here, is their diﬀering construction of the scalar
+pairwise weights. In ACE, the scalar weights carrying
+ikα indices are the radial-chemical basis functions R,
+which are two-body functions of the distance between
+atoms i and kα and their chemistry. These correspond in
+Allegro to the environment embedding weights wL
+ikα,n,
+which — critically — are functions of all the lower-
+order equivariant features Vij,L′<L
+n
+:
+the environment
+embedding weights at layer L are a function of the scalar
+features from layer L −1 (equation 19) which are a
+function of the equivariant features from layer L −2
+(equation 20) and so on.
+As a result, the “pairwise”
+weights have a hierarchical structure and depend on all
+previous weights:
+wL
+ix,n = f(Vix,L−1)
+(32)
+= f
+ {wL′
+ix′,n′ for all n′, L′ < L, x′ ∈N(i)}
+
+(33)
+where f contains details irrelevant to conveying the
+existence of the dependence.
+We ﬁnally note that
+the expanded features of equation 28—and thus the
+ﬁnal features of any Allegro model—are of ﬁnite body-
+order if the environment embedding weights wL
+ikαn are
+themselves of ﬁnite body-order. This condition holds if
+the latent and embedding MLPs are linear. If any of these
+MLPs contain nonlinearities whose Taylor expansions are
+inﬁnite, the body-order of the environment embedding
+weights, and thus of the entire model, becomes inﬁnite.
+Nonlinearities in the two-body MLP are not relevant to
+the body order and correspond to the use of a nonlinear
+radial basis in methods such as ACE. Allegro models
+whose only nonlinearities lie in the two-body embedding
+MLP are still highly accurate and such a model was used
+in the experiments on the 3BPA dataset described above.
+DISCUSSION
+We introduce Allegro, a novel type of deep learning
+interatomic potential and demonstrate its ability to
+obtain
+highly
+accurate
+predictions
+of
+energies
+and
+forces, to scale to large atomistic systems, and to
+predict structural and kinetic properties from molecular
+dynamics simulations of complex systems. The method
+challenges the standard of message passing neural
+networks, widely used across atomistic machine learning.
+Our ﬁndings raise questions about the optimal choice
+of representation and learning algorithm for machine
+learning on molecules and materials. An important goal
+for future work is to obtain a better understanding of
+when explicit long-range terms are required in machine
+learning
+interatomic
+potentials,
+how
+to
+optimally
+incorporate them into local models, and to what extent
+semi-local message passing interatomic potentials may
+or may not implicitly capture these interactions.
+The correspondences between the Allegro architecture
+
+14
+and the ACE formalism discussed above also raise
+questions
+about
+how
+and
+why
+Allegro
+is
+able
+to
+outperform the systematic ACE basis expansion.
+We
+speculate that our method’s performance is due in
+part to the learned dependence of the environment
+embedding weights at each layer on the full scalar latent
+features from all previous layers. This dependence may
+allow the importance of an atom to higher body-order
+interactions to be learned as a function of lower body-
+order descriptions of its environment. It stands in stark
+contrast to ACE, where the importance of any higher
+body-order interaction is learned separately from lower
+body-order descriptions of the local structure. We believe
+further eﬀorts to understand this correspondence are a
+promising direction for future work.
+METHODS
+Software
+All
+experiments
+were
+run
+with
+the
+Allegro
+code
+available
+at
+https://github.
+com/mir-group/allegro
+under
+git
+commit
+a5128c2a86350762215dad6bd8bb42875ebb06cb.
+In
+addition,
+we
+used
+the
+NequIP
+code
+available
+at
+https://github.com/mir-group/
+nequip
+with
+version
+0.5.3,
+git
+commit
+eb6f9bca7b36162abf69ebb017049599b4ddb09c,
+as well as e3nn with version 0.4.4 [67],
+PyTorch
+with
+version
+1.10.0
+[68],
+and
+Python
+with
+version
+3.9.7.
+The
+LAMMPS
+experiments
+were
+run
+with
+the
+LAMMPS
+code
+available
+at
+https://github.com/lammps/lammps.git
+under
+git
+commit 9b989b186026c6fe9da354c79cc9b4e152ab03af
+with
+the
+pair allegro
+code
+available
+at
+https:
+//github.com/mir-group/pair_allegro, git commit
+0161a8a8e2fe0849165de9eeae3fbb987b294079.
+The
+VESTA software was used to generate Figure 4 [69].
+Matplotlib was used for plotting results [70].
+Reference Training Sets
+revised MD-17: The revised MD-17 data set consists of
+10 small organic molecules, for which 100,000 structures
+were computed at DFT (PBE/def2-SVP) accuracy using
+a very tight SCF convergence and very dense DFT
+integration grid [46]. The structures were re-computed
+from the original MD-17 data set [10, 50, 51]. The data
+can be obtained at https://figshare.com/articles/
+dataset/Revised_MD17_dataset_rMD17_/12672038.
+We use 950 structures for training, 50 structures for
+validation (both sampled randomly), and evaluate the
+test error on all remaining structures.
+3BPA: The 3BPA data set consists of 500 training
+structures at T=300K, and test data at 300K, 600K,
+and 1200K, of data set size of 1669, 2138, and 2139
+structures, respectively. The data were computed using
+Density Functioal Theory with the ωB97X exchange
+correlation functional and the 6-31G(d) basis set.
+For
+details, we refer the reader to [24].
+The data set was
+downloaded
+from
+https://pubs.acs.org/doi/full/
+10.1021/acs.jctc.1c00647
+QM9: The QM9 data consists of 133,885 structures
+with up to 9 heavy elements and consisting of species
+H, C, N, O, F in relaxed geometries.
+Structures are
+provided together with a series of properties computed
+at the DFT/B3LYP/6-31G(2df,p) level of theory. The
+data set was downloaded from https://figshare.com/
+collections/Quantum_chemistry_structures_and_
+properties_of_134_kilo_molecules/978904.
+In line
+with previous work, we excluded the 3,054 structures
+that failed the geometry consistency check, resulting in
+130,831 total structures, of which we use 110,000 for
+training, 10,000 for validation and evaluate the test error
+on all remaining structures. Training was performed in
+units of [eV].
+Li3PO4:
+The
+Li3PO4
+structure
+consists
+of
+192
+atoms.
+The reference data set was obtained from two
+AIMD simulations both of 50 ps duration, performed
+in the Vienna Ab-Initio Simulation Package (VASP)
+[71–73] using a generalized gradient PBE functional
+[74], projector augmented wave pseudopotentials [75],
+a plane-wave cutoﬀof 400eV and a Γ-point reciprocal-
+space mesh. The integration was performed with a time
+step of 2 fs in the NVT ensemble using a Nos´e-Hoover
+thermostat.
+The ﬁrst 50 ps of the simulation were
+performed at T=3000K in the molten phase, followed
+by an instant quench to T=600K and a second 50
+ps simulation at T=600K. The two trajectories were
+combined and the training set of 10,000 structures as
+well as the validation set of 1,000 were sampled randomly
+from the combined data set of 50,000 structures.
+Ag:
+The Ag system is created from a bulk face-
+centered-cubic structure with a vacancy, consisting of 71
+atoms. The data were sampled from AIMD simulations
+at T=1,111K (90% of the melting temperature of Ag)
+with Gamma-point k-sampling as computed in VASP
+using the PBE exchange correlation functional [71–
+73].
+Frames were then extracted at least 25 fs apart,
+to limit correlation within the trajectory, and each
+frame was recalculated with converged DFT parameters.
+For these calculations, the Brillouin zone was sampled
+using a (2x2x3) Gamma-centered k-point grid, and the
+electron density at the Fermi-level was approximated
+using Methfessel-Paxton smearing [76] with a sigma value
+of 0.05. A cutoﬀenergy of 520 eV was employed, and each
+
+15
+calculation was non-spin-polarized.
+Molecular Dynamics Simulations
+Molecular
+Dynamics
+simulations
+were
+performed
+in LAMMPS [65] using the pair style pair allegro
+implemented
+in
+the
+Allegro
+interface,
+available
+at
+https://github.com/mir-group/pair_allegro.
+We
+run the Li3PO4 production and timing simulations
+under an NVT ensemble at T=600K, using a time step
+of 2 fs, a Nos´e-Hoover thermostat and a temperature
+damping parameter of 40 time steps.
+The Ag timing
+simulations are run also in NVT, at a temperature
+of T=300K using a time step of 5 fs, a Nos´e-Hoover
+thermostat and a temperature damping parameter of 40
+time steps. The larger systems are created by replicating
+the original structures of 192 and 71 atoms of Li3PO4
+and Ag, respectively. We compute the RDF and ADFs
+for Li3PO4 with a maximum distance of 10 ˚A (RDF) and
+2.5 ˚A (ADFs).
+We start the simulation from the ﬁrst
+frame of the AIMD quench simulation. RDF and ADF
+for Allegro were averaged over 10 runs with diﬀerent
+initial velocities, the ﬁrst 10 ps of the 50 ps simulation
+were discarded in the RDF/ADF analysis to account for
+equilibration.
+Training details
+Models were trained on a NVIDIA V100 GPU in single-
+GPU training.
+revMD-17 and 3BPA
+The revised MD17 models were trained with a total
+budget of 1,000 structures, split into 950 for training
+and 50 for validation.
+The 3BPA model was trained
+with a total budget of 500 structures, split into 450 for
+training and 50 for validation.
+The data set was re-
+shuﬄed after each epoch. We use 3 layers, 128 features
+for both even and odd irreps and a ℓmax = 3. The 2-body
+latent MLP consists of 4 hidden layers of dimensions
+[128, 256, 512, 1024], using SiLU nonlinearities on the
+outputs of the hidden layers [77].
+The later latent
+MLPs consist of 3 hidden layers of dimensionality
+[1024, 1024, 1024] using SiLU nonlinearities for revMD-
+17 and no nonlinearities for 3BPA. The embedding
+weight projection was implemented as a single matrix
+multiplication without a hidden layer or a nonlinearity.
+The ﬁnal edge energy MLP has one hidden layer of
+dimension 128 and again no nonlinearity.
+All four
+MLPs were initialized according to a uniform distribution
+of unit variance.
+We used a radial cutoﬀof 7.0 ˚A
+for all molecules in the revMD-17 data set, except for
+Naphthalene, for which a cutoﬀof 9.0 ˚A was used, and
+a cutoﬀof 5.0 ˚A for the 3BPA data set. We use a basis
+of 8 non-trainable Bessel functions for the basis encoding
+with the polynomial envelope function using p = 6 for
+revMD-17 and p = 2 for 3BPA. RevMD-17 models were
+trained using a joint loss function of energies and forces:
+L = λE
+B
+B
+X
+b
+
+ˆEb −Eb
+2
++ λF
+3BN
+BN
+X
+i=1
+3
+X
+α=1
+∥−∂ˆE
+∂ri,α
+−Fi,α∥2
+(34)
+where B, N, Eb, ˆEb, Fi,α denote the batch size, number
+of atoms, batch of true energies, batch of predicted
+energies, and the force component on atom i in spatial
+direction α, respectively and λE, λF are energy and force
+weights.
+Following previous works, for the revMD-17
+data the force weight was set to 1,000 and the weight
+on the total potential energies was set to 1.
+For the
+3BPA molecules, as in [45], we used a per-atom MSE
+term that divides the energy term by N 2
+atoms because a)
+the potential energy is a global size-extensive property,
+and b) we use a MSE loss function:
+L = λE
+B
+B
+X
+b
+ ˆEb −Eb
+N
+!2
++ λF
+3BN
+BN
+X
+i=1
+3
+X
+α=1
+∥−∂ˆE
+∂ri,α
+−Fi,α∥2
+(35)
+After this normalization, both the energy and the force
+term receive a weight of 1.
+Models were trained with
+the Adam optimizer [78] in PyTorch [68], with default
+parameters of β1 = 0.9, β2 = 0.999, and ϵ = 10−8
+without weight decay. We used a learning rate of 0.002
+and a batch size of 5.
+The learning rate was reduced
+using an on-plateau scheduler based on the validation
+loss with a patience of 100 and a decay factor of 0.8.
+We use an exponential moving average with weight 0.99
+to evaluate on the validation set as well as for the ﬁnal
+model. Training was stopped when one of the following
+conditions was reached: a) a maximum training time of
+7 days, b) a maximum number of epochs of 100,000, c)
+no improvement in the validation loss for 1,000 epochs,
+d) the learning rate dropped lower than 1e-6. We note
+that such long wall times are usually not required and
+highly accurate models can typically be obtained within a
+matter of hours or even minutes. All models were trained
+with ﬂoat32 precision.
+3BPA, NequIP
+The NequIP models on the 3BPA data set were trained
+with a total budget of 500 molecules, split into 450 for
+training and 50 for validation.
+The data set was re-
+shuﬄed after each epoch. We use 5 layers, 64 features
+for both even and odd irreps and a ℓmax = 3.
+We
+
+16
+use a radial network of 3 layers with 64 hidden neurons
+and SiLU nonlinearities.
+We further use equivariant,
+SiLU-based gate nonlinearities as outlined in [15], where
+even and odd scalars are not gated, but operated on
+directly by SiLU and tanh nonlinearities, respectively.
+We used a radial cutoﬀof 5.0 ˚A and a non-trainable
+Bessel basis of size 8 for the basis encoding with a
+polynomial envelope function using p = 2.
+We use
+again a per-atom MSE loss function in which both the
+energy and the force term receive a weight of 1. Models
+were trained with Adam with the AMSGrad variant in
+the PyTorch implementation [78–80] in PyTorch [68],
+with default parameters of β1 = 0.9, β2 = 0.999, and
+ϵ = 10−8 without weight decay.
+We used a learning
+rate of 0.01 and a batch size of 5.
+The learning rate
+was reduced using an on-plateau scheduler based on the
+validation loss with a patience of 50 and a decay factor
+of 0.8.
+We use an exponential moving average with
+weight 0.99 to evaluate on the validation set as well as
+for the ﬁnal model. Training was stopped when one of
+the following conditions was reached:
+a) a maximum
+training time of 7 days, b) a maximum number of epochs
+of 100,000, c) no improvement in the validation loss for
+1,000 epochs, d) the learning rate dropped lower than 1e-
+6. We that such long wall times are usually not required
+and highly accurate models can typically be obtained
+within a matter of hours or even minutes. All models
+were trained with ﬂoat32 precision. We use a per-atom
+shift µZi via the average per-atom potential energy over
+all training frames and a per-atom scale σZi as the root-
+mean-square of the components of the forces over the
+training set.
+Li3PO4
+The Li3PO4 model was trained with a total budget
+of 11,000 structures, split into 10,000 for training and
+1,000 for validation. The data set was re-shuﬄed after
+each epoch. We use 1 layer, 1 feature of even parity and
+ℓmax = 1. The 2-body latent MLP consists of 2 hidden
+layers of dimensions [32, 64], using SiLU nonlinearities
+[77].
+The later latent MLP consist of 1 hidden layer
+of dimensionality [64], also using a SiLU nonlinearity.
+The embedding weight projection was implemented as
+a single matrix multiplication without a hidden layer
+or a nonlinearity. The ﬁnal edge energy MLP has one
+hidden layer of dimension 32 and again no nonlinearity.
+All four MLPs were initialized according to a uniform
+distribution of unit variance. We used a radial cutoﬀof
+4.0 ˚A and a basis of 8 non-trainable Bessel functions for
+the basis encoding with the polynomial envelope function
+using p = 48.
+The model was trained using a joint
+loss function of energies and forces. We use again the
+per-atom MSE as describe above and a weighting of 1
+for the force-term and 1 for the per-atom MSE term.
+The model was trained with the Adam optimizer [78]
+in PyTorch [68], with default parameters of β1 = 0.9,
+β2 = 0.999, and ϵ = 10−8 without weight decay.
+We
+used a learning rate of 0.001 and a batch size of 1. The
+learning rate was reduced using an on-plateau scheduler
+based on the validation loss with a patience of 25 and
+a decay factor of 0.5.
+We use an exponential moving
+average with weight 0.99 to evaluate on the validation
+set as well as for the ﬁnal model. Training was stopped
+when one of the following conditions was reached: a) a
+maximum training time of 7 days, b) a maximum number
+of epochs of 100,000, c) no improvement in the validation
+loss for 1,000 epochs, d) the learning rate dropped lower
+than 1e-5. The model was trained with ﬂoat32 precision.
+Ag
+The Ag model was trained with a total budget of
+1,000 structures, split into 950 for training and 50 for
+validation.
+The data set was re-shuﬄed after each
+epoch.
+We use 1 layer, 1 feature of even parity and
+ℓmax = 1. The 2-body latent MLP consists of 2 hidden
+layers of dimensions [16, 32], using SiLU nonlinearities
+[77].
+The later latent MLP consist of 1 hidden layer
+of dimensionality [32], also using a SiLU nonlinearity.
+The embedding weight projection was implemented as
+a single matrix multiplication without a hidden layer
+or a nonlinearity. The ﬁnal edge energy MLP has one
+hidden layer of dimension 32 and again no nonlinearity.
+All four MLPs were initialized according to a uniform
+distribution. We used a radial cutoﬀof 4.0 ˚A and a basis
+of 8 non-trainable Bessel functions for the basis encoding
+with the polynomial envelope function using p = 48. The
+model was trained using a joint loss function of energies
+and forces. We use again the per-atom MSE as describe
+above and a weighting of 1 for the force-term and 1 for
+the per-atom MSE term. The model was trained with
+the Adam optimizer [78] in PyTorch [68], with default
+parameters of β1 = 0.9, β2 = 0.999, and ϵ = 10−8
+without weight decay. We used a learning rate of 0.001
+and a batch size of 1. The learning rate was reduced using
+an on-plateau scheduler based on the validation loss with
+a patience of 25 and a decay factor of 0.5. We use an
+exponential moving average with weight 0.99 to evaluate
+on the validation set as well as for the ﬁnal model. The
+model was trained for a total of approximately 5 hours
+with ﬂoat32 precision.
+QM9
+The QM9 models were trained using 110,000 structures
+for training and 10,000 for validation. The data set was
+re-shuﬄed after each epoch. We report two models, one
+with 3 layers and ℓmax = 2 and another one with 1
+
+17
+layer and ℓmax = 3, both with 256 features for both
+even and odd irreps. The 2-body latent MLP consists
+of 4 hidden layers of dimensions [128, 256, 512, 1024],
+using SiLU nonlinearities [77].
+The later latent MLPs
+consist of 3 hidden layers of dimensionality [1024, 1024,
+1024], also using SiLU nonlinearities.
+The embedding
+weight projection was implemented as a single matrix
+multiplication without a hidden layer or a nonlinearity.
+The ﬁnal edge energy MLP has one hidden layer of
+dimension 128 and again no nonlinearity. All four MLPs
+were initialized according to a uniform distribution. We
+used a radial cutoﬀof 10.0 ˚A. We use a basis of 8 non-
+trainable Bessel functions for the basis encoding with the
+polynomial envelope function using p = 6. Models were
+trained using a MSE loss on the energy with the Adam
+optimizer [78] in PyTorch [68], with default parameters
+of β1 = 0.9, β2 = 0.999, and ϵ = 10−8 without weight
+decay. In addition, we use gradient clipping by norm with
+a maximum norm of 100. We used a learning rate of 0.001
+and a batch size of 16. The learning rate was reduced
+using an on-plateau scheduler based on the validation
+MAE of the energy with a patience of 25 and a decay
+factor of 0.8.
+We use an exponential moving average
+with weight 0.999 to evaluate on the validation set as well
+as for the ﬁnal model. Training was stopped when one
+of the following conditions was reached: a) a maximum
+training time of approximately 14 days, b) a maximum
+number of epochs of 100,000, c) no improvement in the
+validation loss for 1,000 epochs, d) the learning rate
+dropped lower than 1e-5. All models were trained with
+ﬂoat32 precision.
+Again, we note that such long wall
+times are not required to obtain highly accurate models.
+We subtract the sum of the reference atomic energies and
+then apply the linear ﬁtting procedure described above
+using every 100-th reference label in the training set.
+DATA AVAILABILITY
+The revMD-17, 3BPA, and QM9 data sets are publicly
+available (see Methods section).
+The Li3PO4 and Ag
+data sets will be made available upon publication.
+CODE AVAILABILITY
+An open-source software implementation of Allegro
+will be available at https://github.com/mir-group/
+allegro
+together
+with
+an
+implementation
+of
+the
+LAMMPS software interface at https://github.com/
+mir-group/pair_allegro.
+[1] Richards,
+W. D. et al.
+Design and synthesis of
+the superionic conductor na 10 snp 2 s 12.
+Nature
+communications 7, 1–8 (2016).
+[2] Lindorﬀ-Larsen, K., Piana, S., Dror, R. O. & Shaw, D. E.
+How fast-folding proteins fold.
+Science 334, 517–520
+(2011).
+[3] Blank, T. B., Brown, S. D., Calhoun, A. W. & Doren,
+D. J. Neural network models of potential energy surfaces.
+The Journal of chemical physics 103, 4129–4137 (1995).
+[4] Handley, C. M., Hawe, G. I., Kell, D. B. & Popelier, P. L.
+Optimal construction of a fast and accurate polarisable
+water potential based on multipole moments trained by
+machine learning. Physical Chemistry Chemical Physics
+11, 6365–6376 (2009).
+[5] Behler,
+J.
+&
+Parrinello,
+M.
+Generalized
+neural-
+network representation of high-dimensional potential-
+energy surfaces.
+Physical review letters 98, 146401
+(2007).
+[6] Bart´ok, A. P., Payne, M. C., Kondor, R. & Cs´anyi,
+G.
+Gaussian approximation potentials: The accuracy
+of quantum mechanics, without the electrons. Physical
+review letters 104, 136403 (2010).
+[7] Thompson, A. P., Swiler, L. P., Trott, C. R., Foiles, S. M.
+& Tucker, G. J. Spectral neighbor analysis method for
+automated generation of quantum-accurate interatomic
+potentials. Journal of Computational Physics 285, 316–
+330 (2015).
+[8] Shapeev, A. V.
+Moment tensor potentials:
+A class
+of
+systematically
+improvable
+interatomic
+potentials.
+Multiscale Modeling & Simulation 14, 1153–1173 (2016).
+[9] Sch¨utt, K. T., Sauceda, H. E., Kindermans, P.-J.,
+Tkatchenko, A. & M¨uller, K.-R. Schnet–a deep learning
+architecture for molecules and materials. The Journal of
+Chemical Physics 148, 241722 (2018).
+[10] Chmiela,
+S.,
+Sauceda,
+H.
+E.,
+M¨uller,
+K.-R.
+&
+Tkatchenko, A.
+Towards exact molecular dynamics
+simulations with machine-learned force ﬁelds.
+Nature
+Communications 9, 3887 (2018).
+[11] Unke, O. T. & Meuwly, M. Physnet: A neural network for
+predicting energies, forces, dipole moments, and partial
+charges. Journal of chemical theory and computation 15,
+3678–3693 (2019).
+[12] Drautz, R. Atomic cluster expansion for accurate and
+transferable interatomic potentials.
+Physical Review B
+99, 014104 (2019).
+[13] Christensen, A. S., Bratholm, L. A., Faber, F. A. &
+Anatole von Lilienfeld, O.
+Fchl revisited: Faster and
+more accurate quantum machine learning. The Journal
+of Chemical Physics 152, 044107 (2020).
+[14] Klicpera, J., Groß, J. & G¨unnemann, S.
+Directional
+message passing for molecular graphs.
+arXiv preprint
+arXiv:2003.03123 (2020).
+[15] Batzner, S. et al.
+Se (3)-equivariant graph neural
+networks for data-eﬃcient and accurate interatomic
+potentials. arXiv preprint arXiv:2101.03164 (2021).
+[16] Mailoa, J. P. et al.
+A fast neural network approach
+for direct covariant forces prediction in complex multi-
+element extended systems. Nature machine intelligence
+1, 471–479 (2019).
+[17] Park,
+C. W. et al.
+Accurate and scalable multi-
+element graph neural network force ﬁeld and molecular
+
+18
+dynamics with direct force architecture. arXiv preprint
+arXiv:2007.14444 (2020).
+[18] Xie, Y., Vandermause, J., Sun, L., Cepellotti, A. &
+Kozinsky, B. Bayesian force ﬁelds from active learning
+for simulation of inter-dimensional transformation of
+stanene. npj Computational Materials 7, 1–10 (2021).
+[19] Xie, Y. et al.
+Uncertainty-aware molecular dynamics
+from bayesian active learning:
+Phase transformations
+and
+thermal
+transport
+in
+sic.
+arXiv
+preprint
+arXiv:2203.03824 (2022).
+[20] Zhang, L., Han, J., Wang, H., Car, R. & Weinan, E. Deep
+potential molecular dynamics: a scalable model with the
+accuracy of quantum mechanics. Physical review letters
+120, 143001 (2018).
+[21] Vandermause, J. et al.
+On-the-ﬂy active learning of
+interpretable bayesian force ﬁelds for atomistic rare
+events. npj Computational Materials 6, 1–11 (2020).
+[22] Vandermause, J., Xie, Y., Lim, J. S., Owen, C. &
+Kozinsky, B. Active learning of reactive bayesian force
+ﬁelds: Application to heterogeneous catalysis dynamics
+of h/pt (2021).
+[23] Anderson, B., Hy, T. S. & Kondor, R.
+Cormorant:
+Covariant molecular neural networks.
+In Advances in
+Neural Information Processing Systems, 14537–14546
+(2019).
+[24] Kov´acs, D. P. et al.
+Linear atomic cluster expansion
+force ﬁelds for organic molecules: beyond rmse. Journal
+of Chemical Theory and Computation (2021).
+[25] Sch¨utt,
+K.
+et
+al.
+Schnet:
+A
+continuous-ﬁlter
+convolutional neural network for modeling quantum
+interactions.
+In
+Advances
+in
+neural
+information
+processing systems, 991–1001 (2017).
+[26] Qiao, Z. et al. Unite: Unitary n-body tensor equivariant
+network with applications to quantum chemistry. arXiv
+preprint arXiv:2105.14655 (2021).
+[27] Sch¨utt, K. T., Unke, O. T. & Gastegger, M. Equivariant
+message passing for the prediction of tensorial properties
+and molecular spectra. arXiv preprint arXiv:2102.03150
+(2021).
+[28] Jia, W. et al. Pushing the limit of molecular dynamics
+with ab initio accuracy to 100 million atoms with
+machine learning.
+In SC20:
+International conference
+for high performance computing, networking, storage and
+analysis, 1–14 (IEEE, 2020).
+[29] Lu, D. et al. 86 pﬂops deep potential molecular dynamics
+simulation of 100 million atoms with ab initio accuracy.
+Computer Physics Communications 259, 107624 (2021).
+[30] Guo, Z. et al. Extending the limit of molecular dynamics
+with ab initio accuracy to 10 billion atoms. arXiv preprint
+arXiv:2201.01446 (2022).
+[31] Nguyen-Cong,
+K.
+et
+al.
+Billion
+atom
+molecular
+dynamics simulations of carbon at extreme conditions
+and experimental time and length scales. In Proceedings
+of the International Conference for High Performance
+Computing, Networking, Storage and Analysis, 1–12
+(2021).
+[32] Satorras, V. G., Hoogeboom, E. & Welling, M.
+E
+(n) equivariant graph neural networks. In International
+Conference on Machine Learning, 9323–9332 (PMLR,
+2021).
+[33] Haghighatlari, M. et al.
+Newtonnet:
+A newtonian
+message passing network for deep learning of interatomic
+potentials and forces. arXiv preprint arXiv:2108.02913
+(2021).
+[34] Brandstetter, J., Hesselink, R., van der Pol, E., Bekkers,
+E. & Welling, M.
+Geometric and physical quantities
+improve e (3) equivariant message passing. arXiv preprint
+arXiv:2110.02905 (2021).
+[35] Gilmer, J., Schoenholz, S. S., Riley, P. F., Vinyals, O.
+& Dahl, G. E.
+Neural message passing for quantum
+chemistry. arXiv preprint arXiv:1704.01212 (2017).
+[36] Thomas, N. et al.
+Tensor ﬁeld networks:
+Rotation-
+and translation-equivariant neural networks for 3d point
+clouds. arXiv preprint arXiv:1802.08219 (2018).
+[37] Weiler, M., Geiger, M., Welling, M., Boomsma, W. &
+Cohen, T. S. 3d steerable cnns: Learning rotationally
+equivariant features in volumetric data.
+In Advances
+in Neural Information Processing Systems, 10381–10392
+(2018).
+[38] Kondor, R. N-body networks: a covariant hierarchical
+neural
+network
+architecture
+for
+learning
+atomic
+potentials. arXiv preprint arXiv:1803.01588 (2018).
+[39] Kondor, R., Lin, Z. & Trivedi, S.
+Clebsch–gordan
+nets: a fully fourier space spherical convolutional neural
+network. In Advances in Neural Information Processing
+Systems, 10117–10126 (2018).
+[40] Th¨olke,
+P.
+&
+De
+Fabritiis,
+G.
+Torchmd-net:
+Equivariant
+transformers
+for
+neural
+network
+based
+molecular potentials.
+arXiv preprint arXiv:2202.02541
+(2022).
+[41] Darby, J. P., Kermode, J. R. & Cs´anyi, G. Compressing
+local atomic neighbourhood descriptors. arXiv preprint
+arXiv:2112.13055 (2021).
+[42] Bart´ok, A. P., Kondor, R. & Cs´anyi, G. On representing
+chemical environments. Physical Review B 87, 184115
+(2013).
+[43] He, K., Zhang, X., Ren, S. & Sun, J.
+Deep residual
+learning for image recognition.
+In Proceedings of
+the IEEE conference on computer vision and pattern
+recognition, 770–778 (2016).
+[44] e3nn
+documentation.
+https://docs.e3nn.org/en/
+stable/.
+[45] Sun, L., Batzner, S., Musaelian, A., Yu, X. & Kozinsky,
+B.
+On the normalization of potential energies for
+neural-network-based interatomic potentials training. In
+Preparation .
+[46] Christensen, A. S. & von Lilienfeld, O. A. On the role
+of gradients for machine learning of molecular energies
+and forces. Machine Learning: Science and Technology
+1, 045018 (2020).
+[47] Smith, J. S., Isayev, O. & Roitberg, A. E.
+Ani-1: an
+extensible neural network potential with dft accuracy at
+force ﬁeld computational cost. Chemical science 8, 3192–
+3203 (2017).
+[48] Devereux, C. et al. Extending the applicability of the ani
+deep learning molecular potential to sulfur and halogens.
+Journal of Chemical Theory and Computation 16, 4192–
+4202 (2020).
+[49] Klicpera, J., Becker, F. & G¨unnemann, S.
+Gemnet:
+Universal
+directional
+graph
+neural
+networks
+for
+molecules. arXiv preprint arXiv:2106.08903 (2021).
+[50] Chmiela, S. et al. Machine learning of accurate energy-
+conserving molecular force ﬁelds.
+Science advances 3,
+e1603015 (2017).
+[51] Sch¨utt, K. T., Arbabzadah, F., Chmiela, S., M¨uller,
+K. R. & Tkatchenko, A. Quantum-chemical insights from
+deep tensor neural networks.
+Nature Communications
+8,
+13890 (2017).
+URL https://doi.org/10.1038/
+
+19
+ncomms13890.
+[52] Wang, J., Wolf, R. M., Caldwell, J. W., Kollman, P. A.
+& Case, D. A.
+Development and testing of a general
+amber force ﬁeld.
+Journal of computational chemistry
+25, 1157–1174 (2004).
+[53] Wang, L.-P., Chen, J. & Van Voorhis, T.
+Systematic
+parametrization of polarizable force ﬁelds from quantum
+chemistry
+data.
+Journal
+of
+chemical
+theory
+and
+computation 9, 452–460 (2013).
+[54] Klicpera, J., Giri, S., Margraf, J. T. & G¨unnemann,
+S.
+Fast and uncertainty-aware directional message
+passing for non-equilibrium molecules.
+arXiv preprint
+arXiv:2011.14115 (2020).
+[55] Finzi,
+M.,
+Stanton,
+S.,
+Izmailov,
+P.
+&
+Wilson,
+A. G.
+Generalizing convolutional neural networks for
+equivariance to lie groups on arbitrary continuous data.
+In International Conference on Machine Learning, 3165–
+3176 (PMLR, 2020).
+[56] Miller,
+B. K.,
+Geiger,
+M.,
+Smidt,
+T. E. & No’e,
+F.
+Relevance of rotationally equivariant convolutions
+for predicting molecular properties.
+arXiv preprint
+arXiv:2008.08461 (2020).
+[57] Liu, Y. et al.
+Spherical message passing for 3d graph
+networks. arXiv preprint arXiv:2102.05013 (2021).
+[58] Godwin,
+J. et al.
+Simple
+gnn
+regularisation
+for
+3d molecular property prediction and beyond.
+In
+International Conference on Learning Representations
+(2021).
+[59] Ramakrishnan,
+R.,
+Dral,
+P.
+O.,
+Rupp,
+M.
+&
+Von Lilienfeld, O. A. Quantum chemistry structures and
+properties of 134 kilo molecules. Scientiﬁc data 1, 1–7
+(2014).
+[60] Yu, X., Bates, J. B., Jellison, G. E. & Hart, F. X. A
+stable thin-ﬁlm lithium electrolyte: Lithium phosphorus
+oxynitride. Journal of The Electrochemical Society 144,
+524–532 (1997).
+URL https://doi.org/10.1149/1.
+1837443.
+[61] Westover, A. S. et al.
+Plasma synthesis of spherical
+crystalline and amorphous electrolyte nanopowders for
+solid-state batteries. ACS Applied Materials & Interfaces
+12, 11570–11578 (2020).
+URL https://doi.org/10.
+1021/acsami.9b20812.
+[62] Kalnaus, S., Westover, A. S., Kornbluth, M., Herbert, E.
+& Dudney, N. J.
+Resistance to fracture in the glassy
+solid electrolyte lipon.
+Journal of Materials Research
+36, 787–796 (2021).
+URL https://doi.org/10.1557/
+s43578-020-00098-x.
+[63] Li, W., Ando, Y., Minamitani, E. & Watanabe, S. Study
+of li atom diﬀusion in amorphous li3po4 with neural
+network potential. The Journal of chemical physics 147,
+214106 (2017).
+[64] Fuchs, F., Worrall, D., Fischer, V. & Welling, M. Se (3)-
+transformers: 3d roto-translation equivariant attention
+networks.
+Advances in Neural Information Processing
+Systems 33, 1970–1981 (2020).
+[65] Thompson, A. P. et al. LAMMPS - a ﬂexible simulation
+tool for particle-based materials modeling at the atomic,
+meso, and continuum scales. Comp. Phys. Comm. 271,
+108171 (2022).
+[66] Carter Edwards, H., Trott, C. R. & Sunderland, D.
+Kokkos:
+Enabling manycore performance portability
+through polymorphic memory access patterns. Journal
+of Parallel and Distributed Computing 74 (2014). URL
+https://www.osti.gov/biblio/1106586.
+[67] Geiger, M. et al. e3nn/e3nn: 2021-05-04 (2021). URL
+https://doi.org/10.5281/zenodo.4735637.
+[68] Paszke, A. et al.
+Pytorch: An imperative style, high-
+performance deep learning library. In Advances in neural
+information processing systems, 8026–8037 (2019).
+[69] Momma, K. & Izumi, F.
+Vesta:
+a three-dimensional
+visualization
+system
+for
+electronic
+and
+structural
+analysis. Journal of Applied crystallography 41, 653–658
+(2008).
+[70] Hunter, J. D. Matplotlib: A 2d graphics environment.
+Computing in Science & Engineering 9, 90–95 (2007).
+[71] Kresse, G. & Hafner, J. Ab initiomolecular dynamics for
+liquid metals.
+Physical Review B 47, 558–561 (1993).
+URL https://doi.org/10.1103/physrevb.47.558.
+[72] Kresse, G. & Furthm¨uller, J.
+Eﬃciency of ab-initio
+total energy calculations for metals and semiconductors
+using a plane-wave basis set. Computational Materials
+Science 6, 15–50 (1996).
+URL https://doi.org/10.
+1016/0927-0256(96)00008-0.
+[73] Kresse, G. & Furthm¨uller, J. Eﬃcient iterative schemes
+forab initiototal-energy calculations using a plane-wave
+basis set.
+Physical Review B 54, 11169–11186 (1996).
+URL https://doi.org/10.1103/physrevb.54.11169.
+[74] Perdew, J. P., Burke, K. & Ernzerhof, M. Generalized
+gradient approximation made simple.
+Physical Review
+Letters 77, 3865–3868 (1996). URL https://doi.org/
+10.1103/physrevlett.77.3865.
+[75] Kresse, G. & Joubert, D. From ultrasoft pseudopotentials
+to the projector augmented-wave method.
+Physical
+Review B 59, 1758–1775 (1999). URL https://doi.org/
+10.1103/physrevb.59.1758.
+[76] Methfessel, M. & Paxton, A. High-precision sampling for
+brillouin-zone integration in metals. Physical Review B
+40, 3616 (1989).
+[77] Hendrycks, D. & Gimpel, K. Gaussian error linear units
+(gelus). arXiv preprint arXiv:1606.08415 (2016).
+[78] Kingma, D. P. & Ba, J. Adam: A method for stochastic
+optimization. arXiv preprint arXiv:1412.6980 (2014).
+[79] Loshchilov, I. & Hutter, F.
+Decoupled weight decay
+regularization. arXiv preprint arXiv:1711.05101 (2017).
+[80] Reddi, S. J., Kale, S. & Kumar, S. On the convergence
+of adam and beyond. arXiv preprint arXiv:1904.09237
+(2019).
+ACKNOWLEDGEMENTS
+Authors
+thank
+Dr.
+Nicola
+Molinari
+for
+helpful
+discussions.
+Work at Harvard University was supported by Bosch
+Research, the US Department of Energy, Oﬃce of
+Basic Energy Sciences Award No. DE-SC0022199 and
+the Integrated Mesoscale Architectures for Sustainable
+Catalysis (IMASC), an Energy Frontier Research Center,
+Award No.
+DE-SC0012573 and by the NSF through
+the Harvard University Materials Research Science and
+Engineering Center Grant No.
+DMR-2011754.
+A.M
+is supported by U.S. Department of Energy, Oﬃce
+of Science, Oﬃce of Advanced Scientiﬁc Computing
+Research, Computational Science Graduate Fellowship
+
+20
+under Award Number(s) DE-SC0021110.
+C.J.O. is
+supported by the National Science Foundation Graduate
+Research Fellowship Program, Grant No. DGE1745303.
+The authors acknowledge computing resources provided
+by the Harvard University FAS Division of Science
+Research Computing Group and by the Texas Advanced
+Computing Center (TACC) at The University of Texas
+at Austin under allocation DMR20013.
+This research
+used resources of the Argonne Leadership Computing
+Facility, which is a DOE Oﬃce of Science User Facility
+supported under Contract DE-AC02-06CH11357.
+AUTHOR CONTRIBUTIONS
+S.B. and A.M. jointly conceived the Allegro model
+architecture, derived the theoretical analysis of the
+model, and wrote the ﬁrst version of the manuscript.
+A.M. implemented the software and contributed to
+running experiments. S.B. originally proposed to work on
+an architecture that can capture many-body information
+without message passing, conducted the experiments,
+and contributed to the software implementation.
+A.J.
+wrote the LAMMPS interface, including parallelization
+across devices. L.S. proposed the linear ﬁtting for the
+per-species initialization and implemented it.
+C.J.O.
+generated the Ag data.
+M.K. generated the AIMD
+data set of Li3PO4, wrote software for the analysis
+of MD results,
+and contributed to the analysis of
+results on this system.
+B.K. supervised and guided
+the project from conception to design of experiments,
+implementation, theory, as well as analysis of data. All
+authors contributed to the manuscript.
+COMPETING INTERESTS
+The authors declare no competing interests.
+APPENDIX
+A. Normalization of radial basis
+As discussed in the section on normalization, the
+components of our networks are designed and normalized
+to produce outputs of zero mean and unit variance given
+inputs with the same.
+The radial Bessel basis we use
+(equation 13, [14]) does not, as deﬁned, satisfy this
+property.
+We found it beneﬁcial to numerically shift
+and scale the basis functions to make them more closely
+FIG. 6: The normalized two-body radial basis functions
+Bn(rij) for Nbasis = 8. The three panels show diﬀerent
+values for the parameter p of the smooth cutoﬀ
+envelope. The cutoﬀrmax is marked by the vertical line.
+satisfy this property. In particular we deﬁne
+µn =
+Z rmax
+r=0
+eRBF,ndr
+(36)
+σ2
+n =
+Z rmax
+r=0
+(eRBF,n −µn)2dr
+(37)
+Bn(rij) = u(r)eRBF,n −µn
+σn
+(38)
+where eRBF,n is the nth radial Bessel basis function
+and u(r) the smooth polynomial cutoﬀfrom [14].
+These equations follow from assuming a simple uniform
+distribution of r between 0 and rmax.
+B. Normalization of scalar residual update
+The residual update at layer L is computed as a
+weighted sum:
+xij,L =
+1
+√
+1 + α2 xij,L−1 +
+α
+√
+1 + α2 xij,L.
+(39)
+
+21
+where α =
+1
+2 is a hyperparameter.
+The forms of
+the coeﬃcients in equation 39 are chosen to enforce
+normalization:
+assuming that at initialization xij,L−1
+and xij,L
+are negligibly correlated and each have
+approximately unit variance and zero mean, the residual
+sum will then also have approximately unit variance and
+zero mean.
+C. Variable per-layer cutoﬀs
+The Allegro formalism and implementation readily
+admit the use of variable cutoﬀs that decrease for higher
+layers. In particular, to use variable cutoﬀs, the following
+modiﬁcations are made:
+• All sums over the neighborhood of i, N(i), are
+restricted to be over all neighbors of i within the
+cutoﬀof the current layer, rL
+max. In particular, the
+embedded environment sums only over neighbors
+within the current layer’s cutoﬀ.
+• Each layer processes only edges within its cutoﬀ.
+Due to the residual update, this means that the
+ﬁnal scalar latent features of a pair are a sum over
+all layers for which the pair is within the layer
+cutoﬀ.
+• The smooth cutoﬀenvelope u(rij) applied to the
+scalar latents in equation 20 is changed to a smooth
+cutoﬀenvelope with the current layer’s cutoﬀ.
+It is important to note that this scheme only makes
+sense if rL+1
+max ≤rL
+max; otherwise, the equivariant latent
+features required from previous layers will be missing for
+some edges.

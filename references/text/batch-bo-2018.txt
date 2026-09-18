@@ -1,0 +1,1666 @@
+Maximizing acquisition functions
+for Bayesian optimization
+James T. Wilson∗
+Imperial College London
+Frank Hutter
+University of Freiburg
+Marc Peter Deisenroth
+Imperial College London
+PROWLER.io
+Abstract
+Bayesian optimization is a sample-efﬁcient approach to global optimization that
+relies on theoretically motivated value heuristics (acquisition functions) to guide
+its search process. Fully maximizing acquisition functions produces the Bayes’
+decision rule, but this ideal is difﬁcult to achieve since these functions are fre-
+quently non-trivial to optimize. This statement is especially true when evaluating
+queries in parallel, where acquisition functions are routinely non-convex, high-
+dimensional, and intractable. We ﬁrst show that acquisition functions estimated
+via Monte Carlo integration are consistently amenable to gradient-based optimiza-
+tion. Subsequently, we identify a common family of acquisition functions, includ-
+ing EI and UCB, whose properties not only facilitate but justify use of greedy
+approaches for their maximization.
+1
+Introduction
+Bayesian optimization (BO) is a powerful framework for tackling complicated global optimization
+problems [32, 40, 44]. Given a black-box function f : X →Y, BO seeks to identify a maximizer
+x∗∈arg maxx∈X f(x) while simultaneously minimizing incurred costs. Recently, these strategies
+have demonstrated state-of-the-art results on many important, real-world problems ranging from
+material sciences [17, 57], to robotics [3, 7], to algorithm tuning and conﬁguration [16, 29, 53, 56].
+From a high-level perspective, BO can be understood as the application of Bayesian decision theory
+to optimization problems [11, 14, 45]. One ﬁrst speciﬁes a belief over possible explanations for f
+using a probabilistic surrogate model and then combines this belief with an acquisition function L
+to convey the expected utility for evaluating a set of queries X. In theory, X is chosen according
+to Bayes’ decision rule as L’s maximizer by solving for an inner optimization problem [19, 42,
+59]. In practice, challenges associated with maximizing L greatly impede our ability to live up to
+this standard. Nevertheless, this inner optimization problem is often treated as a black-box unto
+itself. Failing to address this challenge leads to a systematic departure from BO’s premise and,
+consequently, consistent deterioration in achieved performance.
+To help reconcile theory and practice, we present two modern perspectives for addressing BO’s
+inner optimization problem that exploit key aspects of acquisition functions and their estimators.
+First, we clarify how sample path derivatives can be used to optimize a wide range of acquisition
+functions estimated via Monte Carlo (MC) integration. Second, we identify a common family of
+submodular acquisition functions and show that its constituents can generally be expressed in a
+more computer-friendly form. These acquisition functions’ properties enable greedy approaches to
+efﬁciently maximize them with guaranteed near-optimal results. Finally, we demonstrate through
+comprehensive experiments that these theoretical contributions directly translate to reliable and,
+often, substantial performance gains.
+∗Correspondence to j.wilson17@imperial.ac.uk
+32nd Conference on Neural Information Processing Systems (NeurIPS 2018), Montréal, Canada.
+arXiv:1805.10196v2  [stat.ML]  2 Dec 2018
+
+-2.6
+-0.2
+2.2
+Posterior belief
+Inner optimization problem
+0.00
+0.25
+0.50
+0.75
+1.00
+x 2 R
+0.0
+0.1
+0.2
+Expected utility
+3
+256
+512
+768
+1024
+Num. prior observations
+0
+224
+449
+673
+897
+CPU Seconds
+Runtimes for inner optimization
+Parallelism
+q = 32
+q = 16
+q = 8
+q = 4
+q = 2
+3
+256
+512
+768
+1024
+Num. prior observations
+0
+224
+449
+673
+897
+CPU Seconds
+Runtimes for inner optimization
+Parallelism
+q = 32
+q = 16
+q = 8
+q = 4
+q = 2
+Inner optimization problem
+Algorithm 1 BO outer-loop (joint parallelism)
+1: Given model M, acquisition L, and data D
+2: for t = 1, . . . , T do
+3:
+Fit model M to current data D
+4:
+Set q = min(qmax, T −t)
+5:
+Find X 2 arg maxX02X q L(X0)
+6:
+Evaluate y f(X)
+7:
+Update D D [ {(xk, yk)}q
+k=1
+8: end for
+1: Given model M, acquisition L and data D
+2: for t = 1, . . . , T do
+3:
+Fit model M to current data D
+4:
+Set q = min(qmax, T −t)
+5:
+Find X 2 arg maxX02X q L(X0)
+6:
+Evaluate y f(X)
+7:
+Update D D [ {(xi, yi)}q
+i=1
+8: end for
+a
+b
+c
+d
+Figure 1: (a) Pseudo-code for standard BO’s “outer-loop” with parallelism q; the inner optimization problem
+is boxed in red. (b–c) GP-based belief and expected utility (EI), given four initial observations ‘•’. The aim of
+the inner optimization problem is to ﬁnd the optimal query ‘9’. (d) Time to compute 214 evaluations of MC
+q-EI using a GP surrogate for varied observation counts and degrees of parallelism. Runtimes fall off at the
+ﬁnal step because q decreases to accommodate evaluation budget T = 1, 024.
+2
+Background
+Bayesian optimization relies on both a surrogate model M and an acquisition function L to deﬁne
+a strategy for efﬁciently maximizing a black-box function f. At each “outer-loop” iteration (Fig-
+ure 1a), this strategy is used to choose a set of queries X whose evaluation advances the search
+process. This section reviews related concepts and closes with discussion of the associated inner
+optimization problem. For an in-depth review of BO, we defer to the recent survey [52].
+Without loss of generality, we assume BO strategies evaluate q designs X ∈Rq×d in parallel so
+that setting q = 1 recovers purely sequential decision-making. We denote available information
+regarding f as D = {(xi, yi)}...
+i=1 and, for notational convenience, assume noiseless observations
+y = f(X). Additionally, we refer to L’s parameters (such as an improvement threshold) as ψ and
+to M’s parameters as ζ. Henceforth, direct reference to these terms will be omitted where possible.
+Surrogate models
+A surrogate model M provides a probabilistic interpretation of f whereby
+possible explanations for the function are seen as draws f k ∼p(f|D). In some cases, this belief
+is expressed as an explicit ensemble of sample functions [28, 54, 60]. More commonly however,
+M dictates the parameters θ of a (joint) distribution over the function’s behavior at a ﬁnite set of
+points X. By ﬁrst tuning the model’s (hyper)parameters ζ to explain for D, a belief is formed as
+p(y|X, D) = p(y; θ) with θ ←M(X; ζ). Throughout, θ ←M(X; ζ) is used to denote that belief
+p’s parameters θ are speciﬁed by model M evaluated at X. A member of this latter category, the
+Gaussian process prior (GP) is the most widely used surrogate and induces a multivariate normal
+belief θ ≜(µ, Σ) ←M(X; ζ) such that p(y; θ) = N(y; µ, Σ) for any ﬁnite set X (see Figure 1b).
+Acquisition functions
+With few exceptions, acquisition functions amount to integrals deﬁned in
+terms of a belief p over the unknown outcomes y = {y1, . . . , yq} revealed when evaluating a black-
+box function f at corresponding input locations X = {x1, . . . , xq}. This formulation naturally
+occurs as part of a Bayesian approach whereby the value of querying X is determined by accounting
+for the utility provided by possible outcomes yk ∼p(y|X, D). Denoting the chosen utility function
+as ℓ, this paradigm leads to acquisition functions deﬁned as expectations
+L(X; D, ψ) = Ey [ℓ(y; ψ)] =
+Z
+ℓ(y; ψ)p(y|X, D)dy .
+(1)
+A seeming exception to this rule, non-myopic acquisition functions assign value by further con-
+sidering how different realizations of Dk
+q ←D ∪{(xi, yk
+i )}q
+i=1 impact our broader understanding
+of f and usually correspond to more complex, nested integrals. Figure 1c portrays a prototypical
+acquisition surface and Table 1 exempliﬁes popular, myopic and non-myopic instances of (1).
+Inner optimization problem
+Maximizing acquisition functions plays a crucial role in BO as the
+process through which abstract machinery (e.g. model M and acquisition function L) yields con-
+crete actions (e.g. decisions regarding sets of queries X). Despite its importance however, this inner
+optimization problem is often neglected. This lack of emphasis is largely attributable to a greater
+2
+
+Abbr.
+Acquisition Function L
+Reparameterization
+MM
+EI
+Ey[max(ReLU(y −α))]
+Ez[max(ReLU(µ + Lz −α))]
+Y
+PI
+Ey[max(1−(y −α))]
+Ez[max(σ( µ+Lz−α
+τ
+))]
+Y
+SR
+Ey[max(y)]
+Ez[max(µ + Lz)]
+Y
+UCB
+Ey[max(µ +
+p
+βπ/2|γ|)]
+Ez[max(µ +
+p
+βπ/2|Lz|)]
+Y
+ES
+−Eya[H(Eyb|ya[1+(yb −max(yb))])]
+−Eza[H(Ezb[softmax(
+µb|a+Lb|azb
+τ
+)])]
+N
+KG
+Eya[max(µb + Σb,aΣ−1
+a,a(ya −µa))]
+Eza[max(µb + Σb,aΣ−1
+a,aLaza)]
+N
+Table 1: Examples of reparameterizable acquisition functions; the ﬁnal column indicates whether they belong
+to the MM family (Section 3.2). Glossary: 1+/−denotes the right-/left-continuous Heaviside step function;
+ReLU and σ rectiﬁed linear and sigmoid nonlinearities, respectively; H the Shannon entropy; α an improve-
+ment threshold; τ a temperature parameter; LL⊤≜Σ the Cholesky factor; and, residuals γ ∼N (0, Σ).
+Lastly, non-myopic acquisition function (ES and KG) are assumed to be deﬁned using a discretization. Terms
+associated with the query set and discretization are respectively denoted via subscripts a and b.
+focus on creating new and improved machinery as well as on applying BO to new types of prob-
+lems. Moreover, elementary examples of BO facilitate L’s maximization. For example, optimizing
+a single query x ∈Rd is usually straightforward when x is low-dimensional and L is myopic.
+Outside these textbook examples, however, BO’s inner optimization problem becomes qualitatively
+more difﬁcult to solve. In virtually all cases, acquisition functions are non-convex (frequently due to
+the non-convexity of plausible explanations for f). Accordingly, increases in input dimensionality d
+can be prohibitive to efﬁcient query optimization. In the generalized setting with parallelism q ≥1,
+this issue is exacerbated by the additional scaling in q. While this combination of non-convexity
+and (acquisition) dimensionality is problematic, the routine intractability of both non-myopic and
+parallel acquisition poses a commensurate challenge.
+As is generally true of integrals, the majority of acquisition functions are intractable. Even Gaus-
+sian integrals, which are often preferred because they lead to analytic solutions for certain instances
+of (1), are only tractable in a handful of special cases [13, 18, 20]. To circumvent the lack of
+closed-form solutions, researchers have proposed a wealth of diverse methods. Approximation
+strategies [13, 15, 60], which replace a quantity of interest with a more readily computable one, work
+well in practice but may not to converge to the true value. In contrast, bespoke solutions [10, 20, 22]
+provide (near-)analytic expressions but typically do not scale well with dimensionality.2 Lastly,
+MC methods [27, 47, 53] are highly versatile and generally unbiased, but are often perceived as
+non-differentiable and, therefore, inefﬁcient for purposes of maximizing L.
+Regardless of the method however, the (often drastic) increase in cost when evaluating L’s proxy
+acts as a barrier to efﬁcient query optimization, and these costs increase over time as shown in
+Figure 1d. In an effort to address these problems, we now go inside the outer-loop and focus on
+efﬁcient methods for maximizing acquisition functions.
+3
+Maximizing acquisition functions
+This section presents the technical contributions of this paper, which can be broken down into two
+complementary topics: 1) gradient-based optimization of acquisition functions that are estimated via
+Monte Carlo integration, and 2) greedy maximization of “myopic maximal” acquisition functions.
+Below, we separately discuss each contribution along with its related literature.
+3.1
+Differentiating Monte Carlo acquisitions
+Gradients are one of the most valuable sources of information for optimizing functions. In this sec-
+tion, we detail both the reasons and conditions whereby MC acquisition functions are differentiable
+and further show that most well-known examples readily satisfy these criteria (see Table 1).
+2By near-analytic, we refer to cases where an expression contains terms that cannot be computed exactly
+but for which high-quality solvers exist (e.g. low-dimensional multivariate normal CDF estimators [20, 21]).
+3
+
+We assume that L is an expectation over a multivariate normal belief p(y|X, D) = N(y; µ, Σ)
+speciﬁed by a GP surrogate such that (µ, Σ) ←M(X). More generally, we assume that samples
+can be generated as yk ∼p(y|X, D) to form an unbiased MC estimator of an acquisition function
+L(X) ≈Lm(X) ≜1
+m
+Pm
+k=1 ℓ(yk). Given such an estimator, we are interested in verifying whether
+∇L(X) ≈∇Lm(X) ≜1
+m
+Xm
+k=1 ∇ℓ(yk),
+(2)
+where ∇ℓdenotes the gradient of utility function ℓtaken with respect to X. The validity of MC
+gradient estimator (2) is obscured by the fact that yk depends on X through generative distribution
+p and that ∇Lm is the expectation of ℓ’s derivative rather than the derivative of its expectation.
+Originally referred to as inﬁnitesimal perturbation analysis [8, 24], the reparameterization trick [37,
+50] is the process of differentiating through an MC estimate to its generative distribution p’s param-
+eters and consists of two components: i) reparameterizing samples from p as draws from a simpler
+base distribution ˆp, and ii) interchanging differentiation and integration by taking the expectation
+over sample path derivatives.
+Reparameterization
+Reparameterization is a way of interpreting samples that makes their differ-
+entiability w.r.t. a generative distribution’s parameters transparent. Often, samples yk ∼p(y; θ)
+can be re-expressed as a deterministic mapping φ : Z × Θ →Y of simpler random variates
+zk ∼ˆp(z) [37, 50]. This change of variables helps clarify that, if ℓis a differentiable function
+of y = φ(z; θ), then dℓ
+dθ = dℓ
+dφ
+dφ
+dθ by the chain rule of (functional) derivatives.
+If generative distribution p is multivariate normal with parameters θ = (µ, Σ), the corresponding
+mapping is then φ(z; θ) ≜µ + Lz, where z ∼N(0, I) and L is Σ’s Cholesky factor such that
+LL⊤= Σ. Rewriting (1) as a Gaussian integral and reparameterizing, we have
+L(X) =
+Z b
+a
+ℓ(y)N(y; µ, Σ)dy =
+Z b′
+a′ ℓ(µ + Lz)N(z; 0, I)dz ,
+(3)
+where each of the q terms c′
+i in both a′ and b′ is transformed as c′
+i = (ci −µi −P
+j<i Lijzj)/Lii.
+The third column of Table 1 grounds (3) with several prominent examples. For a given draw yk ∼
+N(µ, Σ), the sample path derivative of ℓw.r.t. X is then
+∇ℓ(yk) = dℓ(yk)
+dyk
+dyk
+dM(X)
+dM(X)
+dX
+,
+(4)
+where, by minor abuse of notation, we have substituted in yk = φ
+ zk; M(X)
+
+. Reinterpreting y
+as a function of z therefore sheds light on individual MC sample’s differentiability.
+Interchangeability
+Since Lm is an unbiased MC estimator consisting of differentiable terms, it is
+natural to wonder whether the average sample gradient ∇Lm (2) follows suit, i.e. whether
+∇L(X) = ∇Ey [ℓ(y)]
+?= Ey [∇ℓ(y)] ≈∇Lm(X) ,
+(5)
+where
+?= denotes a potential equivalence when interchanging differentiation and expectation. Nec-
+essary and sufﬁcient conditions for this interchange are that, as deﬁned under p, integrand ℓmust
+be continuous and its ﬁrst derivative ℓ′ must a.s. exist and be integrable [8, 24]. Wang et al. [59]
+demonstrated that these conditions are met for a GP with a twice differentiable kernel, provided
+that the elements in query set X are unique. The authors then use these results to prove that (2) is
+an unbiased gradient estimator for the parallel Expected Improvement (q-EI) acquisition function
+[10, 22, 53]. In later works, these ﬁndings were extended to include parallel versions of the Knowl-
+edge Gradient (KG) acquisition function [61, 62]. Figure 2d (bottom right) visualizes gradient-based
+optimization of MC q-EI for parallelism q = 2.
+Extensions
+Rather than focusing on individual examples, our goal is to show differentiability for
+a broad class of MC acquisition functions. In addition to its conceptual simplicity, one of MC
+integration’s primary strengths is its generality. This versatility is evident in Table 1, which catalogs
+(differentiable) reparameterizations for six of the most popular acquisition functions. While some
+4
+
+0.0
+0.1
+0.2
+L(x1)
+Greedy parallel selection
+0.00
+0.25
+0.50
+0.75
+1.00
+x 2 R
+0.2
+0.3
+0.3
+L({x1, x2})
+0.0
+0.2
+0.4
+0.6
+0.8
+1.0
+x1 2 R
+0.0
+0.2
+0.4
+0.6
+0.8
+1.0
+x2 2 R
+Acquisition surface (q = 2)
+1: Given model M, acquisition L and data D
+2: for t = 1, . . . , T do
+3:
+Fit model M to current data D
+4:
+Set X ;
+5:
+for k = 1, . . . min(qmax, T −t) do
+6:
+Find xk 2 arg maxx2X L(X[{x})
+7:
+X X [ {xk}
+8:
+end for
+9:
+Evaluate y f(X)
+10:
+Update D D [ {(xk, yk)}q
+k=1
+11: end for
+1: Given model M, acquisition L and data D
+2: for t = 1, . . . , T do
+3:
+Fit model M to current data D
+4:
+Set X ;
+5:
+for j = 1, . . . min(qmax, T −t) do
+6:
+Find xj 2 arg maxx2X L(X[{x})
+7:
+X X [ {xj}
+8:
+end for
+9:
+Evaluate y f(X)
+10:
+Update D D [ {(xi, yi)}q
+i=1
+11: end for
+Greedy parallel selection
+Iter. 1
+Iter. 2
+Algorithm 2 BO outer-loop (greedy parallelism)
+a
+b
+c
+d
+Figure 2: (a) Pseudo-code for BO outer-loop with greedy parallelism, the inner optimization problem is boxed
+in red. (b–c) Successive iterations of greedy maximization, starting from the posterior shown in Figure 1b. (d)
+On the left, greedily selected query ‘9’; on the right and from ‘×’ to ‘9’, trajectory when jointly optimizing
+parallel queries x1 and x2 via stochastic gradient ascent. Darker colors correspond with larger acquisitions.
+of these forms were previously known (EI and KG) or follow freely from the above (SR), others
+require additional steps. We summarize these steps below and provide full details in Appendix A.
+In many cases of interest, utility is measured in terms of discrete events. For example, Probability
+of Improvement [40, 58] is the expectation of a binary event ePI: “will a new set of results improve
+upon a level α?” Similarly, Entropy Search [27] contains expectations of categorical events eES:
+“which of a set of random variables will be the largest?” Unfortunately, mappings from continuous
+variables y to discrete events e are typically discontinuous and, therefore, violate the conditions for
+(5). To overcome this issue, we utilize concrete (continuous to discrete) approximations in place of
+the original, discontinuous mappings [31, 41].
+Still within the context of the reparameterization trick, [31, 41] studied the closely related problem
+of optimizing an expectation w.r.t. a discrete generative distribution’s parameters. To do so, the
+authors propose relaxing the mapping from, e.g., uniform to categorical random variables with a
+continuous approximation so that the (now differentiable) transformed variables closely resemble
+their discrete counterparts in distribution. Here, we ﬁrst map from uniform to Gaussian (rather than
+Gumbel) random variables, but the process is otherwise identical. Concretely, we can approximate
+PI’s binary event as
+˜ePI(X; α, τ) = max (σ (y−α/τ)) ≈max
+ 1−(y −α)
+
+,
+(6)
+where 1−denotes the left-continuous Heaviside step function, σ the sigmoid nonlinearity, and
+τ ∈[0, ∞] acts as a temperature parameter such that the approximation becomes exact as τ →0.
+Appendix A.1 further discusses concrete approximations for both PI and ES.
+Lastly, the Upper Conﬁdence Bound (UCB) acquisition function [55] is typically not portrayed as
+an expectation, seemingly barring the use of MC methods. At the same time, the standard deﬁnition
+UCB(x; β) ≜µ + β
+1/2σ bares a striking resemblance to the reparameterization for normal random
+variables φ(z; µ, σ) = µ + σz. By exploiting this insight, it is possible to rewrite this closed-form
+expression as UCB(x; β) =
+R ∞
+µ yN(y; µ, 2πβσ2)dy. Formulating UCB as an expectation allows
+us to naturally parallelize this acquisition function as
+UCB(X; β) = Ey
+
+max(µ +
+p
+βπ/2|γ|)
+
+,
+(7)
+where |γ| = |y −µ| denotes the absolute value of y’s residuals. In contrast with existing paral-
+lelizations of UCB [12, 15], Equation (7) directly generalizes its marginal form and can be efﬁciently
+estimated via MC integration (see Appendix A.2 for the full derivation).
+These extensions further demonstrate how many of the apparent barriers to gradient-based opti-
+mization of MC acquisition functions can be overcome by borrowing ideas from new (and old)
+techniques.
+3.2
+Maximizing myopic maximal acquisitions
+This section focuses exclusively on the family of myopic maximal (MM) acquisition functions:
+myopic acquisition functions deﬁned as the expected max of a pointwise utility function ˆℓ, i.e.
+5
+
+L(X) = Ey[ℓ(y)] = Ey[max ˆℓ(y)]. Of the acquisition functions included in Table 1, this family
+includes EI, PI, SR, and UCB. We show that these functions have special properties that make
+them particularly amenable to greedy maximization.
+Greedy maximization is a popular approach for selecting near-optimal sets of queries X to be evalu-
+ated in parallel [1, 9, 12, 15, 35, 51]. This iterative strategy is so named because it always “greedily”
+chooses the query x that produces the largest immediate reward. At each step j = 1, . . . , q, a greedy
+maximizer treats the j−1 preceding choices X<j as constants and grows the set by selecting an addi-
+tional element xj ∈arg maxx∈X L(X<j ∪{x}; D) from the set of possible queries X. Algorithm 2
+in Figure 2 outlines this process’s role in BO’s outer-loop.
+Submodularity
+Greedy maximization is often linked to the concept of submodularity (SM).
+Roughly speaking, a set function L is SM if its increase in value when adding any new point xj to an
+existing collection X<j is non-increasing in cardinality k (for a technical overview, see [2]). Greed-
+ily maximizing SM functions is guaranteed to produce near-optimal results [39, 43, 46]. Speciﬁcally,
+if L is a normalized SM function with maximum L∗, then a greedy maximizer will incur no more
+than 1
+eL∗regret when attempting to solve for X∗∈arg maxX∈X q L(X).
+In the context of BO, SM has previously been appealed to when establishing outer-loop regret
+bounds [12, 15, 55]. Such applications of SM utilize this property by relating an idealized BO
+strategy to greedy maximization of a SM objective (e.g., the mutual information between black-box
+function f and observations D). In contrast, we show that the family of MM acquisition functions
+are inherently SM, thereby guaranteeing that greedy maximization thereof produces near-optimal
+choices X at each step of BO’s outer-loop.3 We begin by removing some unnecessary complexity:
+1. Let f k ∼p(f|D) denote the k-th possible explanation of black-box f given observations D.
+By marginalizing out nuisance variables f(X \ X), L can be expressed as an expectation over
+functions f k themselves rather than over potential outcomes yk ∼p(y|X, D).
+2. Belief p(f|D) and sample paths f k depend solely on D. Hence, expected utility L(X; D) =
+Ef [ℓ(f(X))] is a weighted sum over a ﬁxed set of functions whose weights are constant.
+Since non-negative linear combinations of SM functions are SM [39], L(·) is SM so long as
+the same can be said of all functions ℓ(f k(·)) = max ˆℓ
+ f k(·)
+
+.
+3. As pointwise functions, f k and ˆℓspecify the set of values mapped to by X. They therefore
+inﬂuences whether we can normalize the utility function such that ℓ(∅) = 0, but do not impact
+SM. Appendix A.3 discusses the technical condition of normalization in greater detail. In
+general however, we require that vmin = minx∈X ˆℓ(f k(x)) is guaranteed to be bounded from
+below for all functions under the support of p(f|D).
+Having now eliminated confounding factors, the remaining question is whether max(·) is SM. Let
+V be the set of possible utility values and deﬁne max(∅) = vmin. Then, given sets A ⊆B ⊆V and
+∀v ∈V, it holds that
+max(A ∪{v}) −max(A) ≥max(B ∪{v}) −max(B).
+(8)
+Proof: We prove the equivalent deﬁnition max(A) + max(B) ≥max(A ∪B) + max(A ∩B).
+Without loss of generality, assume max(A ∪B) = max(A). Then, max(B) ≥max(A ∩B)
+since, for any C ⊆B, max(B) ≥max(C).
+This result establishes the MM family as a class of SM set functions, providing strong theoretical
+justiﬁcation for greedy approaches to solving BO’s inner-optimization problem.
+Incremental form
+So far, we have discussed greedy maximizers that select a j-th new point xj
+by optimizing the joint acquisition L(X1:j; D) = Ey1:j|D [ℓ(y1:j)] originally deﬁned in (1). A
+closely related strategy [12, 15, 23, 53] is to formulate the greedy maximizer’s objective as (the
+expectation of) a marginal acquisition function ¯L. We refer to this category of acquisition functions,
+which explicitly represent the value of X1:j as that of X<j incremented by a marginal quantity,
+as incremental. The most common example of an incremental acquisition function is the iterated
+3An additional technical requirement for SM is that the ground set X be ﬁnite. Under similar conditions,
+SM-based guarantees have been extended to inﬁnite ground sets [55], but we have not yet taken these steps.
+6
+
+expectation Ey<j|D
+ ¯L(xj; Dj)
+
+, where Dj = D ∪{(xi, yi)}i<j denotes a fantasy state. Because
+these integrals are generally intractable, MC integration (Section 3.1) is typically used to estimate
+their values by averaging over fantasies formed by sampling from p(y<j|X<j, D).
+In practice, approaches based on incremental acquisition functions (such as the mentioned MC es-
+timator) have several distinct advantages over joint ones. Marginal (myopic) acquisition functions
+usually admit differentiable, closed-form solutions. The latter property makes them cheap to eval-
+uate, while the former reduces the sample variance of MC estimators. Moreover, these approaches
+can better utilize caching since many computationally expensive terms (such as a Cholesky used to
+generate fantasies) only change between rounds of greedy maximization.
+A joint acquisition function L can always be expressed as an incremental one by deﬁning ¯L as the
+expectation of the corresponding utility function ℓ’s discrete derivative
+∆(xj; X<j, D) = Ey1:j|D [δ(yj; y<j)] = L(X1:j; D) −L(X<j; D),
+(9)
+with δ(yj; y<j) = ℓ(y1:j) −ℓ(y<j) and L(∅; D) = 0 so that L(X1:q; , D) = Pq
+j=1 ∆(xj; X<j, D).
+To show why this representation is especially useful for MM acquisition functions, we reuse the
+notation of (8) to introduce the following straightforward identity
+max(B) −max(A) = ReLU (max(B \ A) −max(A)) .
+(10)
+Proof: Since vmin is deﬁned as the smallest possible element of either set, the ReLU’s argument is
+negative if and only if B’s maximum is a member of A (in which case both sides equate to zero). In
+all other cases, the ReLU can be eliminated and max(B) = max(B \ A) by deﬁnition.
+Reformulating the MM marginal gain function as δ(yj; y<j) = ReLU(ℓ(yj)−ℓ(y<j)) now gives the
+desired result: that the MM family’s discrete derivative is the “improvement” function. Accordingly,
+the conditional expectation of (9) given fantasy state Dj is the expected improvement of ℓ, i.e.
+Eyj|Dj [δ(yj; y<j)] = EIℓ(xj; Dj) =
+Z
+Γj
+[ℓ(yj) −ℓ(y<j)] p(yj|xj, Dj)dyj,
+(11)
+where Γj ≜{yj : ℓ(yj) > ℓ(y<j)}. Since marginal gain function δ primarily acts to lower bound
+a univariate integral over yj, (11) often admits closed-form solutions. This statement is true of all
+MM acquisition functions considered here, making their incremental forms particularly efﬁcient.
+Putting everything together, an MM acquisition function’s joint and incremental forms equate as
+L(X1:q; D) = Pq
+j=1 Ey<j|D [EIℓ(xj; Dj))]. For the special case of Expected Improvement per se
+(denoted here as LEI to avoid confusion), this expression further simpliﬁes to reveal an exact equiv-
+alence whereby LEI(X1:q; D) = Pq
+j=1 Ey<j|D [LEI(xj; Dj)]. Appending B.3 compares perfor-
+mance when using joint and incremental forms, demonstrating how the latter becomes increasingly
+beneﬁcial as the dimensionality of the (joint) acquisition function q × d grows.
+4
+Experiments
+We assessed the efﬁcacy of gradient-based and submodular strategies for maximizing acquisition
+function in two primary settings: “synthetic”, where task f was drawn from a known GP prior, and
+“black-box”, where f’s nature is unknown to the optimizer. In both cases, we used a GP surrogate
+with a constant mean and an anisotropic Matérn-5/2 kernel. For black-box tasks, ambiguity regarding
+the correct function prior was handled via online MAP estimation of the GP’s (hyper)parameters.
+Appendix B.1 further details the setup used for synthetic tasks.
+We present results averaged over 32 independent trials. Each trial began with three randomly cho-
+sen inputs, and competing methods were run from identical starting conditions. While the general
+notation of the paper has assumed noise-free observations, all experiments were run with Gaussian
+measurement noise leading to observed values ˆy ∼N(f(x), 1e−3).
+Acquisition functions
+We focused on parallel MC acquisition functions Lm, particularly EI and
+UCB. Results using EI are shown here and those using UCB are provided in extended results
+(Appendix B.3). To avoid confounding variables when assessing BO performance for different
+acquisition maximizers, results using the incremental form of q-EI discussed in Section 3.2 are also
+reserved for extended results.
+7
+
+3
+16
+32
+48
+64
+-2.19
+-1.53
+-0.86
+-0.20
+0.46
+3
+16
+32
+48
+64
+-2.26
+-1.58
+-0.90
+-0.21
+0.47
+3
+16
+32
+48
+64
+-2.37
+-1.66
+-0.95
+-0.24
+0.47
+3
+64
+128
+192
+256
+-1.31
+-0.83
+-0.35
+0.12
+0.60
+3
+64
+128
+192
+256
+-1.48
+-0.96
+-0.43
+0.09
+0.61
+3
+64
+128
+192
+256
+-1.61
+-1.06
+-0.50
+0.06
+0.62
+3
+256
+512
+768
+1024
+Num. evaluations
+-0.20
+0.04
+0.28
+0.52
+0.76
+3
+256
+512
+768
+1024
+Num. evaluations
+-0.39
+-0.10
+0.19
+0.48
+0.77
+3
+256
+512
+768
+1024
+Num. evaluations
+-0.63
+-0.28
+0.08
+0.43
+0.79
+d=4
+q=4
+d=4
+q=4
+d=4
+q=4
+d=8
+q=8
+d=8
+q=8
+d=8
+q=8
+d=16 q=16
+d=16 q=16
+d=16 q=16
+d=16   q=16
+d=8     q=8
+d=8     q=8
+d=8     q=8
+d=4    q=4
+d=4    q=4
+d=4    q=4
+d=16   q=16
+d=16   q=16
+  Joint
+Greedy
+Random Search:
+Greedy
+Joint
+CMA-ES:
+Greedy
+Joint
+Stochastic Gradient Ascent:
+Equivalent budget N = 214
+Equivalent budget N = 212
+Equivalent budget N = 216
+GPs (known prior)
+GPs (known prior)
+GPs (known prior)
+Figure 3: Average performance of different acquisition maximizers on synthetic tasks from a known prior,
+given varied runtimes when maximizing Monte Carlo q-EI. Reported values indicate the log of the immediate
+regret log10 |fmax −f(x∗)|, where x∗denotes the observed maximizer x∗∈arg maxx∈D ˆy.
+In additional experiments, we observed that optimization of PI and SR behaved like that of EI and
+UCB, respectively. However, overall performance using these acquisition functions was slightly
+worse, so further results are not reported here. Across experiments, the q-UCB acquisition function
+introduced in Section 3.1 outperformed q-EI on all tasks but the Levy function.
+Generally speaking, MC estimators Lm come in both deterministic and stochastic varieties. Here,
+determinism refers to whether or not each of m samples yk were generated using the same random
+variates zk within a given outer-loop iteration (see Section 3.1). Together with a decision regard-
+ing “batch-size” m, this choice reﬂects a well-known tradeoff of approximation-, estimation-, and
+optimization-based sources of error when maximizing the true function L [6]. We explored this
+tradeoff for each maximizer and summarize our ﬁndings below.
+Maximizers
+We considered a range of (acquisition) maximizers, ultimately settling on stochastic
+gradient ascent (ADAM, [36]), Covariance Matrix Adaptation Evolution Strategy (CMA-ES, [26])
+and Random Search (RS, [4]). Additional information regarding these choices is provided in Ap-
+pendix B.1. For fair comparison, maximizers were constrained by CPU runtime. At each outer-loop
+iteration, an “inner budget” was deﬁned as the average time taken to simultaneously evaluate N
+acquisition values given equivalent conditions. When using greedy parallelism, this budget was split
+evenly among each of q iterations. To characterize performance as a function of allocated runtime,
+experiments were run using inner budgets N ∈{212, 214, 216}.
+For ADAM, we used stochastic minibatches consisting of m = 128 samples and an initial learning
+rate η = 1/40. To combat non-convexity, gradient ascent was run from a total of 32 (64) starting posi-
+tions when greedily (jointly) maximizing L. Appendix B.2 details the multi-start initialization strat-
+egy. As with the gradient-based approaches, CMA-ES performed better when run using stochastic
+minibatches (m = 128). Furthermore, reusing the aforementioned initialization strategy to generate
+CMA-ES’s initial population of 64 samples led to additional performance gains.
+Empirical results
+Figures 3 and 4 present key results regarding BO performance under varying
+conditions. Both sets of experiments explored an array of input dimensionalities d and degrees of
+parallelism q (shown in the lower left corner of each panel). Maximizers are grouped by color, with
+darker colors denoting use of greedy parallelism; inner budgets are shown in ascending order from
+left to right.
+Results on synthetic tasks (Figure 3), provide a clearer picture of the maximizers’ impacts on the
+full BO loop by eliminating the model mismatch. Across all dimensions d (rows) and inner budgets
+8
+
+3
+64
+128
+192
+256
+-1.53
+-1.02
+-0.50
+0.01
+0.52
+3
+64
+128
+192
+256
+-1.73
+-1.17
+-0.60
+-0.04
+0.53
+3
+64
+128
+192
+256
+-1.74
+-1.17
+-0.60
+-0.04
+0.53
+3
+16
+32
+48
+64
+-0.69
+-0.20
+0.29
+0.77
+1.26
+3
+64
+128
+192
+256
+-0.21
+0.29
+0.79
+1.28
+1.78
+3
+256
+512
+768
+1024
+0.23
+0.73
+1.23
+1.73
+2.22
+3
+16
+32
+48
+64
+Num. evaluations
+-1.89
+-1.29
+-0.69
+-0.09
+0.51
+3
+64
+128
+192
+256
+Num. evaluations
+-1.36
+-0.86
+-0.35
+0.16
+0.67
+3
+256
+512
+768
+1024
+Num. evaluations
+-0.59
+-0.23
+0.12
+0.47
+0.82
+d=6
+q=4
+d=6
+q=8
+d=6
+q=16
+d=4
+q=4
+d=8
+q=8
+d=16 q=16
+d=4
+q=4
+d=8
+q=8
+d=16 q=16
+d=4    q=4
+d=8     q=8
+d=16    q=16
+d=6    q=16
+d=6     q=8
+d=6     q=4
+  Joint
+Greedy
+Random Search:
+Greedy
+Joint
+CMA-ES:
+Greedy
+Joint
+Stochastic Gradient Ascent:
+Equivalent budget N = 214
+Equivalent budget N = 212
+Equivalent budget N = 216
+GPs (unknown prior)
+Levy No. 3
+Hartmann-6
+d=4    q=4
+d=8     q=8
+d=16    q=16
+Figure 4: Average performance of different acquisition maximizers on black-box tasks from an unknown prior,
+given varied runtimes when maximizing Monte Carlo q-EI. Reported values indicate the log of the immediate
+regret log10 |fmax −f(x∗)|, where x∗denotes the observed maximizer x∗∈arg maxx∈D ˆy.
+N (columns), gradient-based maximizers (orange) were consistently superior to both gradient-free
+(blue) and naïve (green) alternatives. Similarly, submodular maximizers generally surpassed their
+joint counterparts. However, in lower-dimensional cases where gradients alone sufﬁce to optimize
+Lm, the beneﬁts for coupling gradient-based strategies with near-optima seeking submodular maxi-
+mization naturally decline. Lastly, the beneﬁts of exploiting gradients and submodularity both scaled
+with increasing acquisition dimensionality q × d.
+Trends are largely identical for black-box tasks (Figure 4), and this commonality is most evident
+for tasks sampled from an unknown GP prior (ﬁnal row). These runs were identical to ones on syn-
+thetic tasks (speciﬁcally, the diagonal of Figure 3) but where knowledge of f’s prior was withheld.
+Outcomes here clarify the impact of model mismatch, showing how maximizers maintain their in-
+ﬂuence. Finally, performance on Hartmann-6 (top row) serves as a clear indicator of the importance
+for thoroughly solving the inner optimization problem. In these experiments, performance improved
+despite mounting parallelism due to a corresponding increase in the inner budget.
+Overall, these results clearly demonstrate that both gradient-based and submodular approaches to
+(parallel) query optimization lead to reliable and, often, substantial improvement in outer-loop per-
+formance. Furthermore, these gains become more pronounced as the acquisition dimensionality
+increases. Viewed in isolation, maximizers utilizing gradients consistently outperform gradient-free
+alternatives. Similarly, greedy strategies improve upon their joint counterparts in most cases.
+5
+Conclusion
+BO relies upon an array of powerful tools, such as surrogate models and acquisition functions, and
+all of these tools are sharpened by strong usage practices. We extend these practices by demonstrat-
+ing that Monte Carlo acquisition functions provide unbiased gradient estimates that can be exploited
+when optimizing them. Furthermore, we show that many of the same acquisition functions form
+a family of submodular set functions that can be efﬁciently optimized using greedy maximization.
+These insights serve as cornerstones for easy-to-use, general-purpose techniques for practical BO.
+Comprehensive empirical evidence concludes that said techniques lead to substantial performance
+gains in real-world scenarios where queries must be chosen in ﬁnite time. By tackling the inner opti-
+mization problem, these advances directly beneﬁt the theory and practice of Bayesian optimization.
+9
+
+Acknowledgments
+The authors thank David Ginsbourger, Dario Azzimonti and Henry Wynn for initial discussions
+regarding the submodularity of various integrals. The support of the EPSRC Centre for Doctoral
+Training in High Performance Embedded and Distributed Systems (reference EP/L016796/1) is
+gratefully acknowledged. This work has partly been supported by the European Research Coun-
+cil (ERC) under the European Union’s Horizon 2020 research and innovation programme under
+grant no. 716721.
+References
+[1] J. Azimi, A. Fern, and X.Z. Fern. Batch Bayesian optimization via simulation matching. In Advances in
+Neural Information Processing Systems, 2010.
+[2] F. Bach. Learning with submodular functions: A convex optimization perspective. Foundations and
+Trends R⃝in Machine Learning, 6(2-3), 2013.
+[3] S. Bansal, R. Calandra, T. Xiao, S. Levine, and C.J. Tomlin. Goal-driven dynamics learning via Bayesian
+optimization. arXiv preprint arXiv:1703.09260, 2017.
+[4] J. Bergstra and Y. Bengio. Random search for hyper-parameter optimization. Journal of Machine Learn-
+ing Research, 2012.
+[5] S. Bochner. Lectures on Fourier Integrals. Number 42. Princeton University Press, 1959.
+[6] O. Bousquet and L. Bottou. The tradeoffs of large scale learning. In Advances in Neural Information
+Processing Systems, 2008.
+[7] R. Calandra, A. Seyfarth, J. Peters, and M.P. Deisenroth. Bayesian optimization for learning gaits under
+uncertainty. Annals of Mathematics and Artiﬁcial Intelligence, 76(1-2), 2016.
+[8] X. Cao. Convergence of parameter sensitivity estimates in a stochastic experiment. IEEE Transactions
+on Automatic Control, 30(9), 1985.
+[9] Y. Chen and A. Krause. Near-optimal batch mode active learning and adaptive submodular optimization.
+[10] C. Chevalier and D. Ginsbourger. Fast computation of the multi-points expected improvement with appli-
+cations in batch selection. In International Conference on Learning and Intelligent Optimization, 2013.
+[11] R. Christian. The Bayesian choice: from decision-theoretic foundations to computational implementation.
+Springer Science & Business Media, 2007.
+[12] E. Contal, D. Buffoni, A. Robicquet, and N. Vayatis. Parallel Gaussian process optimization with up-
+per conﬁdence bound and pure exploration. In Joint European Conference on Machine Learning and
+Knowledge Discovery in Databases, 2013.
+[13] J.P. Cunningham, P. Hennig, and S. Lacoste-Julien. Gaussian probabilities and expectation propagation.
+arXiv preprint arXiv:1111.6832, 2011.
+[14] M.H. DeGroot. Optimal statistical decisions, volume 82. John Wiley & Sons, 2005.
+[15] T. Desautels, A. Krause, and J.W. Burdick. Parallelizing exploration-exploitation tradeoffs in Gaussian
+process bandit optimization. Journal of Machine Learning Research, 2014.
+[16] S. Falkner, A. Klein, and F. Hutter. BOHB: Robust and efﬁcient hyperparameter optimization at scale. In
+International Conference on Machine Learning, 2018.
+[17] P.I. Frazier and J. Wang. Bayesian optimization for materials design. In Information Science for Materials
+Discovery and Design. 2016.
+[18] H.I. Gassmann, I. Deák, and T. Szántai.
+Computing multivariate normal probabilities: A new look.
+Journal of Computational and Graphical Statistics, 11(4), 2002.
+[19] M.A. Gelbart, J. Snoek, and R.P. Adams. Bayesian optimization with unknown constraints. arXiv preprint
+arXiv:1403.5607, 2014.
+[20] A. Genz. Numerical computation of multivariate normal probabilities. Journal of Computational and
+Graphical Statistics, 1992.
+[21] A. Genz. Numerical computation of rectangular bivariate and trivariate normal and t probabilities. Statis-
+tics and Computing, 14(3), 2004.
+[22] D. Ginsbourger, R. Le Riche, and L. Carraro. Kriging is well-suited to parallelize optimization, chapter 6.
+Springer, 2010.
+10
+
+[23] D. Ginsbourger, J. Janusevskis, and R. Le Riche. Dealing with asynchronicity in parallel Gaussian process
+based global optimization. In International Conference of the ERCIM WG on Computing & Statistics,
+2011.
+[24] P. Glasserman. Performance continuity and differentiability in Monte Carlo optimization. In Simulation
+Conference Proceedings, 1988 Winter. IEEE, 1988.
+[25] I.S. Gradshteyn and I.M. Ryzhik. Table of integrals, series, and products. Academic press, 2014.
+[26] N. Hansen. The CMA evolution strategy: A tutorial. arXiv preprint arXiv:1604.00772, 2016.
+[27] P. Hennig and C. Schuler.
+Entropy search for information-efﬁcient global optimization.
+Journal of
+Machine Learning Research, 2012.
+[28] J. Hernández-Lobato, M. Hoffman, and Z. Ghahramani. Predictive entropy search for efﬁcient global
+optimization of black-box functions. In Advances in Neural Information Processing Systems, 2014.
+[29] F. Hutter, H.H. Hoos, and K. Leyton-Brown. Sequential model-based optimization for general algorithm
+conﬁguration. In International Conference on Learning and Intelligent Optimization. Springer, 2011.
+[30] K. Jamieson and A. Talwalkar. Non-stochastic best arm identiﬁcation and hyperparameter optimization.
+In Artiﬁcial Intelligence and Statistics, 2016.
+[31] E. Jang, S. Gu, and B. Poole. Categorical reparameterization with Gumbel-Softmax. arXiv preprint
+arXiv:1611.01144, 2016.
+[32] D. Jones, M. Schonlau, and W. Welch. Efﬁcient global optimization of expensive black box functions.
+Journal of Global Optimization, 13:455–492, 1998.
+[33] D.R. Jones, C.D. Perttunen, and B.E. Stuckman. Lipschitzian optimization without the Lipschitz constant.
+Journal of Optimization Theory and Applications, 1993.
+[34] Z. Karnin, T. Koren, and O. Somekh. Almost optimal exploration in multi-armed bandits. In International
+Conference on Machine Learning, 2013.
+[35] T. Kathuria, A. Deshpande, and P. Kohli. Batched Gaussian process bandit optimization via determinantal
+point processes. In Advances in Neural Information Processing Systems, 2016.
+[36] D. Kingma and J. Ba. Adam: A method for stochastic optimization. arXiv preprint arXiv:1412.6980,
+2014.
+[37] D.P. Kingma and M. Welling. Auto-encoding variational Bayes. In International Conference on Learning
+Representations, 2014.
+[38] S. Kotz and S. Nadarajah. Multivariate t-distributions and their applications. Cambridge University
+Press, 2004.
+[39] A. Krause and D. Golovin. Submodular function maximization, 2014.
+[40] H.J. Kushner. A new method of locating the maximum point of an arbitrary multipeak curve in the
+presence of noise. Journal of Basic Engineering, 86(1), 1964.
+[41] C.J. Maddison, A. Mnih, and Y.W. Teh. The concrete distribution: A continuous relaxation of discrete
+random variables. arXiv preprint arXiv:1611.00712, 2016.
+[42] R. Martinez-Cantin. Bayesopt: A Bayesian optimization library for nonlinear optimization, experimental
+design and bandits. Journal of Machine Learning Research, 15(1), 2014.
+[43] M. Minoux. Accelerated greedy algorithms for maximizing submodular set functions. In Optimization
+Techniques. 1978.
+[44] J. Moˇckus. On Bayesian methods for seeking the extremum. In Optimization Techniques IFIP Technical
+Conference. Springer, 1975.
+[45] J. Moˇckus. Application of Bayesian approach to numerical methods of global and stochastic optimization.
+Journal of Global Optimization, 4(4), 1994.
+[46] G.L. Nemhauser, L.A. Wolsey, and M.L. Fisher. An analysis of approximations for maximizing submod-
+ular set functions—I. Mathematical Programming, 14(1), 1978.
+[47] M.A. Osborne, R. Garnett, and S.J. Roberts. Gaussian processes for global optimization. In International
+Conference on Learning and Intelligent Optimization, 2009.
+[48] A. Rahimi and B. Recht. Random features for large-scale kernel machines. In Advances in Neural
+Information Processing Systems, 2008.
+[49] C.E. Rasmussen and C.K.I. Williams. Gaussian Processes for Machine Learning. The MIT Press, 2006.
+11
+
+[50] D.J. Rezende, M. Shakir, and D. Wierstra. Stochastic backpropagation and variational inference in deep
+latent Gaussian models. In International Conference on Machine Learning, 2014.
+[51] A. Shah and Z. Ghahramani. Parallel predictive entropy search for batch global optimization of expensive
+objective functions. In Advances in Neural Information Processing Systems, 2015.
+[52] B. Shahriari, K. Swersky, Z. Wang, R.P. Adams, and N. de Freitas. Taking the human out of the loop: A
+Review of Bayesian Optimization. Proceedings of the IEEE, (1), 2016.
+[53] J. Snoek, H. Larochelle, and R.P. Adams. Practical Bayesian optimization of machine learning algorithms.
+In Advances in Neural Information Processing Systems 25, 2012.
+[54] J.T. Springenberg, A. Klein, S. Falkner, and F. Hutter. Bayesian optimization with robust Bayesian neural
+networks. In Advances in Neural Information Processing Systems, 2016.
+[55] N. Srinivas, A. Krause, S. Kakade, and M. Seeger. Gaussian process optimization in the bandit setting:
+No regret and experimental design. In International Conference on Machine Learning, 2010.
+[56] K. Swersky, J. Snoek, and R.P. Adams. Multi-task Bayesian optimization. In Advances in Neural Infor-
+mation Processing Systems, 2013.
+[57] T. Ueno, T.D. Rhone, Z. Hou, T. Mizoguchi, and K. Tsuda. Combo: An efﬁcient Bayesian optimization
+library for materials science. Materials discovery, 4, 2016.
+[58] F. Viana and R. Haftka. Surrogate-based optimization with parallel simulations using the probability of
+improvement. In AIAA/ISSMO Multidisciplinary Analysis Optimization Conference, 2010.
+[59] J. Wang, S.C. Clark, E. Liu, and P.I. Frazier. Parallel Bayesian global optimization of expensive functions.
+arXiv preprint arXiv:1602.05149, 2016.
+[60] Z. Wang and S. Jegelka. Max-value entropy search for efﬁcient Bayesian optimization. In International
+Conference on Machine Learning, 2017.
+[61] J. Wu and P.I. Frazier. The parallel Knowledge Gradient method for batch Bayesian optimization. In
+Advances in Neural Information Processing Systems, 2016.
+[62] J. Wu, M. Poloczek, A.G. Wilson, and P.I. Frazier. Bayesian optimization with gradients. In Advances in
+Neural Information Processing Systems, pages 5267–5278, 2017.
+12
+
+A
+Methods Appendix
+A.1
+Concrete approximations
+0.0
+0.2
+0.4
+0.6
+0.8
+1.0
+x 2 R
+101
+100
+10−1
+10−2
+10−3
+Temperature ⌧
+Concrete Probability of Improvement (q = 1)
+0.0
+0.2
+0.4
+0.6
+0.8
+1.0
+x 2 R
+101
+100
+10−1
+10−2
+10−3
+Temperature ⌧
+Concrete Entropy Search (q = 1)
+0.0
+0.2
+0.4
+0.6
+0.8
+1.0
+x1 2 R
+0.0
+0.2
+0.4
+0.6
+0.8
+1.0
+x2 2 R
+Gradient-based optimization (q = 2)
+Figure 5: Left: Concrete approximation to PI for temperatures τ ∈[1e−3, 1e−1]. Middle: Concrete ap-
+proximation to ES for temperatures τ ∈[1e−3, 1e−1]. Right: Stochastic gradient ascent trajectories when
+maximizing concrete approximation to parallel versions of PI (top left) and ES (bottom right), both with a
+temperature τ = 0.01.
+As per Section 3.1, utility is sometimes measured in terms of discrete events e ∈E. Unfortunately,
+mappings from continuous values y ∈Y to the space of discrete events E are typically discon-
+tinuous and, therefore, violate a necessary condition for interchangeability of differentiation and
+expectation. In the generalized context of differentiating a Monte Carlo integral w.r.t. the param-
+eters of a discrete generative distribution, [31, 41] proposed to resolve this issue by introducing a
+continuous approximation to the aforementioned discontinuous mapping.
+As a guiding example, assume that θ is a self-normalized vector of q parameters such that
+∀θ ∈θ, θ ≥0 and that z = [z1, . . . , zq]⊤is a corresponding vector of uniform random variables.
+Subsequently, let φ(z; θ) = log(−θ/log z) be deﬁned as random variables y’s reparameterization.
+Denoting by y∗= max(y), the vector-valued function e : Yq 7→{0, 1}q deﬁned as
+e(z; θ) = [y1 ≥y∗, . . . , yq ≥y∗]⊤= 1+ (y −y∗)
+(12)
+then reparameterizes a (one-hot encoded) categorical random variable e having distribution
+p(e; θ) = Qq
+i=1 θei
+i . Importantly, we can rewrite (12) as the zero-temperature limit of as continuous
+mapping ˜e : Yq 7→[0, 1]q deﬁned as
+˜e(y; τ) = softmax
+y −y∗
+τ
+
+= softmax
+y
+τ
+
+,
+(13)
+where τ ∈[0, ∞] is a temperature parameter. For non-zero temperatures τ > 0, we obtain a relaxed
+version of the original (one-hot encoded) categorical event. Unlike the original however, the relaxed
+event satisﬁes the conditions for interchanging differentiation and expectation.
+Returning to the case of an acquisition function (1) deﬁned over a multivariate normal belief p(y|X)
+with parameters θ = (µ, Σ), random variables y are instead reparameterized by φ(z; θ) = µ +
+L g(z), where g denotes, e.g., the Box-Muller transform of uniform rvs z = [z1, . . . , z2q]⊤. This
+particular example demonstrates how Entropy Search’s innermost integrand can be relaxed using a
+concrete approximation. Identical logic can be applied to approximate Probability of Improvement’s
+integrand.
+For Monte Carlo versions of both acquisition functions, Figure 5 shows the resulting approximation
+across a range of temperatures along with gradient-based optimization in the parallel setting q = 2.
+Whereas for high temperatures τ the approximations wash out, both converge to the corresponding
+true function as τ →0.
+13
+
+A.2
+Parallel Upper Conﬁdence Bound (q-UCB)
+For convenience, we begin by reproducing (3) as indeﬁnite integrals,
+L(X) =
+Z ∞
+−∞
+ℓ(y)N(y; µ, Σ)dy =
+Z ∞
+−∞
+ℓ(µ + Lz)N(z; 0, I)dz.
+Working backward through this equation, we derive an exact expression for parallel UCB. To this
+end, we introduce the deﬁnition
+rπ
+2
+Z ∞
+−∞
+|σz|N(z; 0, 1)dz =
+√
+2π
+Z ∞
+0
+yN(y; 0, σ2)dy = σ,
+(14)
+where |·| denotes the (pointwise) absolute value operator.4 Using this fact and given z ∼N(0, 1),
+let ˆσ2 ≜(βπ/2)σ2 such that E|ˆσz| = β
+1/2σ. Under this notation, marginal UCB can be expressed as
+UCB(x; β) = µ + β
+1/2σ
+=
+Z ∞
+−∞
+(µ + |ˆσz|) N(z; 0, 1)dz
+=
+Z ∞
+−∞
+(µ + |γ|) N(γ; 0, ˆσ2)dγ
+(15)
+where (µ, σ2) parameterize a Gaussian belief over y = f(x) and γ = y−µ denotes y’s residual. This
+integral form of UCB is advantageous precisely because it naturally lends itself to the generalized
+expression
+UCB(X; β) =
+Z ∞
+−∞
+max(µ + |γ|)N(γ; 0, ˆΣ)dγ
+=
+Z ∞
+−∞
+max(µ + |ˆLz|)N(z; 0, I)dz
+≈1
+m
+m
+X
+k=1
+max(µ + |ˆLzk|) for zk ∼N(0, I),
+(16)
+where ˆLˆL⊤= ˆΣ ≜(βπ/2)Σ. This representation has the requisite property that, for any size q′ ≤q
+subset of X, the value obtained when marginalizing out the remaining q −q′ terms is its q′-UCB
+value.
+Previous methods for parallelizing UCB have approached the problem by imitating a purely se-
+quential strategy [12, 15]. Because a fully Bayesian approach to sequential selection generally
+involves an exponential number of posteriors, these works incorporate various well-chosen heuris-
+tics for the purpose of efﬁciently approximate parallel UCB.5 By directly addressing the associated
+q-dimensional integral however, Eq. (16) avoids the need for such approximations and, instead,
+unbiasedly estimates the true value.
+Finally, the special case of marginal UCB (15) can be further simpliﬁed as
+UCB(x; β) = µ + 2
+Z ∞
+0
+ˆσzN(z; 0, 1)dz =
+Z ∞
+µ
+yN(y; µ, 2πβσ2)dy,
+(17)
+revealing an intuitive form — namely, the expectation of a Gaussian random variable (with rescaled
+covariance) above its mean.
+4This deﬁnition comes directly from the standard integral identity [25]:
+R b
+0 xe−q2x2dx = 1−e−q2b2
+2q2
+.
+5Due to the stochastic nature of the mean updates, the number of posteriors grows exponentially in q.
+14
+
+A.3
+Normalizing utility functions
+An additional requirement when proving the near-optimality of greedy maximization for a SM func-
+tion L is that L be a normalized set function such that L(∅) = 0. As in Section 3.2, let vmin be
+deﬁned as the smallest possible utility value given a utility function ℓdeﬁned over a ground set f k
+indexed by X. Because the max is additive such that max(y −vmin) = max(y) −vmin, nor-
+malization is only necessary when establishing regret bounds and simply requires lower bounding
+vmin > −∞. This task is is facilitated by the fact that vmin pertains to the outputs of ℓrather than to
+(a belief over) black-box f. Addressing the matter by case, we have:
+a. Expected Improvement: For a given threshold α, let improvement be deﬁned (pointwise) as
+ReLU(y −α) = max(0, y −α). EI’s integrand is then the largest improvement ℓEI(y; α) =
+max(ReLU(y −α)).6 Applying the rectiﬁer prior to the max deﬁnes ℓEI as a normalized,
+submodular function.
+b. Probability of Improvement: PI’s integrand is deﬁned as ℓPI(y, α) = max(1−(y −α)), where
+1−denotes the left-continuous Heaviside step function. Seeing as the Heaviside maps Y 7→
+{0, 1}, ℓPI is already normalized.
+c. Simple Regret: The submodularity of Simple Regret was previously discussed in [1], under the
+assumption vmin = 0. More generally, normalizing ℓSR requires bounding f’s inﬁmum under p.
+Technical challenges for doing so make submodular maximization of SR the hardest to justify.
+d. Upper Conﬁdence Bound: As per (7), deﬁne UCB’s integrand as the maximum over y’s ex-
+pectation incremented by non-negative terms. By deﬁnition then, ℓUCB is lower bounded by the
+predictive mean and can therefore be normalized as ¯ℓUCB = max(µ + |γ| −vmin), provided
+that vmin = minx∈X µ(x) is ﬁnite. For a zero-mean GP with a twice differentiable kernel, this
+condition is guaranteed for bounded functions f.
+A.4
+Expected Improvement’s incremental form
+For the special case of LEI, the expected improvement of improvement integrand ℓEI simpliﬁes as:
+EIℓEI(xj, Dj) = Eyj [ReLU (ReLU(yj −α) −max ReLU(y<j −α))]
+= Eyj [ReLU (max(α, yj) −max(α, max y<j))]
+= Eyj [ReLU (yj −max(α, max y<j))]
+= LEI(xj; Dj),
+(18)
+where α = max({y : ∀(x, y) ∈D}) denotes the initial improvement threshold.
+B
+Experiments Appendix
+B.1
+Experiment Details
+Synthetic tasks
+To eliminate model error, experiments were ﬁrst run on synthetic tasks drawn
+from a known prior. For a GP with a continuous, stationary kernel, approximate draws f can be
+constructed via a weighted sum of basis functions sampled from the corresponding Fourier dual
+[5, 28, 48, 49]. For a Matérn-ν/2 kernel with anisotropic lengthscales Λ−1, the associated spectral
+density is the multivariate t-distribution tν(0, Λ−1) with ν degrees of freedom [38]. For our exper-
+iments, we set Λ = (d/16) I and approximated f using 214 basis functions, resulting in tasks that
+were sufﬁciently challenging and closely resembled exact draws from the prior.
+Maximizers
+In additional to ﬁndings reported in the text, we compared several gradient-based ap-
+proaches (incl. L-BFGS-B and Polyak averaging [59]) and found that ADAM consistently delivered
+superior performance. CMA-ES was included after repeatedly outperforming the rival black-box
+method DIRECT [33]. RS was chosen as a naïve acquisition maximizer after Successive Halving
+(SH, [30, 34]) failed to yield signiﬁcant improvement. For consistency when identifying the best
+proposed query set(s), both RS and SH used deterministic estimators Lm. Whereas RS was run
+6ℓEI is often written as the improvement of max(y); however, these two forms are equivalent.
+15
+
+with a constant batch-size m = 1024, SH started small and iteratively increased m to reﬁne esti-
+mated acquisition values for promising candidates using a cumulative moving average and cached
+posteriors.
+B.2
+Multi-start initialization
+As noted in [59], gradient-based query optimization strategies are often sensitive to the choice of
+starting positions. This sensitivity naturally occurs for two primary reasons. First, acquisition func-
+tions L are consistently non-convex. As a result, it is easy for members of query set X ⊆X to get
+stuck in local regions of the space. Second, acquisition surfaces are frequently patterned by (large)
+plateaus offering little expected utility. Such plateaus typically emerge when corresponding regions
+of X are thought to be inferior and are therefore excluded from the search process.
+To combat this issue, we appeal to the submodularity of L (see Section 3.2). Assuming L is sub-
+modular, then acquisition values exhibit diminishing returns w.r.t. the degree of parallelism q. As a
+result, the marginal value for querying a single point x ∈X upper bounds its potential contribution
+to any query set X s.t. x ∈X. Moreover, marginal acquisition functions L(x) are substantially
+cheaper to compute that parallel ones (see Figure 1d). Accordingly, we can initialize query sets X
+by sampling from L(x). By doing so we gracefully avoid initializing points in excluded regions,
+mitigating the impact of acquisition plateaus.
+In our experiments we observed consistent performance gains when using this strategy in conjunc-
+tion with most query optimizers. To accommodate runtime constraints, the initialization process was
+run for the ﬁrst tenth of the allocated time.
+Lastly, when greedily maximizing L (equiv. in parallel asynchronous cases), “pending” queries were
+handled by fantasizing observations at their predictive mean. Conditioning on the expected value
+reduces uncertainty in the vicinity of the corresponding design points and, in turn, promotes diversity
+within individual query sets [15]. To the extent that this additional step helped in our experiments,
+the change in performance was rather modest.
+B.3
+Extended Results
+Additional results for both q-UCB (Section 3.1) and incremental form q-EI (Section 3.2) are shown
+here. These experiments were run under identical conditions to those in Section 4.
+Parallel UCB
+We set conﬁdence parameter β = 2. Except for on the Levy benchmark, q-UCB
+outperformed q-EI, and this result also held for both Branin-Hoo and Hartmann-3 (not shown).
+Incremental q-EI
+We tested performance using m ∈{16, 32, 64, 128} states. At the end of the
+ﬁrst round of greedy selection k = 1, m outcomes y(i)
+1
+∼p(y1|x1, D) were fantasized, producing
+m distinct fantasy states D(i)
+1
+= D ∪{(x1, y(i)
+1 )}. At all other steps k ∈[2, q], a single outcome was
+fantasize for each state such that the number of states remained constant. Additionally, fantasized
+outcomes were never resampled.
+Figure 8 compares results obtained when greedily maximizing incremental q-EI (with m = 16 to
+those obtained when greedily maximizing joint q-EI (as discussed in Section 4). In contrast with
+the larger body of results, CMA-ES combined with incremental q-EI outperformed gradient-based
+optimization for higher dimensional acquisition surfaces.
+16
+
+3
+16
+32
+48
+64
+-2.16
+-1.50
+-0.85
+-0.19
+0.46
+3
+16
+32
+48
+64
+-2.21
+-1.54
+-0.87
+-0.20
+0.47
+3
+16
+32
+48
+64
+-2.33
+-1.63
+-0.93
+-0.23
+0.47
+3
+64
+128
+192
+256
+-1.68
+-1.10
+-0.53
+0.04
+0.62
+3
+64
+128
+192
+256
+-1.78
+-1.18
+-0.58
+0.02
+0.62
+3
+64
+128
+192
+256
+-1.81
+-1.20
+-0.59
+0.02
+0.63
+3
+256
+512
+768
+1024
+Num. evaluations
+-0.68
+-0.31
+0.06
+0.42
+0.79
+3
+256
+512
+768
+1024
+Num. evaluations
+-1.21
+-0.71
+-0.20
+0.31
+0.81
+3
+256
+512
+768
+1024
+Num. evaluations
+-1.34
+-0.80
+-0.26
+0.28
+0.82
+d=4
+q=4
+d=4
+q=4
+d=4
+q=4
+d=8
+q=8
+d=8
+q=8
+d=8
+q=8
+d=16 q=16
+d=16 q=16
+d=16 q=16
+d=16   q=16
+d=8     q=8
+d=8     q=8
+d=8     q=8
+d=4    q=4
+d=4    q=4
+d=4    q=4
+d=16   q=16
+d=16   q=16
+  Joint
+Greedy
+Random Search:
+Greedy
+Joint
+CMA-ES:
+Greedy
+Joint
+Stochastic Gradient Ascent:
+Equivalent budget N = 214
+Equivalent budget N = 212
+Equivalent budget N = 216
+GPs (known prior)
+GPs (known prior)
+GPs (known prior)
+Figure 6: Average performance of different acquisition maximizers on synthetic tasks from a known prior,
+given varied runtimes when maximizing Monte Carlo q-UCB. Reported values indicate the log of the immedi-
+ate regret log10 |fmax −f(x∗)|, where x∗denotes the observed maximizer x∗∈arg maxx∈D ˆy.
+3
+64
+128
+192
+256
+-1.78
+-1.20
+-0.62
+-0.05
+0.53
+3
+64
+128
+192
+256
+-1.97
+-1.34
+-0.72
+-0.09
+0.54
+3
+64
+128
+192
+256
+-1.78
+-1.20
+-0.63
+-0.05
+0.53
+3
+16
+32
+48
+64
+-0.19
+0.17
+0.52
+0.88
+1.23
+3
+64
+128
+192
+256
+0.34
+0.69
+1.04
+1.39
+1.74
+3
+256
+512
+768
+1024
+0.62
+1.02
+1.41
+1.81
+2.21
+3
+16
+32
+48
+64
+Num. evaluations
+-1.89
+-1.29
+-0.69
+-0.09
+0.51
+3
+64
+128
+192
+256
+Num. evaluations
+-1.64
+-1.06
+-0.48
+0.10
+0.68
+3
+256
+512
+768
+1024
+Num. evaluations
+-1.36
+-0.81
+-0.25
+0.30
+0.86
+d=6
+q=4
+d=6
+q=8
+d=6
+q=16
+d=4
+q=4
+d=8
+q=8
+d=16 q=16
+d=4
+q=4
+d=8
+q=8
+d=16 q=16
+d=4    q=4
+d=8     q=8
+d=16    q=16
+d=6    q=16
+d=6     q=8
+d=6     q=4
+  Joint
+Greedy
+Random Search:
+Greedy
+Joint
+CMA-ES:
+Greedy
+Joint
+Stochastic Gradient Ascent:
+Equivalent budget N = 214
+Equivalent budget N = 212
+Equivalent budget N = 216
+GPs (unknown prior)
+Levy No. 3
+Hartmann-6
+d=4    q=4
+d=8     q=8
+d=16    q=16
+Figure 7: Average performance of different acquisition maximizers on black-box tasks from an unknown
+prior, given varied runtimes when maximizing Monte Carlo q-UCB. Reported values indicate the log of the
+immediate regret log10 |fmax −f(x∗)|, where x∗denotes the observed maximizer x∗∈arg maxx∈D ˆy.
+17
+
+d=16   q=16
+d=8     q=8
+d=8     q=8
+d=8     q=8
+d=4    q=4
+d=4    q=4
+d=4    q=4
+d=16   q=16
+d=16   q=16
+  Joint
+Incr.
+Random Search:
+Incr.
+Joint
+CMA-ES:
+Incr.
+Joint
+Stochastic Gradient Ascent:
+Equivalent budget N = 214
+Equivalent budget N = 212
+Equivalent budget N = 216
+GPs (known prior)
+GPs (known prior)
+GPs (known prior)
+Figure 8: Average performance when greedily maximizing joint vs. incremental forms of q-EI.
+18

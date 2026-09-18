@@ -1,0 +1,3139 @@
+IEEE TRANSACTIONS ON IEEE TRANSACTIONS ON KNOWLEDGE AND DATA ENGINEERING
+1
+A Survey on Multi-Task Learning
+Yu Zhang and Qiang Yang
+Abstract—Multi-Task Learning (MTL) is a learning paradigm in machine learning and its aim is to leverage useful information
+contained in multiple related tasks to help improve the generalization performance of all the tasks. In this paper, we give a survey for
+MTL from the perspective of algorithmic modeling, applications and theoretical analyses. For algorithmic modeling, we give a deﬁnition
+of MTL and then classify different MTL algorithms into ﬁve categories, including feature learning approach, low-rank approach, task
+clustering approach, task relation learning approach and decomposition approach as well as discussing the characteristics of each
+approach. In order to improve the performance of learning tasks further, MTL can be combined with other learning paradigms including
+semi-supervised learning, active learning, unsupervised learning, reinforcement learning, multi-view learning and graphical models.
+When the number of tasks is large or the data dimensionality is high, we review online, parallel and distributed MTL models as well as
+dimensionality reduction and feature hashing to reveal their computational and storage advantages. Many real-world applications use
+MTL to boost their performance and we review representative works in this paper. Finally, we present theoretical analyses and discuss
+several future directions for MTL.
+Index Terms—Multi-Task Learning, Machine Learning, Artiﬁcial Intelligence
+!
+1
+INTRODUCTION
+H
+UMAN can learn multiple tasks simultaneously and during
+this learning process, human can use the knowledge learned
+in a task to help the learning of another task. For example,
+according to our experience in learning to play tennis and squash,
+we ﬁnd that the skill of playing tennis can help learn to play
+squash and vice versa. Inspired by such human learning ability,
+Multi-Task Learning (MTL) [1], a learning paradigm in machine
+learning, aims to learn multiple related tasks jointly so that the
+knowledge contained in a task can be leveraged by other tasks,
+with the hope of improving the generalization performance of all
+the tasks at hand.
+At its early stage, an important motivation of MTL is to
+alleviate the data sparsity problem where each task has a limited
+number of labeled data. In the data sparsity problem, the number
+of labeled data in each task is insufﬁcient to train an accurate
+learner, while MTL aggregates the labeled data in all the tasks in
+the spirit of data augmentation to obtain a more accurate learner
+for each task. From this perspective, MTL can help reuse existing
+knowledge and reduce the cost of manual labeling for learning
+tasks. When the era of “big data” comes in some areas such as
+computer vision and Natural Language Processing (NLP), it is
+found that deep MTL models can achieve better performance than
+their single-task counterparts. One reason that MTL is effective
+is that it utilizes more data from different learning tasks when
+compared with single-task learning. With more data, MTL can
+learn more robust and universal representations for multiple tasks
+and more powerful models, leading to better knowledge sharing
+among tasks, better performance of each task and low risk of
+overﬁtting in each task.
+MTL is related to other learning paradigms in machine learn-
+ing, including transfer learning [2], multi-label learning [3] and
+•
+Y. Zhang is with Department of Computer Science and Engineering, South-
+ern University of Science and Technology and Peng Cheng Laboratory. Q.
+Yang is with the Department of Computer Science and Engineering, Hong
+Kong University of Science and Technology.
+E-mail: yu.zhang.ust@gmail.com, qyang@cse.ust.hk
+Corresponding author: Yu Zhang.
+multi-output regression. The setting of MTL is similar to that of
+transfer learning but with signiﬁcant differences. In MTL, there is
+no distinction among different tasks and the objective is to improve
+the performance of all the tasks. However, transfer learning is to
+improve the performance of a target task with the help of source
+tasks, hence the target task plays a more important role than
+source tasks. In a word, MTL treats all the tasks equally but in
+transfer learning the target task attracts most attentions. From the
+perspective of the knowledge ﬂow, ﬂows of knowledge transfer in
+transfer learning are from source task(s) to the target task, but in
+multi-task learning, there are ﬂows of knowledge sharing between
+any pair of tasks, which is illustrated in Fig. 1(a). Continual
+learning [4], in which tasks come sequentially, learns tasks one by
+one, while MTL is to learn multiple tasks together. In multi-label
+learning and multi-output regression, each data point is associated
+with multiple labels which can be categorical or numeric. If we
+treat each of all the possible labels as a task, multi-label learning
+and multi-output regression can be viewed in some sense as a
+special case of multi-task learning where different tasks always
+share the same data during both the training and testing phrases.
+On the one hand, such characteristic in multi-label learning and
+multi-output regression leads to different research issues from
+MTL. For example, the ranking loss, which enforces the scores
+(e.g., the classiﬁcation probability) of labels associated with a
+data point to be larger than those of absent labels, can be used
+for multi-label learning but it does not ﬁt MTL where different
+tasks possess different data. On the other hand, this characteristic
+in multi-label learning and multi-output regression is invalid in
+MTL problems. For example, in a MTL problem discussed in
+Section 2.7 where each task is to predict the disease symptom
+score of Parkinson for a patient based on 19 bio-medical features,
+different patients/tasks should not share the bio-medical data.
+In a word, multi-label learning and multi-output regression are
+different from multi-task learning as illustrated in Fig. 1(b) and
+hence we will not survey literature on multi-label learning and
+multi-output regression. Moreover, multi-view learning is another
+learning paradigm in machine learning, where each data point is
+associated with multiple views, each of which consists of a set
+arXiv:1707.08114v3  [cs.LG]  29 Mar 2021
+
+IEEE TRANSACTIONS ON IEEE TRANSACTIONS ON KNOWLEDGE AND DATA ENGINEERING
+2
+(a) MTL vs. transfer learning
+(b) MTL vs. multi-label learning/multi-
+output regression
+(c) MTL vs. multi-view learning
+Fig. 1. Illustrations for differences between MTL and other learning paradigms.
+of features. Even though different views have different sets of
+features, all the views are used together to learn for the same task
+and hence multi-view learning belongs to single-task learning with
+multiple sets of features, which is different from MTL as shown
+in Fig. 1(c).
+Over past decades, MTL has attracted many attentions in the
+artiﬁcial intelligence and machine learning communities. Many
+MTL models have been devised and many MTL applications
+in other areas have been exploited. Moreover, many analyses
+have been conducted to study theoretical problems in MTL.
+This paper serves as a survey on MTL from the perspective
+of algorithmic modeling, applications and theoretical analyses.
+For algorithmic modeling, we ﬁrst give a deﬁnition for MTL
+and then classify different MTL algorithms into ﬁve categories:
+feature learning approach which can be further categorized into
+feature transformation and feature selection approaches, low-
+rank approach, task clustering approach, task relation learning
+approach and decomposition approach. After that, we discuss the
+combination of MTL with other learning paradigms, including
+semi-supervised learning, active learning, unsupervised learning,
+reinforcement learning, multi-view learning and graphical models.
+To handle a large number of tasks, we review online, parallel and
+distributed MTL models. For data in a high-dimensional space,
+feature selection, dimensionality reduction and feature hashing
+are introduced as vital tools to process them. As a promising
+learning paradigm, MTL has many applications in various areas
+and here we brieﬂy review its applications in computer vision,
+bioinformatics, health informatics, speech, NLP, web, etc. From
+the perspective of theoretical analyses on MTL, we review relevant
+works. At last, we discuss several future directions for MTL.1
+2
+MTL MODELS
+In order to fully characterize MTL, we ﬁrst give the deﬁnition of
+MTL.
+Deﬁnition
+(Multi-Task Learning). Given m learning tasks
+{Ti}m
+i=1 where all the tasks or a subset of them are related,
+multi-task learning aims to learn the m tasks together to improve
+the learning of a model for each task Ti by using the knowledge
+contained in all or some of other tasks.
+1. For an introduction to MTL without technical details, please refer to [5].
+Based on the deﬁnition of MTL, we focus on supervised
+learning tasks in this section since most MTL studies fall in this
+setting and for other types of tasks, we review them in the next
+section. In the setting of supervised learning tasks, a task Ti is
+usually accompanied by a training dataset Di consisting of ni
+training samples, i.e., Di = {xi
+j, yi
+j}ni
+j=1, where xi
+j ∈Rdi is
+the jth training instance in Ti and yi
+j is its label. We denote by
+Xi the training data matrix for Ti, i.e., Xi = (xi
+1, . . . , xi
+ni).
+When different tasks lie in the same feature space implying that
+di equals dj for any i̸ = j, this setting is the homogeneous-
+feature MTL, and otherwise it corresponds to heterogeneous-
+feature MTL. Without special explanation, the default MTL setting
+is the homogeneous-feature MTL. Here we need to distinguish
+the heterogeneous-feature MTL from the heterogeneous MTL. In
+[6], the heterogeneous MTL is considered to consist of different
+types of supervised tasks including classiﬁcation and regression
+problems, and here we generalize it to a more general setting
+that the heterogeneous MTL consists of tasks with different
+types including supervised learning, unsupervised learning, semi-
+supervised learning, reinforcement learning, multi-view learning
+and graphical models. The opposite to the heterogeneous MTL
+is the homogeneous MTL which consists of tasks with only
+one type. In a word, the homogeneous and heterogeneous MTL
+differ in the type of learning tasks while the homogeneous-feature
+MTL is different from the heterogeneous-feature MTL in terms
+of the original feature representations. Similarly, without special
+explanation, the default MTL setting is the homogeneous MTL.
+In order to characterize the relatedness in the deﬁnition of
+MTL, there are three issues to be addressed: when to share, what
+to share and how to share.
+The ‘when to share’ issue is to make choices between single-
+task and multi-task models for a multi-task problem. Currently
+such decision is made by human experts and there are few works
+to study it. A simple solution is to formulate such decision as a
+model selection problem and then use model selection techniques,
+e.g., cross validation, to make decisions, but this solution is usually
+computational heavy and may require much more training data. An
+advanced solution we think is to use multi-task models which can
+degenerate to their single-task counterparts given some form of
+model parameters, for example, problem (33) presented in Section
+2.8 which can reduce to multiple single-task models with the
+learning of different tasks decoupled when a parameter Σ becomes
+diagonal. In this case, we can let the training data determine the
+
+IEEE TRANSACTIONS ON IEEE TRANSACTIONS ON KNOWLEDGE AND DATA ENGINEERING
+3
+form of Σ to make an implicit choice.
+‘What to share’ needs to determine the form through which
+knowledge sharing among all the tasks could occur. Usually, there
+are three forms for ‘what to share’, including feature, instance and
+parameter. Feature-based MTL aims to learn common features
+among different tasks as a way to share knowledge. Instance-
+based MTL identiﬁes useful data instances in a task for other
+tasks and then shares knowledge via the identiﬁed instances.
+Parameter-based MTL uses model parameters (e.g., coefﬁcients
+in linear models or weights in deep models) in a task to help
+learn model parameters in other tasks in some ways, for example,
+the regularization. Existing MTL studies mainly focus on feature-
+based and parameter-based methods, and only a few works belong
+to the instance-based method. A representative instance-based
+method is the multi-task distribution matching method proposed
+in [7], which ﬁrst estimates density ratios between probabilities
+that each instance as well as its label belongs to both its own
+task and a mixture of all the tasks and then uses all the weighted
+training data from all the tasks based on the estimated density
+ratios to learn model parameters for each task. Since the studies
+on instance-based MTL are few, we mainly review feature-based
+and parameter-based MTL models.
+After determining ‘what to share’, ‘how to share’ speciﬁes
+concrete ways to share knowledge among tasks. In feature-based
+MTL, there is a primary approach: feature learning approach. The
+feature learning approach focuses on learning common feature
+representations for multiple tasks based on shallow or deep mod-
+els, where the learned common feature representation can be a
+subset or a transformation of the original feature representation.
+In parameter-based MTL, there are four main approaches: low-
+rank approach, task clustering approach, task relation learning
+approach and decomposition approach. The low-rank approach
+interprets the relatedness of multiple tasks as the low rankness of
+the parameter matrix of these tasks. The task clustering approach is
+to identify task clusters, each of which contains similar tasks. The
+task relation learning approach aims to learn quantitative relations
+between tasks from data automatically. The decomposition ap-
+proach decomposes the model parameters of all the tasks into two
+or more components, which are penalized by different regularizers.
+In summary, there are mainly ﬁve approaches in the feature-
+based and parameter-based MTL. In the following sections, we
+review these approaches in a chronological order to reveal the
+relations and evolutions among different models.
+2.1
+Feature Learning Approach
+Since tasks are related, it is intuitive to assume that different tasks
+share a common feature representation based on the original fea-
+tures. One reason to learn common feature representations instead
+of directly using the original ones is that the original representation
+may not have enough expressive power for multiple tasks. With the
+training data in all the tasks, a more powerful representation can
+be learned for all the tasks and this representation can bring the
+improvement on the performance.
+Based on the relationship between the original feature repre-
+sentation and the learned one, we can further classify this category
+into two sub-categories. The ﬁrst sub-category is the feature
+transformation approach where the learned representation is a
+linear or nonlinear transformation of the original representation
+and in this approach, each feature in the learned representation is
+different from the original features. Different from this approach,
+the feature selection approach, the second sub-category, selects a
+subset of the original features as the learned representation and
+hence the learned representation is similar to the original one
+by eliminating useless features based on different criteria. In the
+following, we introduce these two approaches.
+2.1.1
+Feature Transformation Approach
+The multi-layer feedforward neural network [1], which belongs to
+the feature transformation approach, is one of the earliest model
+for multi-task learning. To see how the multi-layer feedforward
+neural network is constructed for MTL, in Figure 2 we show
+an example with an input layer, a hidden layer and an output
+layer. The input layer receives training instances from all the
+tasks and the output layer has m output units with one for each
+task. Here the outputs of the hidden layer can be viewed as the
+common feature representation learned for the m tasks and the
+transformation from the original representation to the learned one
+depends on the weights connecting the input and hidden layers as
+well as the activation function adopted in the hidden units. Hence,
+if the activation function in the hidden layer is linear, then the
+transformation is a linear function and otherwise it is nonlinear.
+Compared with multi-layer feedforward neural networks used for
+single-task learning, the difference in the network architecture lies
+in the output layers where in single-task learning, there is only
+one output unit while in MTL, there are m ones. In [8], the
+radial basis function network, which has only one hidden layer,
+is extended to MTL by greedily determining the structure of the
+hidden layer. Different from these neural network models, Silver
+et al. [9] propose a context-sensitive multi-task neural network
+which has only one output unit shared by different tasks but has a
+task-speciﬁc context as an additional input.
+Fig. 2. An example for the multi-task feedforward neural network with an
+input layer, a hidden layer and an output layer.
+Different from multi-layer feedforward neural networks which
+are connectionist models, the multi-task feature learning (MTFL)
+method [10] is formulated under the regularization framework
+with the objective function as
+min
+A,U,b
+m
+X
+i=1
+1
+ni
+ni
+X
+j=1
+l(yi
+j, (ai)T UT xi
+j + bi) + λ∥A∥2
+2,1
+s.t. UUT = I,
+(1)
+where l(·, ·) denotes a loss function such as the hinge loss or
+square loss, b = (b1, . . . , bm)T is a vector of offsets in all the
+tasks, U ∈Rd×d is a square transformation matrix, A ∈Rd×m
+contains model parameters of all the tasks with its ith column ai
+as model parameters for the ith task after the transformation, the
+ℓ2,1 norm of a matrix A denoted by ∥A∥2,1 equals the sum of
+the ℓ2 norm of rows in A, I denotes an identity matrix with an
+appropriate size, and λ is a positive regularization parameter. The
+
+IEEE TRANSACTIONS ON IEEE TRANSACTIONS ON KNOWLEDGE AND DATA ENGINEERING
+4
+ﬁrst term in the objective function of problem (1) measures the
+empirical loss on the training sets of all the tasks and the second
+one is to enforce A to be row-sparse via the ℓ2,1 norm which is
+equivalent to selecting features after the transformation, while the
+constraint enforces U to be orthogonal. Different from the multi-
+layer feedforward neural network whose hidden representations
+may be redundant, the orthogonality of U can prevent the MTFL
+method from it. As proved in [10], problem (1) is equivalent to
+min
+W,D,b L(W, b) + λtr(WT D−1W) s.t. D ⪰0, tr(D) ≤1, (2)
+where L(W, b) = Pm
+i=1
+1
+ni
+Pni
+j=1 l(yi
+j, (wi)T xi
+j + bi) denotes
+the total training loss, tr(·) denotes the trace of a square matrix,
+wi = Uai is the model parameter for Ti, W = (w1, . . . , wm),
+0 denotes a zero vector or matrix with an appropriate size,
+M−1 for any square matrix M denotes its inverse when it is
+nonsingular or otherwise its pseudo inverse, and B ⪰C means
+that B −C is positive semideﬁnite. Based on this formulation,
+we can see that the MTFL method is to learn a feature covari-
+ance D for all the tasks, which will be interpreted in Section
+2.8 from a probabilistic perspective. Given D, the learning of
+different tasks can be decoupled and this can facilitate the parallel
+computing. When given W, D has an analytical solution as
+D = (WT W)
+1
+2 /tr
+
+(WT W)
+1
+2
+
+and by plugging this solution
+into problem (2), we can see that the regularizer on W is the
+squared trace norm. Then Argyriou et al. [11] extend problem (2)
+to a general formulation where the second term in the objective
+function becomes λtr(WT f(D)W) with f(D) operating on the
+spectrum of D and discuss the condition on f(·) to make the
+whole problem convex.
+Similar to the MTFL method, the multi-task sparse coding
+method [12] is to learn a linear transformation on features with
+the objective function formulated as
+min
+A,U,b L(UA, b) s.t. ∥ai∥1 ≤λ ∀i ∈[m], ∥uj∥2 ≤1 ∀j ∈[D],
+(3)
+where ai, the ith column of A, contains model parameters of the
+ith task, uj is the jth column in U, [c] for an integer c denotes a
+set of integers from 1 to c, ∥· ∥1 denotes the ℓ1 norm of a vector
+or matrix and equals the sum of the absolute value of its entries,
+and ∥·∥2 denotes the ℓ2 norm of a vector. Here the transformation
+U ∈Rd×D is also called the dictionary in sparse coding and
+shared by all the tasks. Compared with the MTFL method where
+U in problem (1) is a d × d orthogonal matrix, U in problem
+(3) is overcomplete, which implies that D is larger than d, with
+each column having a bounded ℓ2 norm. Another difference is
+that in problem (1) A is enforced to be row-sparse but in problem
+(3) it is only sparse via the ﬁrst constraint. With a similar idea
+to the multi-task sparse coding method, Zhu et al. [13] propose
+a multi-task inﬁnite support vector machine via the Indian buffet
+process and the difference is that in [13] the dictionary is sparse
+and model parameters are non-sparse. In [14], the spike and slab
+prior is used to learn sparse model parameters for multi-output
+regression problems where transformed features are induced by
+Gaussian processes and shared by different outputs.
+Recently deep learning becomes popular due to its capacity to
+learn nonlinear features, which facilitates the learning of invariant
+features for multiple tasks, and hence many deep multi-task mod-
+els belonging to this approach have been proposed with each task
+modeled by a deep neural network. Here we classify deep multi-
+task models in this approach into three main categories. The ﬁrst
+category [15], [16], [17], [18], [19] is to learn a common feature
+representation for multiple tasks by sharing ﬁrst several layers in a
+similar architecture to Fig. 2. However, different from Fig. 2, deep
+MTL models in this category have a large number of shared layers,
+which have general structures such as convolutional layers and
+pooling layers. Building on the ﬁrst category, the second category
+is to use adversarial learning, which is inspired by generative
+adversarial networks, to learn a common feature representation
+for MTL as did in [20], [21]. Speciﬁcally, there are three networks
+in such adversarial multi-task models, including a feature network
+Nf, a classiﬁcation network Nc and a domain network Nd. Based
+on Nf, Nc is to minimize the training loss for all the tasks, while
+Nd aims to distinguish which task a data instance is from. The
+objective function of such models is usually formulated as
+min
+θf ,θc max
+θd
+m
+X
+i=1
+1
+ni
+ni
+X
+j=1
+
+l(yi
+j, Nc(Nf(xi
+j))) −lce(di
+j, Nd(Nf(xi
+j)))
+
+,
+where θf, θc, θd denote parameters of three networks Nf, Nc, Nd,
+respectively, di
+j ∈{1, . . . , m} denotes the task index/label of xi
+j,
+and lce(·, ·) denotes the cross-entropy loss. Based on this minimax
+problem, Nf is to minimize the training loss for all the tasks and
+maximize the cross-entropy loss to fool the domain network to
+make the learned feature representation indistinguishable to all the
+tasks. When there is no domain network, this category can reduce
+to the ﬁrst category. Moreover, in [21], each task can learn its
+speciﬁc feature representation to increase the expressive power of
+the whole model. The last category is to learn different but related
+feature representations for different tasks with the cross-stitch net-
+work [22] as a representative model. Speciﬁcally, given two tasks
+A and B with an identical network architecture, xi,j
+A (xi,j
+B ) denotes
+the hidden feature outputted by the jth unit of the ith hidden layer
+for task A (B). Then we can deﬁne the cross-stitch operation
+on xi,j
+A
+and xi,j
+B
+as
+
+˜xi,j
+A
+˜xi,j
+B
+
+=
+
+αAA
+αAB
+αBA
+αBB
+ 
+xi,j
+A
+xi,j
+B
+
+,
+where ˜xi,j
+A and ˜xi,j
+B are new hidden features after learning the
+two tasks jointly. When both αAB and αBA equal 0, training the
+two networks jointly is equivalent to training them independently.
+The network architecture of the cross-stitch network is shown in
+Fig. 3. Here matrix α, which is deﬁned as α ≡
+
+αAA
+αAB
+αBA
+αBB
+
+,
+encodes feature-level task relations between the two tasks and it
+can be learned via the backpropagation method.
+Fig. 3. The architecture for the cross-stitch network.
+2.1.2
+Feature Selection Approach
+One way to do feature selection in MTL is to use the ℓp,q
+norm denoted by ∥W∥p,q ≡∥(∥w1∥p, . . . , ∥wd∥p)∥q, where
+wi denotes the ith row of W and ∥· ∥p denotes the ℓp norm of
+a vector, to achieve the group sparsity. Obozinski et al. [23] are
+among the ﬁrst to study the multi-task feature selection (MTFS)
+problem based on the ℓ2,1 norm with the objective function
+formulated as
+min
+W,b L(W, b) + λ∥W∥2,1.
+(4)
+The regularizer on W in problem (4) is to enforce W to be row-
+sparse, which in turn helps select important features. In [23], a
+path-following algorithm is proposed to solve problem (4) and
+
+IEEE TRANSACTIONS ON IEEE TRANSACTIONS ON KNOWLEDGE AND DATA ENGINEERING
+5
+then Liu et al. [24] employ an optimal ﬁrst-order optimization
+method to solve it. Compared with problem (1), we can see that
+problem (4) is similar to the MTFL method without learning the
+transformation U. Lee et al. [25] propose a weighted ℓ2,1 norm
+for multi-task feature selection where the weights can be learned
+as well and problem (4) is extended in [26] to a general case
+where feature groups can overlap with each other. In order to make
+problem (4) more robust to outliers, a square-root loss function is
+investigated in [27]. Moreover, in order to make speedup, a safe
+screening method is proposed in [28] to ﬁlter out useless features
+corresponding to zero rows in W before optimizing problem (4).
+Liu et al. [29] propose to use the ℓ∞,1 norm to select features with
+the objective function formulated as
+min
+W,b L(W, b) + λ∥W∥∞,1.
+(5)
+A block coordinate descent method is proposed to solve problem
+(5). In general, we can use the ℓp,q norm to select features for
+MTL.
+In order to attain a more sparse subset of features, Gong et al.
+[30] propose a capped-ℓp,1 regularizer for multi-task feature se-
+lection where p = 1 or 2 and the objective function is formulated
+as
+min
+W,b L(W, b) + λ
+d
+X
+i=1
+min(∥wi∥p, θ),
+(6)
+where wi denotes the ith row of W. With a given threshold θ,
+the capped-ℓp,1 regularizer (i.e., the second term in problem (6))
+focuses on rows with smaller ℓp norms than θ, which is more
+likely to be sparse. When θ becomes large enough, the capped-ℓp,1
+regularizer becomes ∥W∥p,1 and hence problem (6) degenerates
+to problem (4) or (5) when p equals 2 or ∞.
+Lozano and Swirszcz [31] propose a multi-level Lasso for
+MTL where the (j, i)th entry in the parameter matrix W is deﬁned
+as wji = θj ˆwji. When θj is equal to 0, wji becomes 0 for i ∈[m]
+and hence the jth feature is not selected by the model. In this
+sense, θj controls the global sparsity for the jth feature among
+the m tasks. Moreover, when ˆwji becomes 0, wji is also 0 for i
+only, implying that the jth feature is not useful for task Ti, and so
+ˆwji is a local indicator for the sparsity in task Tj. Based on these
+observations, θj and ˆwji are expected to be sparse, leading to the
+objective function formulated as
+min
+θ, ˆ
+W,b L(W, b) + λ1∥θ∥1 + λ2∥ˆ
+W∥1 s.t. wji = θj ˆwji, θj ≥0, (7)
+where θ = (θ1, . . . , θd)T ,
+ˆ
+W = (ˆw1, . . . , ˆwm), and the
+nonnegative constraint on θj is to keep the model identiﬁability.
+It has been proved in [31] that problem (7) leads to a regularizer
+Pd
+j=1
+p
+∥wj∥1, the square root of the ℓ1, 1
+2 norm regularization.
+Moreover, Wang et al. [32] extend problem (7) to a general situ-
+ation where the regularizer becomes λ1
+Pm
+i=1 ∥ˆwi∥p
+p + λ2∥θ∥q
+q.
+By utilizing a priori information describing the task relations in a
+hierarchical structure, Han et al. [33] propose a multi-component
+product based decomposition for wij where the number of com-
+ponents in the decomposition can be arbitrary instead of only 2 in
+[31], [32]. Similar to [31], Jebara [34] proposes to learn a binary
+indicator vector to do multi-task feature selection based on the
+maximum entropy discrimination formalism.
+Similar to [33] where a priori information is given to describe
+task relations in a hierarchical/tree structure, Kim and Xing [35]
+utilize the given tree structure to design a regularizer on W as
+f(W) = Pd
+i=1
+P
+v∈V λv∥wi,Gv∥2, where V denotes the set of
+nodes in the given tree structure, Gv denotes the set of leaf nodes
+(i.e., tasks) in a sub-tree rooted at node v, and wi,Gv denotes a
+subvector of the ith row of W indexed by Gv. This regularizer
+not only enforces each row of W to be sparse as the ℓ2,1 norm
+did in problem (4), but also induces the sparsity in subsets of each
+row in W based on the tree structure.
+Different from conventional multi-task feature selection meth-
+ods which assume that different tasks share a set of original
+features, Zhou et al. [36] consider a different scenario where
+useful features in different tasks have no overlapping. In order
+to achieve this, an exclusive Lasso model is proposed with the
+objective function formulated as
+min
+W,b L(W, b) + λ∥W∥2
+1,2,
+where the regularizer is the squared ℓ1,2 norm on W.
+Another way to select common features for MTL is to use
+sparse priors to design probabilistic or Bayesian models. For
+ℓp,1-regularized multi-task feature selection, Zhang et al. [37]
+propose a probabilistic interpretation where the ℓp,1 regularizer
+corresponds to a generalized normal prior: wji ∼GN(·|0, ρj, p),
+where · denotes a (random) variable when we do not want to
+introduce it explicitly. Based on this interpretation, Zhang et
+al. [37] further propose a probabilistic framework for multi-task
+feature selection, in which task relations and outlier tasks can be
+identiﬁed, based on the matrix-variate generalized normal prior.
+In [38], a generalized horseshoe prior is proposed to do feature
+selection for MTL as:
+P(wi) =
+Z
+d
+Y
+j=1
+N(wji|0, uji
+vji )N(ui|0, ρ2C)N(vi|0, γ2C)duidvi,
+where N(·|m, σ) denotes a univariate or multivariate normal dis-
+tribution with m as the mean and σ as the variance or covariance
+matrix, uji and vji are the jth entries in ui and vi, respectively,
+and ρ, γ are hyperparameters. Here C shared by all the tasks
+denotes the feature correlation matrix to be learned from data
+and it encodes an assumption that different tasks share identical
+feature correlations. When C becomes an identity matrix which
+means that features are independent, this prior degenerates to the
+horseshoe prior.
+Hern´andez-Lobato et al. [39] propose a probabilistic model
+based on the horseshoe prior as
+P(wji) =
+h
+π(wji)ηjiδ
+1−ηji
+0
+izj h
+π(wji)τjiδ
+1−τji
+0
+iωi(1−zj)
+h
+π(wji)γjδ
+1−γj
+0
+i(1−ωi)(1−zj)
+,
+(8)
+where δ0 is the probability mass function at zero and π(·) denotes
+the density function of non-zero coefﬁcients. In Eq. (8), zj indi-
+cates whether feature j is an outlier (zj = 1) or not (zj = 0) and
+ωi indicates whether task Ti is an outlier (ωi = 1) or not (ωi = 0).
+Moreover, ηji and τji indicate whether feature j is relevant for
+the prediction in Ti (ηji, τji = 1) or not (ηji, τji = 0), and γj
+indicates whether a non-outlier feature j is relevant (γj = 1) for
+the prediction or not (γj = 0) in all non-outlier tasks. Based on
+the above deﬁnitions, the three terms in the right-hand side of Eq.
+(8) specify probability density functions of wji based on different
+situations of features and tasks. So this model can also handle
+outlier tasks but in a different way from [37].
+2.1.3
+Comparison between Two Sub-categories
+The two sub-categories have different characteristics where the
+feature transformation approach learns a transformation of the
+original features as the new representation but the feature selection
+approach selects a subset of the original features as the new
+representation for all the tasks. Based on the characteristics of
+those two approaches, the feature selection approach can be
+
+IEEE TRANSACTIONS ON IEEE TRANSACTIONS ON KNOWLEDGE AND DATA ENGINEERING
+6
+viewed as a special case of the feature transformation approach
+when the transformation matrix is a diagonal 0/1 matrix where
+the diagonal entries with value 1 correspond to the selected
+features. By selecting a subset of the original features as the
+new representation, the feature selection approach has a better
+interpretability.
+2.2
+Low-Rank Approach
+The relatedness among multiple tasks can imply the low-rank of
+W, leading to the low-rank approach. For example, if the ith, jth
+and kth tasks are related in that the model parameter wi of the ith
+task is a linear combination of those of the other two tasks, then it
+is easy to show that the rank of W is at most m −1 and hence of
+low rank. From this perspective, the more the relatedness is, the
+lower the rank of W is.
+Ando and Zhang [40] assume that model parameters of differ-
+ent tasks share a low-rank subspace in part and speciﬁcally, wi
+takes the following form as
+wi = ui + ΘT vi.
+(9)
+Here Θ ∈Rh×d is the shared low-rank subspace by multiple
+tasks where h < d. Then we can write in a matrix form as W =
+U + ΘT V. Based on the form of W, the objective function
+proposed in [40] is formulated as
+min
+U,V,Θ,b L(U + ΘT V, b) + λ∥U∥2
+F s.t. ΘΘT = I,
+(10)
+where ∥· ∥F denotes the Frobenius norm. The orthonormal con-
+straint on Θ in problem (10) makes the subspace non-redundant.
+When λ is large enough, the optimal U can become a zero matrix
+and hence problem (10) is very similar to problem (1) except that
+there is no regularization on V in problem (10) and that Θ has a
+smaller number of rows than columns. Chen et al. [41] generalize
+problem (10) as
+min
+U,V,Θ,b
+L(W, b) + λ1∥U∥2
+F + λ2∥W∥2
+F
+s.t.
+W = U + ΘT V, ΘΘT = I.
+(11)
+When setting λ2 to be 0, problem (11) reduces to problem (10).
+Even though problem (11) is non-convex, with some convex
+relaxation technique, it can be relaxed to the following convex
+problem as
+min
+W,b,M L(W, b) + λtr
+ WT (M + ηI)−1 W
+
+s.t. tr(M) = h
+0 ⪯M ⪯I, (12)
+where η = λ2/λ1 and λ = λ1η(η + 1). One advantage of
+problem (12) over problem (11) is that the global optimum of
+the convex problem (12) is much easier to be obtained than that
+of the non-convex problem (11). Compared with the alternative
+objective function (2) in the MTFL method, problem (12) has a
+similar formulation where M models the feature covariance for all
+the tasks. Problem (10) is extended in [42] to a general case where
+different wi’s lie in a manifold instead of a subspace. Moreover,
+in [43], a latent variable model is proposed for W with the same
+decomposition as Eq. (9) and it can provide a framework for MTL
+by modeling more cases than problem (10) such as task clustering,
+sharing sparse representation, duplicate tasks and evolving tasks.
+It is well known that using the trace norm as a regularizer
+can make a matrix have low rank and hence this regularization is
+suitable for MTL. Speciﬁcally, an objective function with the trace
+norm regularization is proposed in [44] as
+min
+W,b L(W, b) + λ∥W∥S(1),
+(13)
+where µi(W) denotes the ith smallest singular value of W and
+∥W∥S(1) = Pmin(m,d)
+i=1
+µi(W) denotes the trace norm of matrix
+W. Based on the trace norm, Han and Zhang [45] propose a
+capped trace regularizer with the objective function formulated as
+min
+W,b L(W, b) + λ
+min(m,d)
+X
+i=1
+min(µi(W), θ).
+(14)
+With the use of the threshold θ, the capped trace regularizer only
+penalizes small singular values of W, which is related to the
+determination of the rank of W. When θ is large enough, the
+capped trace regularizer will become the trace norm and hence
+problem (14) will reduce to problem (13). Moreover, a spectral
+k-support norm is proposed in [46] as an improvement over the
+trace norm regularization.
+The trace norm regularization has been extended to regularize
+model parameters in deep multi-task models. Speciﬁcally, the
+weights in the last several fully connected layers of deep multi-task
+neural networks can be viewed as the parameters of learners for
+all the tasks. In this view, the weights connecting two consecutive
+layers for one task can be organized in a matrix and hence the
+weights of all the tasks can form a tensor. Based on such tensor
+representations, several tensor trace norms, which are based on the
+trace norm, are used in [47] as regularizers to identify the low-rank
+structure of the parameter tensor.
+2.3
+Task Clustering Approach
+The task clustering approach assumes that different tasks form
+several clusters, each of which consists of similar tasks. As
+indicated by its name, this approach has a close connection with
+clustering algorithms and it can be viewed as an extension of
+clustering algorithms to the task level while the conventional
+clustering algorithms are on the data level.
+Thrun and Sullivan [48] propose the ﬁrst task clustering
+algorithm by using a weighted nearest neighbor classiﬁer for each
+task, where the initial weights to deﬁne the weighted Euclidean
+distance are learned by minimizing pairwise within-class distances
+and maximizing pairwise between-class distances simultaneously
+within each task. Then a task transfer matrix A is deﬁned with its
+(i, j)th entry aij recording the generalization accuracy obtained
+for task Ti by using task Tj’s distance metric. Based on A, m
+tasks can be grouped into r clusters {Ci}r
+i=1 by maximizing
+Pr
+t=1
+1
+|Ct|
+P
+i,j∈Ct aij, where | · | denotes the cardinality of a
+set. After obtaining the cluster structure among all the tasks, the
+training data of tasks in a cluster will be pooled together to learn
+the ﬁnal weighted nearest neighbor classiﬁer. This approach has
+been extended to an iterative learning process [49] in a similar
+way to k-means clustering.
+Bakker and Heskes [50] propose a multi-task Bayesian neural
+network model with the network structure similar to Fig. 2 where
+input-to-hidden weights are shared by all the tasks but hidden-
+to-output weights are task-speciﬁc. By deﬁning wi as the vector
+of hidden-to-output weights for task Ti, the multi-task Bayesian
+neural network assigns a mixture of Gaussian prior to it: wi ∼
+Pr
+j=1 πjN(·|mj, Σj), where πj, mj and Σj specify the prior,
+the mean and the covariance in the jth cluster. For tasks in a
+cluster, they will share a Gaussian distribution. When r equals
+1, this model degenerates to a case where model parameters of
+different tasks share a prior, which is similar to several Bayesian
+MTL models such as [51], [52], [53] that are based on Gaussian
+processes and t processes.
+
+IEEE TRANSACTIONS ON IEEE TRANSACTIONS ON KNOWLEDGE AND DATA ENGINEERING
+7
+Xue et al. [54] deploy the Dirichlet process to do clustering on
+task level. Speciﬁcally, it deﬁnes the prior on wi as
+wi ∼G, G ∼DP(α, G0) ∀i ∈[m],
+where DP(α, G0) denotes a Dirichlet process with α as a
+positive scaling parameter and G0 a base distribution. To see
+the clustering effect, by integrating out G, the conditional dis-
+tribution of wi, given model parameters of other tasks W−i =
+{· · · , wi−1, wi+1, · · · }, is
+P(wi|W−i, α, G0) =
+α
+m −1 + αG0 +
+1
+m −1 + α
+m
+X
+j=1,j̸=i
+δwj,
+where δwj denotes the distribution concentrated at a single point
+wj. So wi can be equal to either wj (j̸ = i) with probability
+1
+m−1+α, which corresponds to the case that those two tasks lie
+in the same cluster, or a new sample from G0 with probability
+α
+m−1+α, which is the case that task Ti forms a new task cluster.
+When α is large, the chance to form a new task cluster is large and
+so α affects the number of task clusters. This model is extended
+in [55], [56] to a case where different tasks in a task cluster share
+useful features via a matrix stick-breaking process and a beta-
+Bernoulli hierarchical prior, respectively, and in [57] where each
+task is a compressive sensing task. Moreover, a nested Dirichlet
+process is proposed in [58], [59] to use Dirichlet processes to
+learn both task clusters and the state structure of an inﬁnite hidden
+Markov model, which handles sequential data in each task. In [60],
+wi is decomposed as wi = ui + ΘT
+i vi similar to Eq. (9), where
+ui and Θi are sampled according to a Dirichlet process.
+Different from [50], [54], Jacob et al. [61] aim to learn task
+clusters under the regularization framework by considering three
+orthogonal aspects, including a global penalty to measure on
+average how large the parameters, a measure of between-cluster
+variance to quantify the distance among different clusters and a
+measure of within-cluster variance to quantify the compactness
+of task clusters. By combining these three aspects and adopting
+some convex relaxation technique, a convex objective function is
+formulated as
+min
+W,b,Σ L(W, b) + λtr(W11T WT ) + tr( ˜
+WΣ−1 ˜
+WT )
+s.t. ˜
+W = WΠ, αI ⪯Σ ⪯βI, tr(Σ) = γ,
+(15)
+where Π denotes the m×m centering matrix, 1 denotes a column
+vector of all ones with its size depending on the context, and
+α, β, γ are hyperparameters.
+Kang et al. [62] extend the MTFL method [10] to the case with
+multiple task clusters and aim to minimize the squared trace norm
+in each cluster. A diagonal matrix, Qi ∈Rm×m, is deﬁned as a
+cluster indicator matrix for the ith cluster. The jth diagonal entry
+of Qi is equal to 1 if task Tj lies in the ith cluster and otherwise
+0. Since each task can belong to only one cluster, it is easy to see
+that Pr
+i=1 Qi = I. Based on these considerations, the objective
+function is formulated as
+min
+W,b,{Qi} L(W, b) + λ
+r
+X
+i=1
+∥WQi∥2
+S(1) s.t.Qi ∈{0, 1}m×m
+Pr
+i=1 Qi = I
+.
+When r equals 1, this method reduces to the MTFL method.
+Han and Zhang [63] devise a structurally sparse regularizer to
+cluster tasks with the objective function as
+min
+W,b L(W, b) + λ
+X
+j>i
+∥wi −wj∥2.
+(16)
+Problem (16) is a special case of the method proposed in [63]
+with only one level of task clusters. The regularizer on W
+enforces any pair of columns in W to have a chance to be
+identical and after solving problem (16), the cluster structure can
+be discovered by comparing columns in W. One advantage of this
+structurally sparse regularizer is that the convex problem (16) can
+automatically determine the number of task clusters.
+Barzilai and Crammer [64] propose a task clustering method
+by deﬁning W as W = FG where F ∈Rd×r and G ∈
+{0, 1}r×m. With an assumption that each task belongs to only
+one cluster, the objective function is formulated as
+min
+F,G,b L(FG, b) + λ∥F∥2
+F s.t.
+G ∈{0, 1}r×m
+∥gi∥2 = 1 ∀i ∈[m],
+(17)
+where gi denotes the ith column of G. When using the hinge
+loss or logistic loss, this non-convex problem can be relaxed to
+a min-max problem, which has a global optimum, by utilizing
+the dual problem with respect to W and b and discarding some
+non-convex constraints.
+Zhou and Zhao [65] aim to cluster tasks by identifying repre-
+sentative tasks which are a subset of the given m tasks. If task Ti is
+selected by task Tj as a representative task, then it is expected that
+model parameters for Tj are similar to those of Ti. zij is deﬁned
+as the probability that task Tj selects task Ti as its representative
+task. Then based on a matrix Z whose (i, j)th entry is zij, the
+objective function is formulated as
+min
+W,b,ZL(W, b) + λ1∥W∥2
+F + λ2
+m
+X
+i=1
+m
+X
+j=1
+zij∥wi −wj∥2
+2 + λ3∥Z∥2,1
+s.t. Z ≥0, ZT 1 = 1.
+(18)
+The third term in the objective function of problem (18) enforces
+the closeness of each pair of tasks based on Z and the last term
+employs the ℓ2,1 norm to enforce the row sparsity of Z which
+implies that the number of representative tasks is limited. The
+constraints in problem (18) guarantee that entries in Z deﬁne valid
+probabilities. Problem (18) is related to problem (16) since the
+regularizer in problem (16) can be reformulated as 2 P
+j>i ∥wi −
+wj∥2 = minˆZ≥0
+P
+j>i
+
+ˆzij∥wi −wj∥2
+2 +
+1
+ˆzij
+
+, where both
+the regularizer and constraint on ˆZ are different from those on
+Z in problem (18).
+Previous studies assume that each task can belong to only one
+task cluster and this assumption seems too restrictive. In [66],
+a GO-MTL method relaxes this assumption by allowing a task
+to belong to more than one cluster and deﬁnes a decomposition
+of W similar to problem (17) as W = LS where L ∈Rd×r
+denotes the latent basis with r < m and S ∈Rr×m contains
+linear combination coefﬁcients for all the tasks. S is assumed to
+be sparse since each task is generated from only a few columns
+in L or equivalently belongs to a small number of clusters. The
+objective function is formulated as
+min
+L,S,b L(LS, b) + λ1∥S∥1 + λ2∥L∥2
+F .
+(19)
+Compared with the objective function of multi-task sparse cod-
+ing, i.e., problem (3), we can see that when the regularization
+parameters take appropriate values, these two problems are almost
+equivalent except that in multi-task sparse coding, the dictionary
+U is overcomplete, while here the number of columns in S is
+smaller than that of its rows. This method has been extended in
+[67] to decompose the parameter tensor in the fully connected
+layers of deep neural networks.
+Among the aforementioned methods, the method in [48] ﬁrst
+identiﬁes the cluster structure and then learns the model param-
+eters of all the tasks separately, which is not preferred since
+the cluster structure learned may be suboptimal for the model
+parameters, hence follow-up works learn model parameters and
+
+IEEE TRANSACTIONS ON IEEE TRANSACTIONS ON KNOWLEDGE AND DATA ENGINEERING
+8
+the cluster structure together. An important problem in clustering
+is to determine the number of clusters and this is also important
+for this approach. Out of the above methods, only methods
+in [54], [63] can automatically determine the number of task
+clusters, where the method in [54] depends on the capacity of
+the Dirichlet process while the method in [63] relies on the use
+of a structurally sparse regularizer. Among all those models, some
+belong to Bayesian learning, i.e., [50], [54], while the rest models
+are regularized models. Among those regularized methods, only
+the objective function proposed in [63] is convex while others are
+originally non-convex.
+The task clustering approach is related to the low-rank ap-
+proach. To see that, suppose that there are r task clusters (r < m)
+and all the tasks in a cluster share the same model parameters,
+making the parameter matrix W low-rank with the rank at most
+r. From the perspective of modeling, by setting ui to be a zero
+vector in Eq. (9), we can see that the decomposition of W in
+[40] becomes similar to those in [64], [66], which in some sense
+shows the relation between those two approaches. Moreover, the
+equivalence between problems (12) and (15), two typical methods
+in the low-rank and task clustering approaches, has been proved in
+[68]. The task clustering approach can visualize the learned cluster
+structure, which is an advantage over the low-rank approach.
+2.4
+Task Relation Learning Approach
+In MTL, tasks are related and the task relatedness can be quan-
+titated via task similarity, task correlation, task covariance and
+so on. Here we use task relations to include all the quantitative
+relatedness.
+In earlier studies on MTL, task relations are assumed to be
+known as a priori information. In [69], [70], each task is assumed
+to be similar to any other task and so model parameters of each
+task will be enforced to approach the average model parameters of
+all the tasks. In [71], [72], task similarities for each pair of tasks
+are given and these studies utilize the task similarities to design
+regularizers to guide the learning of multiple tasks in a principle
+that the more similar two tasks are, the closer the corresponding
+model parameters are expected to be. A similar formulation to [71]
+is proposed in [73] to estimate the mean of multiple distributions
+by learning pairwise task relations and another similar formulation
+is proposed in [74] for log-density gradient estimation. Given
+a tree structure describing relations among tasks in [75], model
+parameters of a task corresponding to a node in the tree are
+enforced to be similar to those of its parent node.
+However, in most applications, task relations are not available.
+In this case, learning task relations from data automatically is
+a good option. Bonilla et al. [76] propose a multi-task Gaus-
+sian process (MTGP) by deﬁning a prior on f i
+j, the functional
+value for xi
+j, as f ∼N(·|0, Σ), where f = (f 1
+1 , . . . , f m
+nm)T
+contains the functional values for all the training data. Σ, the
+covariance matrix, deﬁnes the covariance between f i
+j and f p
+q
+as σ(f i
+j, f p
+q ) = ωipk(xi
+j, xp
+q), where k(·, ·) denotes a kernel
+function and ωip describes the covariance between tasks Ti and
+Tp. In order to keep Σ positive deﬁnite, a matrix Ωcontaining
+ωip as its (i, p)th entry is also required to be positive deﬁnite,
+which makes Ωthe task covariance to describe the similarities
+between tasks. Then based on the Gaussian likelihood for labels
+given f, the analytically marginal likelihood by integrating out f
+can be used to learn Ωfrom data. In [77], the learning curve and
+generalization bound of the MTGP are studied. Since Ωin MTGP
+has a point estimation which may lead to the overﬁtting, based on
+a proposed weight-space view of MTGP, Zhang and Yeung [78]
+propose a multi-task generalized t process by placing an inverse-
+Wishart prior on Ωas Ω∼IW(·|ν, Ψ), where ν denotes the
+degree of freedom and Ψ is the base covariance for generating Ω.
+Since Ψ models the covariance between pairs of tasks, it can be
+determined based on the maximum mean discrepancy (MMD).
+Different from [76], [78] which are Bayesian models, Zhang
+and Yeung [79], [80] propose a regularized multi-task model called
+multi-task relationship learning (MTRL) by placing a matrix-
+variate normal prior on W as
+W ∼MN(·|0, I, Ω),
+(20)
+where MN(·|M, A, B) denotes a matrix-variate normal distri-
+bution with M as the mean, A the row covariance, and B the
+column covariance. Based on this prior as well as some likeli-
+hood function, the objective function for a modiﬁed maximum a
+posterior solution is formulated as
+min
+W,b,ΩL(W, b) + λ1∥W∥2
+F + λ2tr(WΩ−1WT )
+s.t. Ω≻0, tr(Ω) ≤1,
+(21)
+where the second term in the objective function is to penalize
+the complexity of W, the last term is due to the matrix-variate
+normal prior, and the constraints control the complexity of the
+positive deﬁnite covariance matrix Ω. It has been proved in [79],
+[80] that problem (21) is jointly convex with respect to W, b
+and Ω. Problem (21) has been extended to multi-task boosting
+[81] and multi-label learning [82] by learning label correlations.
+Problem (21) can also been interpreted from the perspective of
+reproducing kernel Hilbert spaces for vector-valued functions [83],
+[84], [85], [86]. Moreover, Problem (21) is extended to learn
+sparse task relations in [87] via the ℓ1 regularization on Ωwhen
+the number of tasks is large. A model similar to problem (21)
+is proposed in [88] via a matrix-variate normal prior on W:
+W ∼MN(·|0, Ω1, Ω2), where Ω−1
+1
+and Ω−1
+2
+are assumed
+to be sparse. The MTRL model is extended in [89] to use the
+symmetric matrix-variate generalized hyperbolic distribution to
+learn block sparse structure in W and in [90] to use the matrix
+generalized inverse Gaussian prior to learn low-rank Ω1 and
+Ω2. Moreover, the MTRL model is generalized to the multi-
+task feature selection problem [37] by learning task relations
+via the matrix-variate generalized normal distribution. Since the
+prior deﬁned in Eq. (20) implies that WT W follows a Wishart
+distribution as W(·|0, Ω), Zhang and Yeung [91] generalize it as
+(WT W)t ∼W(·|0, Ω),
+(22)
+where t is a positive integer to model high-order task relationships.
+Eq. (22) can induce a new prior, which is a generalization of the
+matrix-variate normal distribution, on W and based on this new
+prior, a regularized method is devised to learn high-order task
+relations in [91]. The MTRL model has been extended to multi-
+output regression [90], [92], [93], [94] by modeling the structure
+contained in noises via some matrix-variate priors. For deep neural
+networks, the MTRL method has been extended in [95] by placing
+a tensor-variate normal distribution as a prior on the parameter
+tensor in the fully connected layers.
+Different from the aforementioned methods which investigate
+the use of global learning models in MTL, Zhang [96] aims
+to learn the task relations in local learning methods such as
+the k-nearest-neighbor (kNN) classiﬁer by deﬁning the learning
+function as a weighted voting of neighbors:
+f(xi
+j) =
+X
+(p,q)∈Nk(i,j)
+σips(xi
+j, xp
+q)yp
+q,
+(23)
+where Nk(i, j) denotes the set of task indices and instance indices
+for the k nearest neighbors of xi
+j, i.e., (p, q) ∈Nk(i, j) meaning
+
+IEEE TRANSACTIONS ON IEEE TRANSACTIONS ON KNOWLEDGE AND DATA ENGINEERING
+9
+that xp
+q is one of the k nearest neighbors of xi
+j, s(xi
+j, xp
+q)
+deﬁnes the similarity between xi
+j and xp
+q, and σip represents the
+contribution of task Tp to Ti when Tp has some data points to be
+neighbors of a data point in Ti. σip can be viewed as the similarity
+from Tp to Ti. When σip = 1 for all i and p, Eq. (23) reduces to
+the decision function of the kNN classiﬁer for all the tasks. Then
+the objective function to learn Σ, which is a m × m matrix with
+σip as its (i, p)th entry, can be formulated as
+min
+Σ
+m
+X
+i=1
+1
+ni
+ni
+X
+j=1
+l(yi
+j, f(xi
+j)) + λ1
+4 ∥Σ −ΣT ∥2
+F + λ2
+2 ∥Σ∥2
+F
+s.t.
+σii ≥0 ∀i ∈[m], −σii ≤σij ≤σii ∀i̸ = j.
+(24)
+The ﬁrst regularizer in problem (24) enforces Σ to be nearly
+symmetric and the second one is to penalize the complexity of
+Σ. The constraints in problem (24) guarantee that the similarity
+from one task to itself is positive and also the largest. Similarly,
+a multi-task kernel regression is proposed in [96] for regression
+tasks.
+While the aforementioned methods whose task relations are
+symmetric except [96], Lee et al. [97] focus on learning asymmet-
+ric task relations. Since different tasks are assumed to be related,
+wi can lie in the space spanned by W, i.e., wi ≈Wai, and
+hence we have W ≈WA. Here matrix A can be viewed as
+asymmetric task relations between pairs of tasks. By assuming
+that A is sparse, the objective function is formulated as
+min
+W,b,A
+m
+X
+i=1
+(1 + λ1∥ˆai∥1)
+ni
+X
+j=1
+l(yi
+j, (wi)T xi
+j + bi) + λ2∥W −WA∥2
+F
+s.t. aij ≥0 ∀i, j ∈[m],
+(25)
+where ˆai denotes the ith row of A by deleting aii. The term
+before the training loss of each task, i.e., 1 + λ1∥ˆai∥1, not only
+enforces A to be sparse but also allows asymmetric information
+sharing from easier tasks to difﬁcult ones. The regularizer in
+problem (25) can make W approach WA with the closeness
+depending on λ2. To see the connection between problems
+(25) and (21), we rewrite the regularizer in problem (25) as
+∥W −WA∥2
+F = tr
+ W(I −A)(I −A)T WT 
+. Based on this
+reformulation, the regularizer in problem (25) is a special case of
+that in problem (21) by assuming Ω−1 = (I −A)(I −A)T .
+Though A is asymmetric, from the perspective of the regularizer,
+the task relations here are symmetric and act as the task precision
+matrix with a restrictive form.
+2.5
+Decomposition Approach
+The decomposition approach assumes that the parameter matrix
+W can be decomposed into two or more component matrices
+{Wk}h
+k=1 where h ≥2, i.e., W = Ph
+k=1 Wk. The objective
+functions of most methods in this approach can be uniﬁed as
+min
+{Wi}∈CW ,b L
+
+h
+X
+k=1
+Wk, b
+
++
+h
+X
+k=1
+gk(Wk),
+(26)
+where the regularizer is decomposable with respect to Wk’s and
+CW denotes a set of constraints for component matrices. To help
+understand problem (26), we introduce several instantiations as
+follows.
+In [98] where h equals 2 and CW = ∅is an empty set, g1(·)
+and g2(·) are deﬁned as
+g1(W1) = λ1∥W1∥∞,1, g2(W2) = λ2∥W2∥1,
+where λ1 and λ2 are positive regularization parameters. Similar
+to problem (5), each row of W1 is likely to be a zero row
+and hence g1(W1) can help select important features. Due to
+the ℓ1 norm regularization, g2(W2) makes W2 sparse. Because
+of the characteristics of two regularizers, the parameter matrix
+W can eliminate unimportant features for all the tasks when the
+corresponding rows in both W1 and W2 are sparse. Moreover,
+W2 can identify features for tasks which have their own useful
+features that may be outliers for other tasks. Hence this model can
+be viewed as a ‘robust’ version of problem (5).
+With two component matrices, Chen et al. [99] deﬁne
+g2(W2) = λ2∥W2∥1, CW = {W1|∥W1∥S(1) ≤λ1},
+(27)
+where g1(W1) = 0. Similar to problem (13), CW makes W1
+low-rank. With a sparse regularizer g2(W2), W2 makes the entire
+model matrix W more robust to outlier tasks in a way similar to
+the previous model. When λ2 is large enough, W2 will become
+a zero matrix and then problem (27) will act similarly to problem
+(13).
+gi(·)’s in [100] where CW = ∅are deﬁned as
+g1(W1) = λ1∥W1∥S(1),
+g2(W2) = λ2∥WT
+2 ∥2,1.
+(28)
+Different from the above two models which assume that W2
+is sparse, here g2(W2) enforces W2 to be column-sparse. For
+related tasks, their columns in W1 are correlated via the trace
+norm regularization and the corresponding columns in W2 are
+zero. For outlier tasks which are unrelated to other tasks, the
+corresponding columns in W2 can take arbitrary values and hence
+model parameters in W for them have no low-rank structure even
+though those in W1 may have.
+In [101], these functions are deﬁned as
+g1(W1) = λ1∥W1∥2,1, g2(W2) = λ2∥WT
+2 ∥2,1, CW = ∅.
+(29)
+Similar to problem (4), g1(W1) makes W1 row-sparse. Here
+g2(W2) is identical to that in [100] and it makes W2 column-
+sparse. Hence W1 helps select useful features while non-zero
+columns in W2 capture outlier tasks.
+With h = 2, Zhong and Kwok [102] deﬁne
+g1(W1) = λ1c(W1)+λ2∥W1∥2
+F , g2(W2) = λ3∥W2∥2
+F , CW = ∅,
+where c(U) = Pd
+i=1
+P
+k>j |uij −uik| with uij as the (i, j)th
+entry in a matrix U. Due to the sparse nature of the ℓ1 norm,
+c(W1) enforces corresponding entries in different columns of
+W1 to be identical, which is equivalent to clustering tasks in terms
+of individual model parameters. Both the squared Frobenius norm
+regularizations in g1(W1) and g2(W2) penalize the complexities
+of W1 and W2. The use of W2 improves the model ﬂexibility
+when not all the tasks exhibit a clear cluster structure.
+Different from the aforementioned methods which have only
+two component matrices, an arbitrary number of component ma-
+trices are considered in [103] with
+gk(Wk) = λ
+
+(h −k)∥Wk∥2,1 + (k −1)∥Wk∥1
+
+/(h −1), (30)
+where CW = ∅. According to Eq. (30), Wk is assumed to be
+both sparse and row-sparse for all k ∈[h]. Based on different
+regularization parameters on the regularizer of Wk, we can see
+that when k increases, Wk is more likely to be sparse than to
+be row-sparse. Even though each Wk is sparse or row-sparse,
+the entire parameter matrix W can be non-sparse and hence this
+model can discover the latent sparse structure among tasks.
+In the above methods, different component matrices have no
+direct connection. When there is a dependency among component
+
+IEEE TRANSACTIONS ON IEEE TRANSACTIONS ON KNOWLEDGE AND DATA ENGINEERING
+10
+matrices, problem (26) can model more complex structure among
+tasks. For example, Han and Zhang [104] deﬁne
+gk(Wk) = λ
+X
+i>j
+∥wi
+k −wj
+k∥2/ηk−1 ∀k ∈[h]
+CW = {{Wk}| |wi
+k−1 −wj
+k−1| ≥|wi
+k −wj
+k| ∀k ≥2, ∀i > j},
+where wi
+k denotes the ith column of Wk. Note that the constraint
+set CW relates component matrices and the regularizer gk(Wk)
+makes each pair of wi
+k and wj
+k have a chance to become identical.
+Once this happens for some i, j, k, then based on the constraint
+set CW , wi
+k′ and wj
+k′ will always have the same value for k′ ≥k.
+This corresponds to sharing all the ancestor nodes for two internal
+nodes in a tree and hence this method can learn a hierarchical
+structure to characterize task relations. When the constraints are
+removed, this method reduces to the multi-level task clustering
+method [63], which is a generalization of problem (16).
+Another way to relate different component matrices is to use a
+non-decomposable regularizer as [105] did, which is slightly dif-
+ferent from problem (26) in terms of the regularizer. Speciﬁcally,
+given m tasks, there are 2m −1 possible and non-empty task
+clusters. All the task clusters can be organized in a tree, where
+the root node represents a dummy node, nodes in the second level
+represent groups with a single task, and the parent-child relations
+are the ‘subset of’ relation. In total, there are h ≡2m component
+matrices each of which corresponds to a node in the tree and hence
+an index a is used to denote both a level and the corresponding
+node in the tree. The objective function is formulated as
+min
+{Wi},b L
+ h
+X
+k=1
+Wk, b
+!
++
+
+
+
+X
+v∈V
+λv
+
+X
+a∈D(v)
+r(Wa)p
+
+
+1
+p
+
+
+
+2
+s.t. wi
+a = 0 ∀i /∈t(a),
+(31)
+where p takes a value between 1 and 2, D(a) denotes the set of
+all the descendants of a, t(a) denotes the set of tasks contained in
+node a, wi
+a denotes the ith column of Wa, and r(Wa) reﬂects
+relations among tasks in node a based on Wa. The regularizer in
+problem (31) is used to prune the subtree rooted at each node v
+based on the ℓp norm. The constraint in problem (31) implies that
+for tasks not contained in a node a, the corresponding columns in
+Wa are zero. In [105], r(Wa) adopts the regularizer proposed
+in [69] which enforces the parameters of all the tasks to approach
+their average.
+Different from deep MTL models which are deep in terms
+of layers of feature representations, the decomposition approach
+can be viewed as a ‘deep’ approach in terms of model param-
+eters while most of previous approaches are just shallow ones,
+making this approach have more powerful capacity. Moreover, the
+decomposition approach can reduce to other approaches such as
+the feature learning, low-rank and task clustering approaches when
+there is only one component matrix and hence it can be considered
+as an improved version of those approaches.
+2.6
+Comparisons among Different Approaches
+Based on the above introduction, we can see that different ap-
+proaches exhibit their own characteristics. Speciﬁcally, the feature
+learning approach can learn common features, which are generic
+and invariant to all the tasks at hand and even new tasks, for all
+the tasks. When there exist outlier tasks which are unrelated to
+other tasks, the learned features can be inﬂuenced by outlier tasks
+signiﬁcantly and they may cause the performance deterioration.
+By assuming that the parameter matrix is low-rank, the low-
+rank approach can explicitly learn the subspace of the parameter
+matrix or implicitly achieve that via some convex or non-convex
+regularizer. This approach is powerful but it seems applicable to
+only linear models, making nonlinear extensions non-trivial to
+be devised. The task clustering approach performs clustering on
+the task level in terms of model parameters and it can identify
+task clusters each of which consists of similar tasks. A major
+limitation of the task clustering approach is that it can capture
+positive correlations among tasks in the same cluster but ignore
+negative correlations among tasks in different clusters. Moreover,
+even though some methods in this category can automatically
+determine the number of clusters, most of them still need a
+model selection method such as cross validation to determine it,
+which may bring additional computational costs. The task relation
+learning approach can learn model parameters and pairwise task
+relations simultaneously. The learned task relations can give us
+insights about the relations between tasks and hence they improve
+the interpretability. The decomposition approach can be viewed
+as extensions of other parameter-based approaches by equipping
+multi-level parameters and hence they can model more complex
+task structure, e.g., tree structure. The number of components in
+the decomposition approach is important to the performance and
+needs to be carefully determined.
+2.7
+Benchmark Datasets and Performance Comparison
+In this section, we introduce some benchmark datasets for MTL
+and compare the performance of different MTL models on them.
+Some benchmark datasets for MTL are listed as follows.
+• School dataset [50]: This dataset is to estimate examination
+scores of 15,362 students from 139 secondary schools in
+London from 1985 to 1987 where each school is treated as
+a task. The input consists of four school-speciﬁc and three
+student-speciﬁc attributes.
+• SARCOS dataset2: This dataset studies a multi-output prob-
+lem of learning the inverse dynamics of 7 SARCOS anthro-
+pomorphic robot arms, each of which corresponds to a task,
+based on 21 features, including seven joint positions, seven
+joint velocities and seven joint accelerations. This dataset
+contains 48,933 data points.
+• Computer Survey dataset [11]: This dataset is taken from
+a survey of 180 persons/tasks who rated the likelihood of
+purchasing one of 20 different personal computers, resulting
+in 36,000 data points in all the tasks. The features contain
+13 different computer characteristics (e.g., price, CPU and
+RAM) while the output is an integer rating on the scale 0-10.
+• Parkinson dataset [105]: This dataset is to predict the disease
+symptom score of Parkinson for patients at different times
+using 19 bio-medical features. This dataset has 5,875 data
+points for 42 patients, each of whom is treated as a task.
+• Sentiment dataset3: This dataset is to classify reviews of four
+products/tasks, i.e., books, DVDs, electronics and kitchen
+appliances, from Amazon into two classes: positive and
+negative reviews. For each task, there are 1,000 positive and
+1,000 negative reviews, respectively.
+• MHC-I dataset [61]: This databset contains binding afﬁnities
+of 15,236 peptides with 35 MHC-I molecules. Each MHC-I
+2. http://www.gaussianprocess.org/gpml/data/
+3. http://www.cs.jhu.edu/∼mdredze/datasets/sentiment/
+
+IEEE TRANSACTIONS ON IEEE TRANSACTIONS ON KNOWLEDGE AND DATA ENGINEERING
+11
+TABLE 1
+The performance comparison of representative MTL models in the ﬁve approaches on benchmark datasets in terms of some evaluation metric.
+nMSE stands for ‘normalized mean squared error’, RMSE is for ‘root mean squared error’, and AUC stands for ‘Area Under Curve’. ↑after the
+evaluation metric implies that the larger value the better performance and ↓indicates the opposite case.
+Dataset (Reference)
+Evaluation Metric
+STL
+Feature Learning
+Low-Rank
+Task Clustering
+Task Relation Learning
+Decomposition
+[10]
+[44]
+[61]/ [62]/ [66]/ [67]
+[79]/ [86]/ [95]
+[98]/ [99]/ [100]/ [105]/ [104]
+School ( [104])
+nMSE↓
+—
+0.4393
+—
+0.4374/-/0.6466/-
+—
+0.4445/-/-/-/0.4169
+SARCOS ( [100])
+nMSE↓
+0.1821
+0.1568
+0.1531
+—
+—
+0.1495/0.1456/-/-/-
+Computer Survey ( [102])
+RMSE↓
+2.381
+—
+—
+2.072/-/-/-
+2.110/-/-
+2.138/2.052/2.074/-/-
+Parkinson ( [86])
+Explained Variance↑
+2.8%
+—
+—
+2.7%/33.6%/-/-
+12.0%/27.0%/-
+-/-/-/16.8%/-
+Sentiment ( [79])
+Classiﬁcation Error↓
+0.2779
+0.2756
+—
+—
+0.2324/-/-
+—
+MHC-I ( [65])
+Classiﬁcation Error↓
+0.2010
+—
+—
+0.1890/0.2050/-/-
+0.1870/-/-
+0.2030/-/0.2070/-/-
+Landmine ( [86])
+AUC↑
+74.6%
+—
+—
+75.9%/76.7%/-/-
+76.1%/76.8%/-
+-/-/-/76.4%/-
+Ofﬁce-Caltech ( [95])
+Classiﬁcation Error↓
+0.0920
+0.0740
+—
+-/-/-/0.0670
+0.0690/-/0.0450
+-/-/0.0760/-/-
+Ofﬁce-Home ( [95])
+Classiﬁcation Error↓
+0.3430
+0.4170
+—
+-/-/-/0.3350
+0.4070/-/0.3310
+-/-/0.4140/-/-
+ImageCLEF ( [95])
+Classiﬁcation Error↓
+0.3640
+0.3440
+—
+-/-/-/0.2780
+0.3350/-/0.2470
+-/-/0.3510/-/-
+molecule is considered as a task and the goal is to predict
+whether a peptide binds a molecule.
+• Landmine dataset [54]: This dataset consists of 9-dimensional
+data points, whose features are extracted from radar images,
+from 29 landmine ﬁelds/tasks. Each task is to classify a data
+point into two classes (landmine or clutter). There are 14,820
+data points in total.
+• Ofﬁce-Caltech dataset [106]: The dataset contains data from
+10 common categories shared in the Caltech-256 dataset and
+the Ofﬁce dataset which consists of images collected from
+three distinct domains/tasks: Amazon, Webcam and DSLR,
+making this dataset contain 4 tasks. There are 2,533 images
+in all the tasks.
+• Ofﬁce-Home dataset4: This dataset consists of images from
+4 different domains/tasks: artistic images, clip art, product
+images and real-world images. Each task contains images of
+65 object categories collected in the ofﬁce and home settings.
+In total, there are about 15,500 images in all the tasks.
+• ImageCLEF dataset5: This dataset contains 12 common cate-
+gories shared by four tasks: Caltech-256, ImageNet ILSVRC
+2012, Pascal VOC 2012 and Bing. There are about 2,400
+images in all the tasks.
+In the above benchmark datasets, the ﬁrst four datasets consist
+of regression tasks while the other datasets are classiﬁcation tasks,
+where each task in the Sentiment, MHC-I and Landmine datasets
+is a binary classiﬁcation problem and that in the other three
+image datasets is a multi-class classiﬁcation problem. In order to
+compare different MTL approaches on those benchmark datasets,
+we select some representative MTL methods from each of the ﬁve
+approaches introduced in the previous sections and list in Table 1
+their performance reported in the MTL literature. We also include
+the performance of Single-Task Learning (STL), which trains a
+learning model for each task separately, for comparison. It is easy
+to see that MTL models perform better than STL counterparts
+in most cases, which veriﬁes the effectiveness of MTL. Usually,
+different datasets have their own characteristics, making them
+more suitable for some MTL approach. For example, according to
+the studies in [50], [71], [102], different tasks in the School dataset
+are found to be very similar to each other. According to [54],
+the Landmine dataset can have two task clusters, where the ﬁrst
+cluster consisting of the ﬁrst 15 tasks corresponds to regions that
+are relatively highly foliated and the rest tasks belong to another
+cluster with regions that are bare earth or deserts. According
+to [61], it is well known in the vaccine design community that
+some molecules/tasks in the MHC-I dataset can be grouped into
+4. http://hemanthdv.org/OfﬁceHome-Dataset
+5. http://imageclef.org/2014/adaptation
+empirically deﬁned supertypes known to have similar binding be-
+haviors. For those three datasets, according to Table 1 we can see
+that the task clustering, task relation learning and decomposition
+approaches have better performance since they can identify the
+cluster structure contained in the data in a plain or hierarchical
+way. For other datasets, they do not have so obvious structure
+among tasks but some MTL models can learn task correlations,
+which can bring more insights for model design and the interpre-
+tation of experimental results. For example, the task correlations
+in the SARCOS and Sentiment datasets are shown in Tables 2 and
+3 of [79], and the task similarities in the Ofﬁce-Caltech dataset
+are shown in Figure 3(b) of [95]. Moreover, for image datasets
+(i.e., Ofﬁce-Caltech, Ofﬁce-Home and ImageCLEF), deep MTL
+models (e.g., [67], [95]) achieve better performance than shallow
+models since they can learn powerful feature representations,
+while the rest datasets are from diverse areas, making shallow
+models perform well on them.
+2.8
+Another Taxonomy for Regularized MTL Methods
+Regularized methods form a main methodology for MTL. Here
+we classify many regularized MTL algorithms into two main
+categories: learning with feature covariance and learning with task
+relations. The former can be viewed as a representative formula-
+tion in feature-based MTL, while the latter is for parameter-based
+MTL.
+Objective functions in the ﬁrst category can be uniﬁed as
+min
+W,b,Θ L(W, b) + λ
+2 tr(WT Θ−1W) + f(Θ),
+(32)
+where f(·) denotes a regularizer or constraint on Θ. From
+the
+perspective
+of
+probabilistic
+modeling,
+the
+regularizer
+λ
+2 tr(WT Θ−1W) corresponds to a matrix-variate normal dis-
+tribution on W as W ∼MN(0, 1
+λΘ ⊗I). Based on this
+probabilistic prior, Θ models the covariance between the features
+since
+1
+λΘ is the row covariance matrix with each row in W
+corresponding to a feature and different tasks share the feature
+covariance. All the models in this category differ in the choice of
+the function f(·) on Θ. For example, methods in [10], [40], [41]
+use f(·) to restrict the trace of Θ as shown in problems (2) and
+(12). Moreover, multi-task feature selection methods based on the
+ℓ2,1 norm such as [23], [24], [25] can be reformulated as instances
+of problem (32).
+Different from the ﬁrst category, methods in the second cate-
+gory have a uniﬁed objective function as
+min
+W,b,Σ L(W, b) + λ
+2 tr(WΣ−1WT ) + g(Σ),
+(33)
+where g(·) denotes a regularizer or constraint on Σ. The regu-
+larizer λ
+2 tr(WΣ−1WT ) corresponds to a matrix-variate normal
+
+IEEE TRANSACTIONS ON IEEE TRANSACTIONS ON KNOWLEDGE AND DATA ENGINEERING
+12
+prior on W as W ∼MN(0, I ⊗1
+λΣ), where Σ is to model
+the task relations since 1
+λΣ is the column covariance with each
+column in W corresponding to a task. From this perspective, the
+two regularizers for W in problems (32) and (33) have different
+meanings even though the formulations seem a bit similar. All
+the methods in this category use different functions g(·) to
+learn Σ with different functionalities. For example, the methods
+in [69], [70], [71], [72], which utilize a priori information on
+task relations, directly learn W and b by deﬁning g(Σ) = 0.
+Some task clustering methods [61], [65] identify task clusters
+by assuming that Σ has a block structure. Several task relation
+learning methods including [79], [80], [87], [97], [107] directly
+learn Σ as a covariance matrix by constraining its trace or sparsity
+in g(Σ). The trace norm regularization [44] can be formulated as
+an instance of problem (33).
+Even though this taxonomy cannot cover all the regularized
+MTL methods, it can bring insights to understand regularized
+MTL methods better and help devise more MTL models. For
+example, a learning framework is proposed in [108] to learn a
+suitable multi-task model for a given multi-task problem under
+problem (33) by utilizing Σ to represent the corresponding multi-
+task model.
+2.9
+Other Settings in MTL
+Instead of assuming that different tasks share an identical feature
+representation, Zhang and Yeung [109] consider a multi-database
+face recognition problem where face recognition in a database
+is treated as a task. Since different face databases have different
+image sizes, here naturally all the tasks do not lie in the same fea-
+ture space in this application, leading to a heterogeneous-feature
+MTL problem. To tackle this problem, a multi-task discriminant
+analysis (MTDA) is proposed in [109] by ﬁrst projecting data
+in different tasks into a common subspace and then learning
+a common projection in this subspace to discriminate different
+classes in different tasks. In [110], a latent probit model is
+proposed to generate data of different tasks in different feature
+spaces via sparse transformations on a shared latent space and
+then to generate labels based on this latent space.
+In many MTL classiﬁcation problems, each task is explicitly
+or implicitly assumed to be a binary classiﬁcation problem as each
+column in the parameter matrix W contains model parameters for
+the corresponding task. It is not difﬁcult to see that many methods
+in the feature learning approach, low-rank approach and decom-
+position approach can be directly extended to a general setting
+where each classiﬁcation task can be a multi-class classiﬁcation
+problem and correspondingly multiple columns in W contains
+model parameters of a multi-class classiﬁcation task. Such direct
+extension is applicable since those methods only rely on the entire
+W or its rows but not columns as a media to share knowledge
+among tasks. However, to the best of our knowledge, there is no
+theoretical or empirical study to investigate such direct extension.
+For most methods in the task clustering and task relation learning
+approaches, such direct extension does not work since for multiple
+columns in W corresponding to one task, we do not know which
+one(s) can be used to represent this task. Therefore, the direct
+extension may not be the best solution to the general setting. In
+the following, we introduce four main approaches other than the
+direct extension to tackle the general setting in MTL where each
+classiﬁcation task can be a multi-class classiﬁcation problem. The
+ﬁrst method is to transform the multi-class classiﬁcation problem
+in each task into a binary classiﬁcation problem. For example,
+multi-task metric learning [70], [111] can do that by treating a
+pair of data points from the same class as positive and that from
+different classes as negative. The second recipe is to utilize the
+characteristics of learners. For example, the linear discriminant
+analysis can handle binary and multi-class classiﬁcation problems
+in a uniﬁed formulation and hence MTDA [109] can naturally
+handle them without changing the formulation. The third approach
+is to directly learn label correspondence among different tasks. In
+[112], two learning tasks, which share the training data, aim to
+maximize the mutual information to identify the correspondence
+between labels in different tasks. By assuming that all the tasks
+share the same label space, the last approach including [47], [67],
+[95] organizes the model parameters of all the tasks in a tensor
+where the model parameters of each task form a slice. Then the
+parameter tensor can be regularized by tensor trace norms [47]
+and a tensor-variate normal prior [95], or factorized as a product
+of several low-rank matrices or tensors [67].
+Most MTL methods assume that the training data in each task
+are stored in a data matrix. In some case, the training data in each
+task exhibit a multi-modal structure and hence they are represented
+in a tensor instead of a matrix. Multilinear multi-task methods
+proposed in [113], [114] can handle this situation by employing
+tensor trace norms as a generalization of the trace norm to perform
+the regularization.
+2.10
+Optimization Techniques in MTL
+Optimization techniques used in MTL can be categorized into
+three main classes as follows.
+• Gradient descent method and its variants: The gradient de-
+scent method can be used to optimize smooth unconstrained
+objective functions possessed by many MTL models. If the
+unconstrained objective function is non-smooth, the subgradi-
+ent can be used instead and then the gradient descent method
+can also be used. When there are some constraints in the
+objective function of MTL models [44], [64], the projected
+gradient descent method can be used to project the updated
+solution in each step to the space deﬁned by constraints.
+For deep MTL models, stochastic gradient descent methods
+can be used. Moreover, the GradNorm [115] is devised
+to normalize gradients to balance the learning of multiple
+tasks and [116] proposes the gradient surgery to avoid the
+interference between task gradients. Differently, [117] studies
+MTL from the perspective of multi-objective optimization by
+learning dynamic loss weights.
+• Block Coordinate Descent (BCD) method: The parameters
+in many MTL models can be divided into several blocks.
+For example, parameters in learning functions of all the
+tasks form a block and parameters to represent task relations
+are from another block. Directly optimizing the objective
+function of such a MTL model with respect to parameters
+in all blocks together is not easy. The BCD method, which is
+also known as the alternating method, is widely used in the
+MTL literature, e.g., [10], [12], [31], [40], [41], [61], [62],
+[65], [66], [79], [80], [96], [97], to alternatively optimize each
+block of parameters while ﬁxing parameters in other blocks.
+Hence, each step of the BCD method will solve several
+subproblems, each of which is to optimize with respect to
+a block of parameters. Compared with the original objective
+function, each subproblem is easier to be solved and so the
+BCD method can help reduce the optimization complexity.
+
+IEEE TRANSACTIONS ON IEEE TRANSACTIONS ON KNOWLEDGE AND DATA ENGINEERING
+13
+• Proximal method [118]: For a nonsmooth objective function,
+which is the sum of smooth and nonsmooth functions, in an
+MTL model, the proximal method is frequently used (e.g.,
+[24], [27], [63], [99], [100], [101], [102], [103], [104], [119],
+[120], [121]) to construct a proximal problem by replacing
+the smooth function with a quadratic function that may be
+constructed based on its Taylor series in various ways and the
+resulting proximal problem is usually easier to be solved than
+the original problem. The proximal method can accelerate the
+convergence rate of the optimization process or facilitate the
+design of distributed optimization algorithms.
+3
+MTL WITH OTHER LEARNING PARADIGMS
+In the previous section, we review different MTL approaches
+for supervised learning tasks. In this section, we overview some
+works on the combination of MTL with other learning paradigms
+in machine learning, including unsupervised learning such as
+clustering, semi-supervised learning, active learning, reinforce-
+ment learning, multi-view learning and graphical models, to either
+improve the performance of supervised MTL further via additional
+information such as unlabeled data or use MTL to help improve
+the performance of other learning paradigms.
+In most applications, labeled data are expensive to collect
+but unlabeled data are abundant. So in some MTL applications,
+the training dataset of each task consists of both labeled and
+unlabeled data, hence we hope to exploit useful information
+contained in the unlabeled data to further improve the performance
+of supervised learning tasks. In machine learning, semi-supervised
+learning and active learning are two ways to utilize unlabeled data
+but in different ways. Semi-supervised learning aims to exploit
+geometrical information contained in the unlabeled data, while
+active learning selects representative unlabeled data to query an
+oracle with the hope of increasing the labeling cost as little as
+possible. Hence semi-supervised learning and active learning can
+be combined with MTL, leading to three new learning paradigms
+including semi-supervised multi-task learning [122], [123], [124],
+multi-task active learning [125], [126], [127] and semi-supervised
+multi-task active learning [128]. Speciﬁcally, a semi-supervised
+multi-task classiﬁcation model is proposed in [122], [123] to use
+random walk to exploit unlabeled data in each task and then
+cluster multiple tasks via a relaxed Dirichlet process. In [124], a
+semi-supervised multi-task Gaussian process for regression tasks,
+where different tasks are related via the hyperprior on the kernel
+parameters in Gaussian processes of all the tasks, is proposed to
+incorporate unlabeled data into the design of the kernel function
+in each task to achieve the smoothness in the corresponding
+functional spaces. Different from these semi-supervised multi-task
+methods, multi-task active learning adaptively selects informative
+unlabeled data for multi-task learners and hence the selection
+criterion is the core research issue. Reichart et al. [125] believe
+that data instances to be selected should be as informative as
+possible for a set of tasks instead of only one task and hence
+they propose two protocols for multi-task active learning. In
+[126], the expected error reduction is used as a criterion where
+each task is modeled by a supervised latent Dirichlet allocation
+model. Inspired by multi-armed bandits which balance the trade-
+off between the exploitation and exploration, a selection strategy is
+proposed in [127] to consider both the risk of a multi-task learner
+based on the trace norm regularization and the corresponding
+conﬁdence bound. In [129], the MTRL method (i.e., problem (21))
+is extended to the interactive setting where a human expert is
+enquired about partial orderings of pairwise task covariances based
+an inconsistency criterion. In [130], a proposed generalization
+bound is used to select a subset from multiple unlabeled tasks
+to acquire labels to improve the generalization performance of
+all the tasks. For semi-supervised multi-task active learning, Li
+et al. [128] propose a model to use the Fisher information as a
+criterion to select unlabeled data to acquire their labels with the
+semi-supervised multi-task classiﬁcation model [122], [123] as the
+classiﬁer for each task.
+MTL achieves the performance improvement in not only
+supervised learning tasks but also unsupervised learning tasks
+such as clustering. In [131], a multi-task Bregman clustering
+method is proposed based on single-task Bregman clustering by
+using the earth mover distance to minimize distances between
+any pair of tasks in terms of cluster centers and then in [132],
+[133], an improved version of [131] and its kernel extension are
+proposed to avoid the negative effect caused by the regularizer in
+[131] via choosing the better one between single-task and multi-
+task Bregman clustering. In [134], a multi-task kernel k-means
+method is proposed by learning the kernel matrix via both MMD
+between any pair of tasks and the Laplacian regularization that
+helps identify a smooth kernel space. In [135], two proposed multi-
+task clustering methods are extensions of the MTFL and MTRL
+methods by treating labels as cluster indicators to be learned. In
+[136], the principle of MTL is incorporated into the subspace
+clustering by capturing correlations between data instances. In
+[137], a multi-task clustering method belonging to instance-based
+MTL is proposed to share data instances among different tasks. In
+[138], a multi-task spectral clustering algorithm, which can handle
+the out-of-sample issue via a linear function to learn the cluster
+assignment, is proposed to achieve the feature selection among
+tasks via the ℓ2,1 regularization [139]. [140] proposes to identify
+the task cluster structure and learn task relations together.
+Reinforcement Learning (RL) is a promising area in machine
+learning and has shown superior performance in many applications
+such as game playing (e.g., Atari and Go) and robotics. MTL can
+help boost the performance of reinforcement learning, leading to
+Multi-task Reinforcement Learning (MRL). Some works [141],
+[142], [143], [144], [145], [146], [147], [148], [149], [150] adapt
+the ideas introduced in Section 2 to MRL. Speciﬁcally, in [141]
+where a task solves a sequence of Markov Decision Processes
+(MDPs), a hierarchical Bayesian inﬁnite mixture model is used
+to model the distribution over MDPs and for each new MDP,
+previously learned distributions are used as an informative prior.
+In [142], a regionalized policy representation is introduced to
+characterize the behavior of an agent in each task and a Dirichlet
+process is placed over regionalized policy representations across
+multiple tasks to cluster tasks. In [143], a Gaussian process
+temporal-difference value function model is used for each task
+and a hierarchical Bayesian approach is to model the distribution
+over value functions in different tasks. Calandriello et al. [144]
+assume that parameter vectors of value functions in different tasks
+are jointly sparse and then extend the MTFS method with the ℓ2,1
+regularization as well as the MTFL method to learn value func-
+tions in multiple tasks together. In [145], a model associating each
+subtask with a modular subpolicy is proposed to learn from policy
+sketches, which annotate tasks with sequences of named subtasks
+and provide information about high-level structural relationships
+among tasks. In [146], a multi-task contextual bandit is introduced
+to leverage or learn similarities in contexts among arms to improve
+
+IEEE TRANSACTIONS ON IEEE TRANSACTIONS ON KNOWLEDGE AND DATA ENGINEERING
+14
+the prediction of rewards from contexts. In [147], a multi-task
+linearly solvable MDP, whose task basis matrix contains a library
+of component tasks shared by all the tasks, is proposed to maintain
+a parallel distributed representation of tasks each of which enables
+an agent to draw on macro actions simultaneously. In [148], a
+multi-task deep RL model based on the attention can automatically
+group tasks into sub-networks on a state-level granularity. In
+[149], a sharing experience framework is introduced to use task-
+speciﬁc rewards to identify similar parts deﬁned as shared-regions
+which can guide the experience sharing of task policies. In [150],
+multi-task soft option learning, a hierarchical framework based on
+planning as inference, is regularized by a shared prior to avoid
+training instabilities and allow the ﬁne-tuning of options for new
+tasks without forgetting learned policies. The idea of compression
+and distillation have been incorporated into MRL as in [151],
+[152], [153], [154]. For example, in [151], the proposed Actor-
+Mimic method combines both deep reinforcement learning and
+model compression techniques to train a policy network which can
+learn to act for multiple tasks. In [152], a policy distillation method
+is proposed to not only train an efﬁcient network to learn the policy
+of an agent but also consolidate multiple task-speciﬁc policies into
+a single policy. In [153], the problem of multi-task multi-agent
+reinforcement learning under the partial observability is addressed
+by distilling decentralized single-task policies into a uniﬁed policy
+across multiple tasks. In [154], each task has its own policy which
+is constrained to be close to a shared policy that is trained by the
+distillation. Some works [155], [156], [157], [158], [159], [160]
+in MRL focus on online and distributed settings. Speciﬁcally, in
+[155], a distributed MRL framework is devised to model it as an
+instance of general consensus and an efﬁcient decentralized solver
+is developed. In [156], [157], multiple goal-directed tasks are
+learned in an online setup without the need for expert supervision
+by actively sampling harder tasks. In [158], a distributed agent
+is developed to not only use resources more efﬁciently in single-
+machine training but also scale to thousands of machines without
+sacriﬁcing data efﬁciency or resource utilization. [159] formulates
+MRL from a perspective of variational inference and it proposes
+a novel distributed solver with quadratic convergence guarantees.
+In [160], an online learning algorithm is proposed to dynami-
+cally combine different auxiliary tasks which provide gradient
+directions to speed up the training of the main reinforcement
+learning task. Some works study the theoretical foundation of
+MRL. For example, in [161], sharing representations among tasks
+is analyzed with theoretical guarantees to highlight conditions
+to share representations and ﬁnite-time bounds of approximated
+value-iteration are extended to the multi-task setting. Moreover,
+there are some works to design novel MRL methods. For example,
+in [162], a MRL framework is proposed to train agent to employ
+hierarchical policies that decide when to use a previously learned
+policy and when to learn a new skill with a temporal grammar
+that helps the agent learn complex temporal dependencies. [163]
+studies the problem of parallel learning of multiple sequential-
+decision tasks and proposes to automatically adapt the contribution
+of each task to the updates of the agent to make all tasks have
+comparable impacts on the learning dynamics. In [164], a self-
+supervised representation learning algorithm is proposed for multi-
+task deep RL to capture structured information about environment
+dynamics based on multi-step predictive representations of future
+observations.
+Multi-view learning assumes that each data point is associated
+with multiple sets of features where each set corresponds to a view
+and it usually exploits information contained in multiple views for
+supervised or semi-supervised learning tasks. Multi-task multi-
+view learning extends multi-view learning to the MTL setting
+where each task is a multi-view learning problem. Speciﬁcally,
+in [165], a graph-based method is proposed for multi-task multi-
+view classiﬁcation problems. In a task, each view is enforced to
+be consistent with both other views and labels, while different
+tasks are expected to have similar predictions on views they share,
+making views as a bridge to construct the task relatedness. In
+[166], both a regularized MTL method [71] and the MTRL method
+are applied to each view of different tasks and different views
+in a task are expected to achieve an agreement on unlabeled
+data. Different from [165], [166] which study the multi-task
+multi-view classiﬁcation problem, in [167], [168], two multi-task
+multi-view clustering methods are proposed and both methods
+consider three factors: within-view-task clustering which conducts
+clustering on each view in a task, view relation learning which
+minimizes the disagreement among views in a task, and low-
+rank structure learning which aims to learn a shared subspace
+for different tasks under a common view. The difference between
+these two methods is that the ﬁrst method uses a bipartite graph co-
+clustering method for nonnegative data while the other one adopts
+a semi-nonnegative matrix tri-factorization to cluster general data.
+In [169], a multi-label multi-view algorithm is proposed to not
+only learn common features via the ℓ2,1 regularization but also
+identify useless views via the Frobenius norm. In multi-task multi-
+view learning, each task is usually supplied with both labeled and
+unlabeled data, hence this paradigm can also be viewed as another
+way to utilize unlabeled information for MTL. A deep multi-task
+multi-view model is proposed in [170] to fuse all the views based
+on the cross-stitch network.
+MTL can help learn more accurate structure in graphical
+models. In [171], an algorithm is proposed to learn Bayes network
+structures by assuming that different networks/tasks share similar
+structures via a common prior and then a heuristic search is used
+to ﬁnd structures with high scores for all the tasks. With a similar
+idea, multiple Gaussian graphical models are jointly learned in
+[172] by assuming joint sparsity among precision matrices via
+the ℓ∞,1 norm regularization. In [173], some domain knowledge
+about task relations is incorporated into the learning of multiple
+Bayesian networks. By viewing the feature interaction matrix as
+a form of graphical models to model pairwise relations between
+features, two models are proposed in [174] to learn a quadratical
+function, where the feature interaction matrix deﬁnes the quadratic
+term, for each task based on the ℓ2,1 and tensor trace norm
+regularization, respectively.
+According to the above discussions, we can see that most
+research works discussed in this section follow the spirits of MTL
+approaches introduced in Section 2 and adapt to their own settings.
+4
+HANDLING BIG DATA
+When the number of tasks is large, the total number of training
+data in all the tasks can be very big and hence a ‘big’ aspect in
+MTL denotes the number of tasks. In this case, we can either
+devise online, parallel, or distributed MTL models to accelerate
+the learning process. Another ‘big’ aspect in MTL lies in the
+data dimensionality which can be very high. In this situation,
+we can speedup the learning via feature selection, dimensionality
+reduction and feature hashing to reduce the dimension without
+
+IEEE TRANSACTIONS ON IEEE TRANSACTIONS ON KNOWLEDGE AND DATA ENGINEERING
+15
+losing too much useful information. In this section, we review
+some relevant works.
+When the number of tasks is very big, we can devise some
+parallel MTL methods to speedup the learning process on multi-
+CPU or multi-GPU devices. As a representative formulation in
+feature-based MTL, problem (32) is easy to parallelize since when
+given the feature covariance matrix Θ, the learning of different
+tasks can be decoupled. However, for problem (33) in parameter-
+based MTL, the situation is totally different since even given the
+task covariance matrix Σ, different tasks are still coupled, making
+the direct parallelization fail. In order to parallelize problem (33),
+Zhang [175] uses the FISTA algorithm to design a surrogate func-
+tion for problem (33) with a given Σ, where the surrogate function
+is decomposable with respect to tasks, leading to a parallel design
+for MTL based on different loss functions including the hinge,
+ϵ-insensitive and square losses.
+Online multi-task learning is also capable of handling a big
+number of tasks. In [176], [177], under a setting where all the
+tasks contribute toward a common goal, the relation between
+tasks is measured via a global loss function and several online
+algorithms are proposed to use absolute norms as the global
+loss function. In [178], online MTL algorithms are devised by
+modeling the task relatedness via hard constraints that the m-
+tuple of actions for tasks satisﬁes. In [179], perceptron-based
+online algorithms are proposed for multi-task binary classiﬁcation
+problems where task similarities are measured based on either the
+geometric closeness of the task reference vectors or the dimension
+of their spanned subspace. In [180], a recursive Bayesian online
+algorithm based on Gaussian processes is devised to update both
+estimations and conﬁdence intervals when data instances arrive
+sequentially. In [181], an online version of the MTRL method is
+proposed to update both the model parameters and task covariance
+in a sequential way. An online multi-task learning algorithm is
+proposed in [182] to jointly learn the per-task model and the task
+relations by smoothing the loss function of each task w.r.t. a task
+distribution and adaptively reﬁning this distribution over time. In
+[183], an online multi-task model is proposed to learn both a low-
+rank component and a group sparse component to characterize
+task relations. In [184], a multi-task passive-aggressive method
+is proposed to learn multiple relative similarity learning tasks,
+each of which is to learn a similarity function from data with
+relative constraints. In [185], a Gaussian distribution, whose mean
+or covariance consists of a local component for each task and a
+global component shared by all the tasks, over each task is used
+as a conﬁdence measure to guide the online MTL process.
+Training data can locate at different devices, making the design
+of distributed MTL models important. In [186], a communication-
+efﬁcient distributed MTL algorithm, where each machine learns
+a task, based on the debiased Lasso is proposed to learn jointly
+sparse features in a high-dimensional space. In [187], the MTRL
+method (i.e., problem (21)) is extended to the distributed setting
+based on a stochastic dual coordinate ascent method. In [188],
+to protect the privacy of data, a privacy-preserving distributed
+MTL method is proposed based on a privacy-preserving proximal
+gradient algorithm with asynchronous updates. In [189], federated
+multi-task learning is proposed as an extension of distributed
+multi-task learning to consider both stragglers and fault tolerance.
+In [190], a distributed multi-task algorithm is proposed under the
+online MTL setting.
+For high-dimensional data in MTL, we can use multi-task fea-
+ture selection methods to reduce the dimension or extend single-
+task dimension reduction techniques to the multi-task setting as
+did in [109]. Another option is to use the feature hashing and in
+[191], multiple hashing functions are proposed to accelerate the
+joint learning of multiple tasks.
+5
+APPLICATIONS
+MTL has many applications in various areas including computer
+vision, bioinformatics, health informatics, speech, NLP, web, and
+so on. In Table 2, we categorize different MTL problems in
+each application area according to MTL approaches they used,
+where the classiﬁcation of MTL approaches has been already
+introduced in Section 2. In the last column of Table 2, we list
+some problems in various application areas which are different
+from other columns. For application problems listed in Table
+2, application-dependent MTL models have been proposed to
+solve them.6 Though these models are different from each other,
+there are some characteristics in respective areas. For example, in
+computer vision, deep MTL models, most of which belong to the
+feature transformation approach, exhibit good performance, mak-
+ing this approach popular in computer vision. In bioinformatics
+and health informatics, the interpretability of learning models is
+more important in some sense. Therefore, the feature selection
+and task relation learning approaches are widely used in this area
+as the former approach can identify useful features and the latter
+one can quantitatively show task relations. In speech and NLP, the
+data exhibit a sequential structure, which makes recurrent-neural-
+network-based deep MTL models in the feature transformation
+approach play an important role. As the data in web applications
+is of a large scale, this area favors simple models such as linear
+models or their ensembles based on boosting. Among all the MTL
+approaches, the feature transformation, feature selection and task
+relation learning approaches are among the most widely used MTL
+approaches in different application areas according to Table 2.
+When encountering a new application problem which can be
+modeled as a MTL problem, we need to judge whether tasks in
+this problem are related in terms of either low-level features or
+high-level concepts. If so, by treating Table 2 as a look-up table.
+we can identify a problem in Table 2 similar to the new problem
+and then adapt the corresponding MTL model to solve the new
+problem. Otherwise, we can try popular MTL approaches in the
+respective area.
+6
+THEORETICAL ANALYSES
+As well as designing MTL models and exploiting MTL applica-
+tions, there are some works to study theoretical aspects of MTL
+and here we review them.
+The generalization bound, which is to upper-bound the gen-
+eralization loss in terms of the training loss, model complexity
+and conﬁdence, is core in learning theory since it can identify
+the learnability and induce the sample complexity. There are
+several works [40], [49], [249], [250], [251], [252], [253], [254],
+[255], [256], [257], [258], [259], [260] to study the generalization
+bound of different MTL models. In Table 3, we compare those
+works in terms of the analyzed MTL model, analysis tool and
+the convergence rate of the corresponding bound which is based
+on the number of tasks (i.e., m) and the average number of data
+points per task (i.e., n0). According to Table 3, we can see that
+some works (i.e., [49], [249], [250], [253], [254], [257], [258])
+6. For details of those models, refer to an arXiv version [248] of this paper.
+
+IEEE TRANSACTIONS ON IEEE TRANSACTIONS ON KNOWLEDGE AND DATA ENGINEERING
+16
+TABLE 2
+The classiﬁcation of works about MTL applications in different areas according to different MTL approaches.
+Approach
+Computer Vision
+Bioinformatics &
+Speech & NLP
+Web
+Miscellaneous
+Health Informatics
+Feature Transformation
+Visual tracking [192], [193]
+Protein subcellular location prediction [194]
+Speech synthesis [195], [196]
+Learning to rank [197]
+Stock prediction [198]
+Action recognition [199]
+Protein interaction prediction [200]
+Speech recognition [201], [202]
+Localization [203]
+Facial landmark detection [15]
+Biological image classiﬁcation [17]
+Jointly learning of NLP tasks [204]
+Scene classiﬁcation [205]
+Dialog state tracking [18]
+Attribute prediction [206]
+Machine translation [207]
+Image rotation [208]
+Syntactic parsing [207]
+Immediacy prediction [209]
+Pose estimation [19]
+Thumbnail selection [16]
+Face veriﬁcation [210]
+Feature Selection
+Face and object recognition [211]
+siRNA efﬁcacy prediction [212]
+Microblog analysis [119]
+Behavioral targeting [213]
+Brain imaging [214]
+Genetic marker detection [215]
+Mental state examination [216]
+Predict cognitive outcome [217]
+Survival analysis [120]
+Genetic trait prediction [218]
+Gene expression association [219]
+Low-Rank
+Image segmentation [220]
+Identiﬁcation of longitudinal
+Climate prediction [221]
+Saliency detection [222]
+phenotypic markers [223]
+Task Clustering
+Image segmentation [224]
+Brain-computer interfaces [225]
+Age estimation [226]
+Personalized medical
+Facial action unit
+treatment [227]
+prediction [228]
+Genetic trait prediction [218]
+Action recognition [229]
+Task Relation Learning
+Protein subcellular location prediction [194]
+Sentiment classiﬁcation [230]
+Web search ranking [231]
+Localization [203]
+Organism modeling [232]
+Collaborative ﬁltering [233]
+Robotics [234], [235]
+MHC-I binding prediction [236]
+Display advertising [237]
+Trajectory regression [238]
+Splice-site prediction [236]
+Trafﬁc sign recognition [239]
+Prioritization of disease genes [240]
+Soil moisture forecasts [241]
+Protein interaction prediction [242]
+Identifying antigenic variants [243]
+Decomposition
+Multi-view tracking [244]
+Genetic trait prediction [218]
+Pose estimation [245]
+Protein interaction prediction [246]
+Person re-identiﬁcation [247]
+analyze different MTL models based on various analysis tools
+and the best convergence rate is O(
+1
+√mn0 ). Though MTL models
+analyzed in [12], [40], [251], [259] are not the same, those MTL
+models exhibit similar objectives to learn a linear or nonlinear
+feature transformation shared by all the tasks, and the convergence
+rates are O(
+1
+√mn0 ) except [12]. The trace norm regularization
+(i.e., Problem (13)) is analyzed in [255], [256], [258], [260],
+among which [260] has the best convergence rate based on the
+local Rademacher complexity. A related MTL model based on
+the Schatten norm regularization is analyzed in [252] with an
+O(
+1
+√mn0 ) convergence rate. For the graph regularization [69],
+[71] analyzed in [252], [260], the local Rademacher complexity
+leads to a better convergence rate (i.e., O(
+1
+(mn0)α ) for some
+constant α ∈(0.5, 1)) and a similar observation holds for problem
+(4). In a word, various analysis tools can be used to analyze MTL
+models and among them, the local Rademacher complexity can
+derive tighter generalization bounds than others.
+Besides generalization bounds, there are some works to study
+other theoretical problems in MTL. For example, Argyriou et
+al. [261], [262] discuss conditions where representer theorems
+hold for regularized MTL algorithms. Several studies [263], [264],
+[265] investigate conditions to well recover true features for multi-
+task feature selection models.
+TABLE 3
+Comparison of generalization bounds derived in different works in
+terms of the analyzed MTL model, analysis tool and the convergence
+rate of the bound. m denotes the number of tasks and n0 denotes the
+average number of data points per task.
+MTL Model
+Reference
+Analysis Tool
+Convergence rate
+Tasks from an environment
+[249], [250]
+VC dimension & Covering number
+O(1/√mn0)
+Task distributions can be transformed
+[254]
+VC dimension
+O(1/√mn0)
+Task clustering
+[49]
+VC dimension
+O(m ln(n0/m)/n0)
+Multi-task kernel classiﬁer
+[257]
+Covering number
+O(1/√mn0)
+Problem (26) with Eq. (27)
+[258]
+Multi-task stability
+O(m√m/n0)
+Multi-task data compression
+[253]
+Kolmogorov complexity
+O(1/√mn0)
+Problem (10)
+[40]
+Covering number
+O(1/√mn0)
+Problem (10) without U
+[251]
+Rademacher complexity
+O(1/√mn0)
+Problem (3)
+[12]
+Rademacher complexity
+O(1/√n0)
+Learn a common feature transformation
+[259]
+Gaussian average
+O(1/√mn0)
+Problem (13)
+[258]
+Multi-task stability
+O(m/n0)
+[255]
+Rademacher complexity
+O(ln(m)/√n0)
+[256]
+Rademacher complexity
+O(max(
+p
+ln(mn0)/mn0, 1/√n0))
+[260]
+Local Rademacher complexity
+O(1/(mn0)α), 0.5 < α < 1
+Schatten-norm-regularized MTL models
+[252]
+Rademacher complexity
+O(1/√mn0)
+Graph regularizers [69], [71]
+[252]
+Rademacher complexity
+O(1/√mn0)
+[260]
+Local Rademacher complexity
+O(1/(mn0)α), 0.5 < α < 1
+Problem (4)
+[255]
+Rademacher complexity
+O(1/√n0)
+[260]
+Local Rademacher complexity
+O(1/(mn0)α), 0.5 < α < 1
+7
+CONCLUSIONS AND DISCUSSIONS
+In this paper, we survey different aspects of MTL. First, after
+giving the deﬁnition of MTL, we give a classiﬁcation of supervised
+MTL models into ﬁve main approaches and discuss their charac-
+teristics. Then we review the combinations of MTL with other
+learning paradigms. The online, parallel and distributed MTL
+models as well as dimensionality reduction and feature hashing
+are discussed to speedup the learning process. The applications of
+MTL in various areas are introduced to show the usefulness of
+MTL and theoretical aspects of MTL are discussed.
+In future studies, there are several issues to be addressed.
+Firstly, outlier tasks, which are unrelated to other tasks, are well
+known to hamper the performance of all the tasks when learning
+them jointly. There are some methods to alleviate negative effects
+that outlier tasks bring. However, there lacks principled ways and
+theoretical analyses to study the resulting negative effects. In order
+to make MTL safe to be used by human, this is an important issue
+and needs more studies.
+Secondly, deep learning has become a dominant approach in
+many areas and several multi-task deep models belonging to the
+feature transformation, low-rank, task clustering and task relation
+learning approaches have been proposed as reviewed in Sections
+2, 3 and 5. As discussed, most of them only share hidden layers.
+This approach is powerful when all the tasks are related, but it
+is vulnerable to noisy and outlier tasks that can deteriorate the
+performance dramatically. We believe that it is desirable to design
+ﬂexible and robust deep multi-task models.
+Lastly, existing studies mainly focus on supervised learning
+tasks, and only a few ones are on other tasks such as unsupervised
+learning, semi-supervised learning, active learning, multi-view
+learning and reinforcement learning tasks. It is natural to adapt
+or extend the ﬁve approaches introduced in Section 2 to those
+non-supervised learning tasks. We think that such adaptation
+and extension require more efforts to design appropriate models.
+Moreover, it is worth trying to apply MTL to other areas in
+artiﬁcial intelligence such as logic and planning to broaden its
+application scopes.
+Acknowledgments This work is supported by NSFC 62076118.
+
+IEEE TRANSACTIONS ON IEEE TRANSACTIONS ON KNOWLEDGE AND DATA ENGINEERING
+17
+REFERENCES
+[1]
+R. Caruana, “Multitask learning,” MLJ, 1997.
+[2]
+Q. Yang, Y. Zhang, W. Dai, and S. J. Pan, Transfer Learning. Cambridge
+University Press, 2020.
+[3]
+M.-L. Zhang and Z.-H. Zhou, “A review on multi-label learning algo-
+rithms,” IEEE TKDE, 2014.
+[4]
+G. I. Parisi, R. Kemker, J. L. Part, C. Kanan, and S. Wermter, “Continual
+lifelong learning with neural networks: A review,” Neural Networks,
+vol. 113, pp. 54–71, 2019.
+[5]
+Y. Zhang and Q. Yang, “An overview of multi-task learning,” National
+Science Review, 2018.
+[6]
+X. Yang, S. Kim, and E. P. Xing, “Heterogeneous multitask learning
+with joint sparsity constraints,” in NIPS, 2009.
+[7]
+S. Bickel, J. Bogojeska, T. Lengauer, and T. Scheffer, “Multi-task
+learning for HIV therapy screening,” in ICML, 2008.
+[8]
+X. Liao and L. Carin, “Radial basis function network for multi-task
+learning,” in NIPS, 2005.
+[9]
+D. L. Silver, R. Poirier, and D. Currie, “Inductive transfer with context-
+sensitive neural networks,” MLJ, 2008.
+[10]
+A. Argyriou, T. Evgeniou, and M. Pontil, “Convex multi-task feature
+learning,” MLJ, 2008.
+[11]
+A. Argyriou, C. A. Micchelli, M. Pontil, and Y. Ying, “A spectral
+regularization framework for multi-task structure learning,” in NIPS,
+2007.
+[12]
+A. Maurer, M. Pontil, and B. Romera-Paredes, “Sparse coding for
+multitask and transfer learning,” in ICML, 2013.
+[13]
+J. Zhu, N. Chen, and E. P. Xing, “Inﬁnite latent SVM for classiﬁcation
+and multi-task learning,” in NIPS, 2011.
+[14]
+M. K. Titsias and M. L´azaro-Gredilla, “Spike and slab variational
+inference for multi-task and multiple kernel learning,” in NIPS, 2011.
+[15]
+Z. Zhang, P. Luo, C. C. Loy, and X. Tang, “Facial landmark detection
+by deep multi-task learning,” in ECCV, 2014.
+[16]
+W. Liu, T. Mei, Y. Zhang, C. Che, and J. Luo, “Multi-task deep visual-
+semantic embedding for video thumbnail selection,” in CVPR, 2015.
+[17]
+W. Zhang, R. Li, T. Zeng, Q. Sun, S. Kumar, J. Ye, and S. Ji, “Deep
+model based transfer and multi-task learning for biological image
+analysis,” in KDD, 2015.
+[18]
+N. Mrksic, D. ´O. S´eaghdha, B. Thomson, M. Gasic, P. Su, D. Vandyke,
+T. Wen, and S. J. Young, “Multi-domain dialog state tracking using
+recurrent neural networks,” in ACL, 2015.
+[19]
+S. Li, Z. Liu, and A. B. Chan, “Heterogeneous multi-task learning for
+human pose estimation with deep convolutional neural network,” IJCV,
+2015.
+[20]
+Y. Shinohara, “Adversarial multi-task learning of deep neural networks
+for robust speech recognition,” in Interspeech, 2016.
+[21]
+P. Liu, X. Qiu, and X. Huang, “Adversarial multi-task learning for text
+classiﬁcation,” in ACL, 2017.
+[22]
+I. Misra, A. Shrivastava, A. Gupta, and M. Hebert, “Cross-stitch
+networks for multi-task learning,” in CVPR, 2016.
+[23]
+G. Obozinski, B. Taskar, and M. Jordan, “Multi-task feature selection,”
+tech. rep., University of California, Berkeley, 2006.
+[24]
+J. Liu, S. Ji, and J. Ye, “Multi-task feature learning via efﬁcient l2,1-
+norm minimization,” in UAI, 2009.
+[25]
+S. Lee, J. Zhu, and E. P. Xing, “Adaptive multi-task lasso: With
+application to eQTL detection,” in NIPS, 2010.
+[26]
+N. S. Rao, C. R. Cox, R. D. Nowak, and T. T. Rogers, “Sparse
+overlapping sets lasso for multitask learning and its application to fMRI
+analysis,” in NIPS, 2013.
+[27]
+P. Gong, J. Zhou, W. Fan, and J. Ye, “Efﬁcient multi-task feature
+learning with calibration,” in KDD, 2014.
+[28]
+J. Wang and J. Ye, “Safe screening for multi-task feature learning with
+multiple data matrices,” in ICML, 2015.
+[29]
+H. Liu, M. Palatucci, and J. Zhang, “Blockwise coordinate descent
+procedures for the multi-task lasso, with applications to neural semantic
+basis discovery,” in ICML, 2009.
+[30]
+P. Gong, J. Ye, and C. Zhang, “Multi-stage multi-task feature learning,”
+JMLR, 2013.
+[31]
+A. C. Lozano and G. Swirszcz, “Multi-level lasso for sparse multi-task
+regression,” in ICML, 2012.
+[32]
+X. Wang, J. Bi, S. Yu, and J. Sun, “On multiplicative multitask feature
+learning,” in NIPS, 2014.
+[33]
+L. Han, Y. Zhang, G. Song, and K. Xie, “Encoding tree sparsity in
+multi-task learning: A probabilistic framework,” in AAAI, 2014.
+[34]
+T. Jebara, “Multi-task feature and kernel selection for SVMs,” in ICML,
+2004.
+[35]
+S. Kim and E. P. Xing, “Tree-guided group lasso for multi-task regres-
+sion with structured sparsity,” in ICML, 2010.
+[36]
+Y. Zhou, R. Jin, and S. C. H. Hoi, “Exclusive lasso for multi-task feature
+selection,” in AISTATS, 2010.
+[37]
+Y. Zhang, D.-Y. Yeung, and Q. Xu, “Probabilistic multi-task feature
+selection,” in NIPS, 2010.
+[38]
+D. Hern´andez-Lobato and J. M. Hern´andez-Lobato, “Learning feature
+selection dependencies in multi-task learning,” in NIPS, 2013.
+[39]
+D. Hern´andez-Lobato, J. M. Hern´andez-Lobato, and Z. Ghahramani,
+“A probabilistic model for dirty multi-task feature selection,” in ICML,
+2015.
+[40]
+R. K. Ando and T. Zhang, “A framework for learning predictive
+structures from multiple tasks and unlabeled data,” JMLR, 2005.
+[41]
+J. Chen, L. Tang, J. Liu, and J. Ye, “A convex formulation for learning
+shared structures from multiple tasks,” in ICML, 2009.
+[42]
+A. Agarwal, H. Daum´e III, and S. Gerber, “Learning multiple tasks
+using manifold regularization,” in NIPS, 2010.
+[43]
+J. Zhang, Z. Ghahramani, and Y. Yang, “Learning multiple related tasks
+using latent independent component analysis,” in NIPS, 2005.
+[44]
+T. K. Pong, P. Tseng, S. Ji, and J. Ye, “Trace norm regularization:
+Reformulations, algorithms, and multi-task learning,” SIAM Journal on
+Optimization, 2010.
+[45]
+L. Han and Y. Zhang, “Multi-stage multi-task learning with reduced
+rank,” in AAAI, 2016.
+[46]
+A. M. McDonald, M. Pontil, and D. Stamos, “Spectral k-support norm
+regularization,” in NIPS, 2014.
+[47]
+Y. Yang and T. M. Hospedales, “Trace norm regularised deep multi-task
+learning,” in ICLR, Workshop Track, 2017.
+[48]
+S. Thrun and J. O’Sullivan, “Discovering structure in multiple learning
+tasks: The TC algorithm,” in ICML, 1996.
+[49]
+K. Crammer and Y. Mansour, “Learning multiple tasks using shared
+hypotheses,” in NIPS, 2012.
+[50]
+B. Bakker and T. Heskes, “Task clustering and gating for Bayesian
+multitask learning,” JMLR, 2003.
+[51]
+K. Yu, V. Tresp, and A. Schwaighofer, “Learning Gaussian processes
+from multiple tasks,” in ICML, 2005.
+[52]
+S. Yu, V. Tresp, and K. Yu, “Robust multi-task learning with t-
+processes,” in ICML, 2007.
+[53]
+W. Lian, R. Henao, V. Rao, J. E. Lucas, and L. Carin, “A multitask point
+process predictive model,” in ICML, 2015.
+[54]
+Y. Xue, X. Liao, L. Carin, and B. Krishnapuram, “Multi-task learning
+for classiﬁcation with Dirichlet process priors,” JMLR, 2007.
+[55]
+Y. Xue, D. B. Dunson, and L. Carin, “The matrix stick-breaking process
+for ﬂexible multi-task learning,” in ICML, 2007.
+[56]
+H. Li, X. Liao, and L. Carin, “Nonparametric Bayesian feature selection
+for multi-task learning,” in ICASSP, 2011.
+[57]
+Y. Qi, D. Liu, D. B. Dunson, and L. Carin, “Multi-task compressive
+sensing with Dirichlet process priors,” in ICML, 2008.
+[58]
+K. Ni, L. Carin, and D. B. Dunson, “Multi-task learning for sequential
+data via iHMMs and the nested Dirichlet process,” in ICML, 2007.
+[59]
+K. Ni, J. W. Paisley, L. Carin, and D. B. Dunson, “Multi-task learning
+for analyzing and sorting large databases of sequential data,” IEEE TSP,
+2008.
+[60]
+A. Passos, P. Rai, J. Wainer, and H. Daum´e III, “Flexible modeling of
+latent task structures in multitask learning,” in ICML, 2012.
+[61]
+L. Jacob, F. R. Bach, and J.-P. Vert, “Clustered multi-task learning: A
+convex formulation,” in NIPS, 2008.
+[62]
+Z. Kang, K. Grauman, and F. Sha, “Learning with whom to share in
+multi-task feature learning,” in ICML, 2011.
+[63]
+L. Han and Y. Zhang, “Learning multi-level task groups in multi-task
+learning,” in AAAI, 2015.
+[64]
+A. Barzilai and K. Crammer, “Convex multi-task learning by cluster-
+ing,” in AISTATS, 2015.
+[65]
+Q. Zhou and Q. Zhao, “Flexible clustered multi-task learning by
+learning representative tasks,” IEEE TPAMI, 2016.
+[66]
+A. Kumar and H. Daum´e III, “Learning task grouping and overlap in
+multi-task learning,” in ICML, 2012.
+[67]
+Y. Yang and T. M. Hospedales, “Deep multi-task representation learn-
+ing: A tensor factorisation approach,” in ICLR, 2017.
+[68]
+J. Zhou, J. Chen, and J. Ye, “Clustered multi-task learning via alternat-
+ing structure optimization,” in NIPS, 2011.
+[69]
+T. Evgeniou and M. Pontil, “Regularized multi-task learning,” in KDD,
+2004.
+[70]
+S. Parameswaran and K. Q. Weinberger, “Large margin multi-task
+metric learning,” in NIPS, 2010.
+[71]
+T. Evgeniou, C. A. Micchelli, and M. Pontil, “Learning multiple tasks
+with kernel methods,” JMLR, 2005.
+[72]
+T. Kato, H. Kashima, M. Sugiyama, and K. Asai, “Multi-task learning
+via conic programming,” in NIPS, 2007.
+
+IEEE TRANSACTIONS ON IEEE TRANSACTIONS ON KNOWLEDGE AND DATA ENGINEERING
+18
+[73]
+S. Feldman, M. R. Gupta, and B. A. Frigyik, “Revisiting Stein’s
+paradox: Multi-task averaging,” JMLR, 2014.
+[74]
+I. Yamane, H. Sasaki, and M. Sugiyama, “Regularized multitask
+learning for multidimensional log-density gradient estimation,” Neural
+Computation, 2016.
+[75]
+N. G¨ornitz, C. Widmer, G. Zeller, A. Kahles, S. Sonnenburg, and
+G. R¨atsch, “Hierarchical multitask structured output learning for large-
+scale sequence segmentation,” in NIPS, 2011.
+[76]
+E. V. Bonilla, K. M. A. Chai, and C. K. I. Williams, “Multi-task
+Gaussian process prediction,” in NIPS, 2007.
+[77]
+K. M. A. Chai, “Generalization errors and learning curves for regression
+with multi-task Gaussian processes,” in NIPS, 2009.
+[78]
+Y. Zhang and D.-Y. Yeung, “Multi-task learning using generalized t
+process,” in AISTATS, 2010.
+[79]
+Y. Zhang and D.-Y. Yeung, “A convex formulation for learning task
+relationships in multi-task learning,” in UAI, 2010.
+[80]
+Y. Zhang and D.-Y. Yeung, “A regularization approach to learning task
+relationships in multitask learning,” ACM TKDD, 2014.
+[81]
+Y. Zhang and D.-Y. Yeung, “Multi-task boosting by exploiting task
+relationships,” in ECMLPKDD, 2012.
+[82]
+Y. Zhang and D.-Y. Yeung, “Multilabel relationship learning,” ACM
+TKDD, 2013.
+[83]
+F. Dinuzzo, C. S. Ong, P. V. Gehler, and G. Pillonetto, “Learning output
+kernels with block coordinate descent,” in ICML, 2011.
+[84]
+C. Ciliberto, Y. Mroueh, T. A. Poggio, and L. Rosasco, “Convex
+learning of multiple tasks and their structure,” in ICML, 2015.
+[85]
+C. Ciliberto, L. Rosasco, and S. Villa, “Learning multiple visual tasks
+while discovering their structure,” in CVPR, 2015.
+[86]
+P. Jawanpuria, M. Lapin, M. Hein, and B. Schiele, “Efﬁcient output
+kernel learning for multiple tasks,” in NIPS, 2015.
+[87]
+Y. Zhang and Q. Yang, “Learning sparse task relations in multi-task
+learning,” in AAAI, 2017.
+[88]
+Y. Zhang and J. G. Schneider, “Learning multiple tasks with a sparse
+matrix-normal penalty,” in NIPS, 2010.
+[89]
+C. Archambeau, S. Guo, and O. Zoeter, “Sparse Bayesian multi-task
+learning,” in NIPS, 2011.
+[90]
+M. Yang, Y. Li, and Z. Zhang, “Multi-task learning with Gaussian
+matrix generalized inverse Gaussian model,” in ICML, 2013.
+[91]
+Y. Zhang and D.-Y. Yeung, “Learning high-order task relationships in
+multi-task learning,” in IJCAI, 2013.
+[92]
+P. Rai, A. Kumar, and H. Daum´e III, “Simultaneously leveraging output
+and task structures for multiple-output regression,” in NIPS, 2012.
+[93]
+B. Rakitsch, C. Lippert, K. M. Borgwardt, and O. Stegle, “It is all in the
+noise: Efﬁcient multi-task Gaussian process inference with structured
+residuals,” in NIPS, 2013.
+[94]
+A. R. Goncalves, F. J. V. Zuben, and A. Banerjee, “Multi-task sparse
+structure learning with Gaussian copula models,” JMLR, 2016.
+[95]
+M. Long, Z. Cao, J. Wang, and P. S. Yu, “Learning multiple tasks with
+multilinear relationship networks,” in NIPS, 2017.
+[96]
+Y. Zhang, “Heterogeneous-neighborhood-based multi-task local learn-
+ing algorithms,” in NIPS, 2013.
+[97]
+G. Lee, E. Yang, and S. J. Hwang, “Asymmetric multi-task learning
+based on task relatedness and loss,” in ICML, 2016.
+[98]
+A. Jalali, P. Ravikumar, S. Sanghavi, and C. Ruan, “A dirty model for
+multi-task learning,” in NIPS, 2010.
+[99]
+J. Chen, J. Liu, and J. Ye, “Learning incoherent sparse and low-rank
+patterns from multiple tasks,” in KDD, 2010.
+[100] J. Chen, J. Zhou, and J. Ye, “Integrating low-rank and group-sparse
+structures for robust multi-task learning,” in KDD, 2011.
+[101] P. Gong, J. Ye, and C. Zhang, “Robust multi-task feature learning,” in
+KDD, 2012.
+[102] W. Zhong and J. T. Kwok, “Convex multitask learning with ﬂexible task
+clusters,” in ICML, 2012.
+[103] A. Zweig and D. Weinshall, “Hierarchical regularization cascade for
+joint learning,” in ICML, 2013.
+[104] L. Han and Y. Zhang, “Learning tree structure in multi-task learning,”
+in KDD, 2015.
+[105] P. Jawanpuria and J. S. Nath, “A convex feature learning formulation
+for latent task structure discovery,” in ICML, 2012.
+[106] B. Gong, Y. Shi, F. Sha, and K. Grauman, “Geodesic ﬂow kernel for
+unsupervised domain adaptation,” in CVPR, 2012.
+[107] M. Solnon, S. Arlot, and F. R. Bach, “Multi-task regression using
+minimal penalties,” JMLR, 2012.
+[108] Y. Zhang, Y. Wei, and Q. Yang, “Learning to multitask,” in NIPS, 2018.
+[109] Y. Zhang and D.-Y. Yeung, “Multi-task learning in heterogeneous
+feature spaces,” in AAAI, 2011.
+[110] S. Han, X. Liao, and L. Carin, “Cross-domain multitask learning with
+latent probit models,” in ICML, 2012.
+[111] P. Yang, K. Huang, and C. Liu, “Geometry preserving multi-task metric
+learning,” MLJ, 2013.
+[112] N. Quadrianto, A. J. Smola, T. S. Caetano, S. V. N. Vishwanathan,
+and J. Petterson, “Multitask learning without label correspondences,” in
+NIPS, 2010.
+[113] B. Romera-Paredes, H. Aung, N. Bianchi-Berthouze, and M. Pontil,
+“Multilinear multitask learning,” in ICML, 2013.
+[114] K. Wimalawarne, M. Sugiyama, and R. Tomioka, “Multitask learning
+meets tensor factorization: Task imputation via convex optimization,” in
+NIPS, 2014.
+[115] O. Sener and V. Koltun, “Multi-task learning as multi-objective opti-
+mization,” in NeurIPS, 2018.
+[116] T. Yu, S. Kumar, A. Gupta, S. Levine, K. Hausman, and C. Finn,
+“Gradient surgery for multi-task learning,” in NeurIPS, 2020.
+[117] Z. Chen, V. Badrinarayanan, C. Lee, and A. Rabinovich, “Gradnorm:
+Gradient normalization for adaptive loss balancing in deep multitask
+networks,” in ICML, 2018.
+[118] N. Parikh and S. P. Boyd, “Proximal algorithms,” Foundations and
+Trends in Optimization, vol. 1, no. 3, pp. 127–239, 2014.
+[119] L. Zhao, Q. Sun, J. Ye, F. Chen, C. Lu, and N. Ramakrishnan, “Multi-
+task learning for spatio-temporal event forecasting,” in KDD, 2015.
+[120] Y. Li, J. Wang, J. Ye, and C. K. Reddy, “A multi-task learning
+formulation for survival analysis,” in KDD, 2016.
+[121] L. Zhao, Q. Sun, J. Ye, F. Chen, C. Lu, and N. Ramakrishnan, “Feature
+constrained multi-task learning models for spatiotemporal event fore-
+casting,” IEEE TKDE, 2017.
+[122] Q. Liu, X. Liao, and L. Carin, “Semi-supervised multitask learning,” in
+NIPS, 2007.
+[123] Q. Liu, X. Liao, H. Li, J. R. Stack, and L. Carin, “Semisupervised
+multitask learning,” IEEE TPAMI, 2009.
+[124] Y. Zhang and D. Yeung, “Semi-supervised multi-task regression,” in
+ECMLPKDD, 2009.
+[125] R. Reichart, K. Tomanek, U. Hahn, and A. Rappoport, “Multi-task
+active learning for linguistic annotations,” in ACL, 2008.
+[126] A. Acharya, R. J. Mooney, and J. Ghosh, “Active multitask learning
+using both latent and supervised shared topics,” in SDM, 2014.
+[127] M. Fang and D. Tao, “Active multi-task learning via bandits,” in SDM,
+2015.
+[128] H. Li, X. Liao, and L. Carin, “Active learning for semi-supervised multi-
+task learning,” in ICASSP, 2009.
+[129] K. Lin and J. Zhou, “Interactive multi-task relationship learning,” in
+ICDM, 2016.
+[130] A. Pentina and C. H. Lampert, “Multi-task learning with labeled and
+unlabeled tasks,” in ICML, 2017.
+[131] J. Zhang and C. Zhang, “Multitask Bregman clustering,” in AAAI, 2010.
+[132] X. Zhang and X. Zhang, “Smart multi-task Bregman clustering and
+multi-task kernel clustering,” in AAAI, 2013.
+[133] X. Zhang, X. Zhang, and H. Liu, “Smart multitask Bregman clustering
+and multitask kernel clustering,” ACM TKDD, 2015.
+[134] Q. Gu, Z. Li, and J. Han, “Learning a kernel for multi-task clustering,”
+in AAAI, 2011.
+[135] X. Zhang, “Convex discriminative multitask clustering,” IEEE TPAMI,
+2015.
+[136] Y. Wang, D. P. Wipf, Q. Ling, W. Chen, and I. J. Wassell, “Multi-task
+learning for subspace segmentation,” in ICML, 2015.
+[137] X. Zhang, X. Zhang, and H. Liu, “Self-adapted multi-task clustering,”
+in IJCAI, 2016.
+[138] Y. Yang, Z. Ma, Y. Yang, F. Nie, and H. T. Shen, “Multitask spectral
+clustering by exploring intertask correlation,” IEEE TCYB, 2015.
+[139] X. Zhu, X. Li, S. Zhang, C. Ju, and X. Wu, “Robust joint graph sparse
+coding for unsupervised spectral feature selection,” IEEE TNNLS, 2017.
+[140] X. Zhang, X. Zhang, H. Liu, and J. Luo, “Multi-task clustering with
+model relation learning,” in IJCAI, 2018.
+[141] A. Wilson, A. Fern, S. Ray, and P. Tadepalli, “Multi-task reinforcement
+learning: A hierarchical Bayesian approach,” in ICML, 2007.
+[142] H. Li, X. Liao, and L. Carin, “Multi-task reinforcement learning in
+partially observable stochastic environments,” JMLR, 2009.
+[143] A. Lazaric and M. Ghavamzadeh, “Bayesian multi-task reinforcement
+learning,” in ICML, 2010.
+[144] D. Calandriello, A. Lazaric, and M. Restelli, “Sparse multi-task rein-
+forcement learning,” in NIPS, 2014.
+[145] J. Andreas, D. Klein, and S. Levine, “Modular multitask reinforcement
+learning with policy sketches,” in ICML, 2017.
+[146] A. A. Deshmukh, ¨U. Dogan, and C. Scott, “Multi-task learning for
+contextual bandits,” in NIPS, 2017.
+
+IEEE TRANSACTIONS ON IEEE TRANSACTIONS ON KNOWLEDGE AND DATA ENGINEERING
+19
+[147] A. M. Saxe, A. C. Earle, and B. Rosman, “Hierarchy through composi-
+tion with multitask LMDPs,” in ICML, 2017.
+[148] T. Br¨am, G. Brunner, O. Richter, and R. Wattenhofer, “Attentive multi-
+task deep reinforcement learning,” in ECMLPKDD, 2019.
+[149] T. Vuong, D. V. Nguyen, T. Nguyen, C. Bui, H. Kieu, V. Ta, Q. Tran,
+and T. H. Le, “Sharing experience in multitask reinforcement learning,”
+in IJCAI, 2019.
+[150] M. Igl, A. Gambardella, N. Nardelli, N. Siddharth, W. B¨ohmer, and
+S. Whiteson, “Multitask soft option learning,” in UAI, 2020.
+[151] E. Parisotto, J. Ba, and R. Salakhutdinov, “Actor-mimic: Deep multitask
+and transfer reinforcement learning,” in ICLR, 2016.
+[152] A. A. Rusu, S. G. Colmenarejo, C¸ . G¨ulc¸ehre, G. Desjardins, J. Kirk-
+patrick, R. Pascanu, V. Mnih, K. Kavukcuoglu, and R. Hadsell, “Policy
+distillation,” in ICLR, 2016.
+[153] S. Omidshaﬁei, J. Pazis, C. Amato, J. P. How, and J. Vian, “Deep de-
+centralized multi-task multi-agent reinforcement learning under partial
+observability,” in ICML, 2017.
+[154] Y. W. Teh, V. Bapst, W. M. Czarnecki, J. Quan, J. Kirkpatrick, R. Had-
+sell, N. Heess, and R. Pascanu, “Distral: Robust multitask reinforcement
+learning,” in NIPS, 2017.
+[155] S. E. Bsat, H. Bou-Ammar, and M. E. Taylor, “Scalable multitask policy
+gradient reinforcement learning,” in AAAI, 2017.
+[156] S. Sharma and B. Ravindran, “Online multi-task learning using active
+sampling,” in ICLR Workshop, 2017.
+[157] S. Sharma, A. K. Jha, P. Hegde, and B. Ravindran, “Learning to multi-
+task by active sampling,” in ICLR, 2018.
+[158] L. Espeholt, H. Soyer, R. Munos, K. Simonyan, V. Mnih, T. Ward,
+Y.
+Doron,
+V.
+Firoiu,
+T.
+Harley,
+I.
+Dunning,
+S.
+Legg,
+and
+K. Kavukcuoglu, “IMPALA: scalable distributed deep-RL with impor-
+tance weighted actor-learner architectures,” in ICML, 2018.
+[159] R. Tutunov, D. Kim, and H. Bou-Ammar, “Distributed multitask rein-
+forcement learning with quadratic convergence,” in NeurIPS, 2018.
+[160] X. Lin, H. S. Baweja, G. Kantor, and D. Held, “Adaptive auxiliary task
+weighting for reinforcement learning,” in NeurIPS, 2019.
+[161] C. D’Eramo, D. Tateo, A. Bonarini, M. Restelli, and J. Peters, “Sharing
+knowledge in multi-task deep reinforcement learning,” in ICLR, 2020.
+[162] T. Shu, C. Xiong, and R. Socher, “Hierarchical and interpretable skill
+acquisition in multi-task reinforcement learning,” in ICLR, 2018.
+[163] M. Hessel, H. Soyer, L. Espeholt, W. Czarnecki, S. Schmitt, and
+H. van Hasselt, “Multi-task deep reinforcement learning with PopArt,”
+in AAAI, 2019.
+[164] Z. Guo, B. A. Pires, M. G. Azar, B. Piot, F. Altch´e, J.-B. Grill, and
+R. Munos, “Bootstrap latent-predictive representations for multitask
+reinforcement learning,” in ICML, 2020.
+[165] J. He and R. Lawrence, “A graph-based framework for multi-task multi-
+view learning,” in ICML, 2011.
+[166] J. Zhang and J. Huan, “Inductive multi-task learning with multiple view
+data,” in KDD, 2012.
+[167] X. Zhang, X. Zhang, and H. Liu, “Multi-task multi-view clustering for
+non-negative data,” in IJCAI, 2015.
+[168] X. Zhang, X. Zhang, H. Liu, and X. Liu, “Multi-task multi-view
+clustering,” IEEE TKDE, 2016.
+[169] X. Zhu, X. Li, and S. Zhang, “Block-row sparse multiview multilabel
+learning for image classiﬁcation,” IEEE TCYB, 2016.
+[170] L. Zheng, Y. Cheng, and J. He, “Deep multimodality model for multi-
+task multi-view learning,” in SDM, 2019.
+[171] A. Niculescu-Mizil and R. Caruana, “Inductive transfer for Bayesian
+network structure learning,” in AISTATS, 2007.
+[172] J. Honorio and D. Samaras, “Multi-task learning of Gaussian graphical
+models,” in ICML, 2010.
+[173] D. Oyen and T. Lane, “Leveraging domain knowledge in multitask
+Bayesian network structure learning,” in AAAI, 2012.
+[174] K. Lin, J. Xu, I. M. Baytas, S. Ji, and J. Zhou, “Multi-task feature
+interaction learning,” in KDD, 2016.
+[175] Y. Zhang, “Parallel multi-task learning,” in ICDM, 2015.
+[176] O. Dekel, P. M. Long, and Y. Singer, “Online multitask learning,” in
+COLT, 2006.
+[177] O. Dekel, P. M. Long, and Y. Singer, “Online learning of multiple tasks
+with a shared loss,” JMLR, 2007.
+[178] G. Lugosi, O. Papaspiliopoulos, and G. Stoltz, “Online multi-task
+learning with hard constraints,” in COLT, 2009.
+[179] G. Cavallanti, N. Cesa-Bianchi, and C. Gentile, “Linear algorithms for
+online multitask classiﬁcation,” JMLR, 2010.
+[180] G. Pillonetto, F. Dinuzzo, and G. D. Nicolao, “Bayesian online multitask
+learning of Gaussian processes,” IEEE TPAMI, 2010.
+[181] A. Saha, P. Rai, H. Daum´e III, and S. Venkatasubramanian, “Online
+learning of multiple tasks and their relationships,” in AISTATS, 2011.
+[182] K. Murugesan, H. Liu, J. G. Carbonell, and Y. Yang, “Adaptive
+smoothed online multi-task learning,” in NIPS, 2016.
+[183] P. Yang, P. Zhao, and X. Gao, “Robust online multi-task learning with
+correlative and personalized structures,” IEEE TKDE, 2017.
+[184] S. Hao, P. Zhao, Y. Liu, S. C. H. Hoi, and C. Miao, “Online multitask
+relative similarity learning,” in IJCAI, 2017.
+[185] P. Yang, P. Zhao, J. Zhou, and X. Gao, “Conﬁdence weighted multitask
+learning,” in AAAI, 2019.
+[186] J. Wang, M. Kolar, and N. Srebro, “Distributed multi-task learning,” in
+AISTATS, 2016.
+[187] S. Liu, S. J. Pan, and Q. Ho, “Distributed multi-task relationship
+learning,” in KDD, 2017.
+[188] L. Xie, I. M. Baytas, K. Lin, and J. Zhou, “Privacy-preserving dis-
+tributed multi-task learning with asynchronous updates,” in KDD, 2017.
+[189] V. Smith, C. Chiang, M. Sanjabi, and A. S. Talwalkar, “Federated multi-
+task learning,” in NIPS, 2017.
+[190] C. Zhang, P. Zhao, S. Hao, Y. C. Soh, B. Lee, C. Miao, and S. C. H. Hoi,
+“Distributed multi-task classiﬁcation: A decentralized online learning
+approach,” MLJ, 2018.
+[191] K. Q. Weinberger, A. Dasgupta, J. Langford, A. J. Smola, and J. At-
+tenberg, “Feature hashing for large scale multitask learning,” in ICML,
+2009.
+[192] T. Zhang, B. Ghanem, S. Liu, and N. Ahuja, “Robust visual tracking
+via multi-task sparse learning,” in CVPR, 2012.
+[193] T. Zhang, B. Ghanem, S. Liu, and N. Ahuja, “Robust visual tracking
+via structured multi-task sparse learning,” IJCV, 2013.
+[194] Q. Xu, S. J. Pan, H. H. Xue, and Q. Yang, “Multitask learning for
+protein subcellular location prediction,” IEEE/ACM TCBB, 2011.
+[195] Z. Wu, C. Valentini-Botinhao, O. Watts, and S. King, “Deep neural
+networks employing multi-task learning and stacked bottleneck features
+for speech synthesis,” in ICASSP, 2015.
+[196] Q. Hu, Z. Wu, K. Richmond, J. Yamagishi, Y. Stylianou, and R. Maia,
+“Fusion of multiple parameterisations for DNN-based sinusoidal speech
+synthesis with multi-task learning,” in InterSpeech, 2015.
+[197] J. Bai, K. Zhou, G. Xue, H. Zha, G. Sun, B. L. Tseng, Z. Zheng, and
+Y. Chang, “Multi-task learning for learning to rank in web search,” in
+CIKM, 2009.
+[198] J. Ghosn and Y. Bengio, “Multi-task learning for stock selection,” in
+NIPS, 1996.
+[199] C. Yuan, W. Hu, G. Tian, S. Yang, and H. Wang, “Multi-task sparse
+learning with Beta process prior for action recognition,” in CVPR, 2013.
+[200] Y. Qi, O. Tastan, J. G. Carbonell, J. Klein-Seetharaman, and J. We-
+ston, “Semi-supervised multi-task learning for predicting interactions
+between HIV-1 and human proteins,” Bioinformatics, 2010.
+[201] P. Bell and S. Renals, “Regularization of context-dependent deep neural
+networks with context-independent multi-task training,” in ICASSP,
+2015.
+[202] Z. Chen, S. Watanabe, H. Erdogan, and J. R. Hershey, “Speech en-
+hancement and recognition using multi-task learning of long short-term
+memory recurrent neural networks,” in InterSpeech, 2015.
+[203] V. W. Zheng, S. J. Pan, Q. Yang, and J. J. Pan, “Transferring multi-
+device localization models using latent multi-task learning,” in AAAI,
+2008.
+[204] R. Collobert and J. Weston, “A uniﬁed architecture for natural language
+processing: Deep neural networks with multitask learning,” in ICML,
+2008.
+[205] M. Lapin, B. Schiele, and M. Hein, “Scalable multitask representation
+learning for scene classiﬁcation,” in CVPR, 2014.
+[206] A. H. Abdulnabi, G. Wang, J. Lu, and K. Jia, “Multi-task CNN model
+for attribute prediction,” IEEE TMM, 2015.
+[207] M. Luong, Q. V. Le, I. Sutskever, O. Vinyals, and L. Kaiser, “Multi-task
+sequence to sequence learning,” in ICLR, 2016.
+[208] J. Yim, H. Jung, B. Yoo, C. Choi, D. Park, and J. Kim, “Rotating your
+face using multi-task deep neural network,” in CVPR, 2015.
+[209] X. Chu, W. Ouyang, W. Yang, and X. Wang, “Multi-task recurrent
+neural network for immediacy prediction,” in ICCV, 2015.
+[210] X. Wang, C. Zhang, and Z. Zhang, “Boosted multi-task learning for
+face veriﬁcation with applications to web image and video search,” in
+CVPR, 2009.
+[211] X. Yuan and S. Yan, “Visual classiﬁcation with multi-task joint sparse
+representation,” in CVPR, 2010.
+[212] Q. Liu, Q. Xu, V. W. Zheng, H. Xue, Z. Cao, and Q. Yang, “Multi-
+task learning for cross-platform siRNA efﬁcacy prediction: An in-silico
+study,” BMC Bioinformatics, 2010.
+[213] A. Ahmed, M. Aly, A. Das, A. J. Smola, and T. Anastasakos, “Web-
+scale multi-task feature selection for behavioral targeting,” in CIKM,
+2012.
+
+IEEE TRANSACTIONS ON IEEE TRANSACTIONS ON KNOWLEDGE AND DATA ENGINEERING
+20
+[214] H. Wang, F. Nie, H. Huang, S. L. Risacher, C. H. Q. Ding, A. J. Saykin,
+and L. Shen, “Sparse multi-task regression and feature selection to
+identify brain imaging predictors for memory performance,” in ICCV,
+2011.
+[215] K. Puniyani, S. Kim, and E. P. Xing, “Multi-population GWA mapping
+via multi-task regularized regression,” Bioinformatics, 2010.
+[216] J. Zhou, L. Yuan, J. Liu, and J. Ye, “A multi-task learning formulation
+for predicting disease progression,” in KDD, 2011.
+[217] J. Wan, Z. Zhang, J. Yan, T. Li, B. D. Rao, S. Fang, S. Kim, S. L.
+Risacher, A. J. Saykin, and L. Shen, “Sparse Bayesian multi-task
+learning for predicting cognitive outcomes from neuroimaging measures
+in Alzheimer’s disease,” in CVPR, 2012.
+[218] D. He, D. Kuhn, and L. Parida, “Novel applications of multitask learn-
+ing and multiple output regression to multiple genetic trait prediction,”
+Bioinformatics, 2016.
+[219] K. Zhang, J. W. Gray, and B. Parvin, “Sparse multitask regression
+for identifying common mechanism of response to therapeutic targets,”
+Bioinformatics, 2010.
+[220] B. Cheng, G. Liu, J. Wang, Z. Huang, and S. Yan, “Multi-task low-rank
+afﬁnity pursuit for image segmentation,” in ICCV, 2011.
+[221] J. Xu, P. Tan, L. Luo, and J. Zhou, “GSpartan: a geospatio-temporal
+multi-task learning framework for multi-location prediction,” in SDM,
+2016.
+[222] C. Lang, G. Liu, J. Yu, and S. Yan, “Saliency detection by multitask
+sparsity pursuit,” IEEE TIP, 2012.
+[223] H. Wang, F. Nie, H. Huang, J. Yan, S. Kim, S. L. Risacher, A. J.
+Saykin, and L. Shen, “High-order multi-task feature learning to identify
+longitudinal phenotypic markers for Alzheimer’s disease progression
+prediction,” in NIPS, 2012.
+[224] Q. An, C. Wang, I. Shterev, E. Wang, L. Carin, and D. B. Dunson, “Hi-
+erarchical kernel stick-breaking process for multi-task image analysis,”
+in ICML, 2008.
+[225] M. Alamgir, M. Grosse-Wentrup, and Y. Altun, “Multitask learning for
+brain-computer interfaces,” in AISTATS, 2010.
+[226] Y. Zhang and D.-Y. Yeung, “Multi-task warped Gaussian process for
+personalized age estimation,” in CVPR, 2010.
+[227] J. Xu, J. Zhou, and P. Tan, “FORMULA: FactORized MUlti-task
+LeArning for task discovery in personalized medical models,” in SDM,
+2015.
+[228] T. R. Almaev, B. Mart´ınez, and M. F. Valstar, “Learning to transfer:
+Transferring latent task structures and its application to person-speciﬁc
+facial action unit detection,” in ICCV, 2015.
+[229] A. Liu, Y. Su, W. Nie, and M. S. Kankanhalli, “Hierarchical clustering
+multi-task learning for joint human action grouping and recognition,”
+IEEE TPAMI, 2017.
+[230] F. Wu and Y. Huang, “Collaborative multi-domain sentiment classiﬁca-
+tion,” in ICDM, 2015.
+[231] O. Chapelle, P. K. Shivaswamy, S. Vadrevu, K. Q. Weinberger,
+Y. Zhang, and B. L. Tseng, “Multi-task learning for boosting with
+application to web search ranking,” in KDD, 2010.
+[232] C. Widmer, J. Leiva, Y. Altun, and G. R¨atsch, “Leveraging sequence
+classiﬁcation by taxonomy-based multitask learning,” in RECOMB,
+2010.
+[233] Y. Zhang, B. Cao, and D.-Y. Yeung, “Multi-domain collaborative
+ﬁltering,” in UAI, 2010.
+[234] K. M. A. Chai, C. K. I. Williams, S. Klanke, and S. Vijayakumar,
+“Multi-task Gaussian process learning of robot inverse dynamics,” in
+NIPS, 2008.
+[235] D.-Y. Yeung and Y. Zhang, “Learning inverse dynamics by Gaussian
+process regression under the multi-task learning framework,” in The
+Path to Autonomous Robots, Springer, 2009.
+[236] C. Widmer, N. C. Toussaint, Y. Altun, and G. R¨atsch, “Inferring latent
+task structure for multitask learning by multiple kernel learning,” BMC
+Bioinformatics, 2010.
+[237] A. Ahmed, A. Das, and A. J. Smola, “Scalable hierarchical multitask
+learning algorithms for conversion optimization in display advertising,”
+in WSDM, 2014.
+[238] J. Zheng and L. M. Ni, “Time-dependent trajectory regression on road
+networks via multi-task learning,” in AAAI, 2013.
+[239] X. Lu, Y. Wang, X. Zhou, Z. Zhang, and Z. Ling, “Trafﬁc sign recog-
+nition via multi-modal tree-structure embedded multi-task learning,”
+IEEE TITS, 2017.
+[240] F. Mordelet and J. Vert, “ProDiGe: Prioritization of disease genes with
+multitask machine learning from positive and unlabeled examples,”
+BMC Bioinformatics, 2011.
+[241] J. Xu, P. Tan, J. Zhou, and L. Luo, “Online multi-task learning
+framework for ensemble forecasting,” IEEE TKDE, 2017.
+[242] M. Kshirsagar, J. G. Carbonell, and J. Klein-Seetharaman, “Multitask
+learning for host-pathogen protein interactions,” Bioinformatics, 2013.
+[243] L. Han, L. Li, F. Wen, L. Zhong, T. Zhang, and X. Wan, “Graph-guided
+multi-task sparse learning model: a method for identifying antigenic
+variants of inﬂuenza A(H3N2) virus,” Bioinformatics, 2019.
+[244] Z. Hong, X. Mei, D. V. Prokhorov, and D. Tao, “Tracking via robust
+multi-task multi-view joint sparse representation,” in ICCV, 2013.
+[245] Y. Yan, E. Ricci, S. Ramanathan, O. Lanz, and N. Sebe, “No matter
+where you are: Flexible graph-guided multi-task learning for multi-view
+head pose classiﬁcation under target motion,” in ICCV, 2013.
+[246] M. Kshirsagar, K. Murugesan, J. G. Carbonell, and J. Klein-
+Seetharaman, “Multitask matrix completion for learning protein inter-
+actions across diseases,” Journal of Computational Biology, 2017.
+[247] C. Su, F. Yang, S. Zhang, Q. Tian, L. S. Davis, and W. Gao, “Multi-task
+learning with low rank attribute embedding for person re-identiﬁcation,”
+in ICCV, 2015.
+[248] Y. Zhang and Q. Yang, “A survey on multi-task learning,” CoRR, 2017.
+[249] J. Baxter, “Learning internal representations,” in COLT, 1995.
+[250] J. Baxter, “A model of inductive bias learning,” JAIR, 2000.
+[251] A. Maurer, “Bounds for linear multi-task learning,” JMLR, 2006.
+[252] A. Maurer, “The Rademacher complexity of linear transformation
+classes,” in COLT, 2006.
+[253] B. Juba, “Estimating relatedness via data compression,” in ICML, 2006.
+[254] S. Ben-David and R. S. Borbely, “A notion of task relatedness yielding
+provable multiple-task learning guarantees,” MLJ, 2008.
+[255] S. M. Kakade, S. Shalev-Shwartz, and A. Tewari, “Regularization
+techniques for learning with matrices,” JMLR, 2012.
+[256] M. Pontil and A. Maurer, “Excess risk bounds for multitask learning
+with trace norm regularization,” in COLT, 2013.
+[257] A. Pentina and S. Ben-David, “Multi-task and lifelong learning of
+kernels,” in ALT, 2015.
+[258] Y. Zhang, “Multi-task learning and algorithmic stability,” in AAAI, 2015.
+[259] A. Maurer, M. Pontil, and B. Romera-Paredes, “The beneﬁt of multitask
+representation learning,” JMLR, 2016.
+[260] N. Youseﬁ, Y. Lei, M. Kloft, M. Mollaghasemi, and G. Anag-
+nastapolous, “Local Rademacher complexity-based learning guarantees
+for multi-task learning,” JMLR, 2018.
+[261] A. Argyriou, C. A. Micchelli, and M. Pontil, “When is there a represen-
+ter theorem? vector versus matrix regularizers,” JMLR, 2009.
+[262] A. Argyriou, C. A. Micchelli, and M. Pontil, “On spectral learning,”
+JMLR, 2010.
+[263] K. Lounici, M. Pontil, A. B. Tsybakov, and S. A. van de Geer, “Taking
+advantage of sparsity in multi-task learning,” in COLT, 2009.
+[264] G. Obozinski, M. J. Wainwright, and M. I. Jordan, “Support union
+recovery in high-dimensional multivariate regression,” Annals of Statis-
+tics, 2011.
+[265] M. Kolar, J. D. Lafferty, and L. A. Wasserman, “Union support recovery
+in multi-task learning,” JMLR, 2011.

@@ -1,0 +1,1676 @@
+ARTICLE
+OPEN
+TransPolymer: a Transformer-based language model for
+polymer property predictions
+Changwen Xu
+1,2, Yuyang Wang
+2,3 and Amir Barati Farimani
+1,2,3,4✉
+Accurate and efﬁcient prediction of polymer properties is of great signiﬁcance in polymer design. Conventionally, expensive and
+time-consuming experiments or simulations are required to evaluate polymer functions. Recently, Transformer models, equipped
+with self-attention mechanisms, have exhibited superior performance in natural language processing. However, such methods have
+not been investigated in polymer sciences. Herein, we report TransPolymer, a Transformer-based language model for polymer
+property prediction. Our proposed polymer tokenizer with chemical awareness enables learning representations from polymer
+sequences. Rigorous experiments on ten polymer property prediction benchmarks demonstrate the superior performance of
+TransPolymer. Moreover, we show that TransPolymer beneﬁts from pretraining on large unlabeled dataset via Masked Language
+Modeling. Experimental results further manifest the important role of self-attention in modeling polymer sequences. We highlight
+this model as a promising computational tool for promoting rational polymer design and understanding structure-property
+relationships from a data science view.
+npj Computational Materials (2023) 9:64 ; https://doi.org/10.1038/s41524-023-01016-5
+INTRODUCTION
+The accurate and efﬁcient property prediction is essential to the
+design of polymers in various applications, including polymer
+electrolytes1,2, organic optoelectronics3,4, energy storage5,6, and
+many others7,8. Rational representations which map polymers to
+continuous vector space are crucial to applying machine learning
+tools in polymer property prediction. Fingerprints (FPs), which
+have been proven to be effective in molecular machine learning
+models, are introduced for polymer-related tasks9. Recently, deep
+neural networks (DNNs) have revolutionized polymer property
+prediction by directly learning expressive representations from
+data to generate deep ﬁngerprints, instead of relying on manually
+engineered descriptors10. Rahman et al. used convolutional neural
+networks (CNNs) for the prediction of mechanical properties of
+polymer-carbon nanotube surfaces11, whereas CNNs suffered from
+failure to consider molecular structure and interactions between
+atoms. Graph neural networks (GNNs)12, which have outperformed
+many other models on several molecules and polymer bench-
+marks13–17, are capable of learning representations from graphs
+and ﬁnding optimal ﬁngerprints based on downstream tasks10. For
+example, Park et al.18 trained graph convolutional neural networks
+(GCNN) for predictions of thermal and mechanical properties of
+polymers and discovered that the GCNN representations for
+polymers resulted in comparable model performance to the
+popular
+extended-connectivity
+circular
+ﬁngerprint
+(ECFP)19,20
+representation. Recently, Aldeghi et al. adapted a graph repre-
+sentation of molecular ensembles along with a GNN architecture
+to capture pivotal features and accomplish accurate predictions of
+electron afﬁnity and ionization potential of conjugated poly-
+mers21. However, GNN-based models require explicitly known
+structural and conformational information, which would be
+computationally or experimentally expensive to obtain. Plus, the
+degree of polymerization varies for each polymer, which makes it
+even harder to accurately represent polymers as graphs. Using the
+repeating unit only as graph is likely to result in missing structural
+information. Therefore, the optimal method of graph representa-
+tion for polymers is still obscure.
+Meanwhile, language models, like recurrent neural networks
+(RNNs) based models22–25, treat polymers as character sequences
+for featurization. Chemistry sequences have the same structure as
+a natural language like English, as suggested by Cadeddu et al., in
+terms of the distribution of text fragments and molecular
+fragments26. This elucidates the development of sequence models
+similar to those in computational linguistics for extracting
+information from chemical sequences and realizing the intuition
+of understanding chemical texts just like understanding natural
+languages. Multiple works have investigated the development of
+deep language models for polymer science. Simine et al. managed
+to predict spectra of conjugated polymers by long short-term
+memory (LSTM) from coarse-grained representations of poly-
+mers27. Webb et al. proposed coarse-grained polymer genomes as
+sequences and applied LSTM to predict the properties of different
+polymer classes28. Patel et al. further extended the coarse-grained
+string featurization to copolymer systems and developed GNN,
+CNN, as well as LSTM to model encoded copolymer sequences29.
+Bhattacharya et al. leveraged RNNs with sequence embedding to
+predict
+aggregate
+morphology
+of
+macromolecules30.
+Plus,
+sequence models could represent molecules and polymers with
+Simpliﬁed Molecular-Input Line-Entry system (SMILES)31 and
+convert the strings to embeddings for vectorization. Some works,
+like BigSMILES32, have also investigated the string-based encoding
+of macromolecules. Goswami et al. created encodings from
+polymer SMILES as input for the LSTM model for polymer glass
+transition temperature prediction33. However, RNN-based models
+are generally not competitive enough to encode chemical
+knowledge from polymer sequences because they rely on
+previous hidden states for dependencies between words and
+tend to lose information when they reach deeper steps. In recent
+1Department of Materials Science and Engineering, Carnegie Mellon University, 5000 Forbes Ave, Pittsburgh 15213 PA, USA. 2Department of Mechanical Engineering, Carnegie
+Mellon University, 5000 Forbes Ave, Pittsburgh 15213 PA, USA. 3Machine Learning Department, Carnegie Mellon University, 5000 Forbes Ave, Pittsburgh 15213 PA, USA.
+4Department of Chemical Engineering, Carnegie Mellon University, 5000 Forbes Ave, Pittsburgh 15213 PA, USA. ✉email: barati@cmu.edu
+www.nature.com/npjcompumats
+Published in partnership with the Shanghai Institute of Ceramics of the Chinese Academy of Sciences
+1234567890():,;
+
+years, the exceptionally superior performance demonstrated by
+Transformer34 on numerous natural language processing (NLP)
+tasks has shed light on studying chemistry and materials science
+by language models. Since proposed, Transformer and its variants
+have soon brought about signiﬁcant changes in NLP tasks over
+the past few years. Transformer is featured with using attention
+mechanism only so that it can capture relationships between
+tokens in a sentence without relying on past hidden states. Many
+Transformer-based models like BERT35, RoBERTa36, GPT37, ELMo38,
+and XLM39 have emerged as effective pretraining methods by self-
+supervised learning of representations from unlabeled texts,
+leading to performance enhancement on various downstream
+tasks. On this account, many works have already applied
+Transformer on property predictions of small organic mole-
+cules40–43. SMILES-BERT was proposed to pretrain the model of
+BERT-like architecture through a masked SMILES recovery task and
+then generalize into different molecular property prediction
+tasks44. Similarly, ChemBERTa45, a RoBERTa-like model for mole-
+cular property prediction, was also introduced, following the
+pretrain-ﬁnetune pipeline. ChemBERTa demonstrated competitive
+performance on multiple downstream tasks and scaled well with
+the size of pretraining datasets. Transformer-based models could
+even be used for processing reactions. Schwaller et al. mimicked
+machine translation tasks and trained Transformer on reaction
+sequences represented by SMILES for reaction prediction with
+high accuracy46. Recently, Transformer has been further proven to
+be effective as a structure-agnostic model in material science
+tasks, for example, predicting MOF properties based on a text
+string representation47. Despite the wide investigation of Trans-
+former for molecules and materials, such models have not yet
+been leveraged to learn representations of polymers. Compared
+with small molecules, designing Transformer-based models for
+polymers is more challenging because the standard SMILES
+encoding fails to model the polymer structure and misses
+fundamental factors inﬂuencing polymer properties like degree
+of polymerization and temperature of measurement. Moreover,
+the polymer sequences used as input should contain information
+on not only the deﬁnition of monomers but also the arrangement
+of monomers in polymers48. In addition, sequence models for
+polymers are confronted with an inherent scarcity of handy, well-
+labeled data, considering the hard work in the characterization
+process in the laboratory. The situation becomes even worse
+when
+some
+of
+the
+polymer
+data
+sources
+are
+not
+fully
+accessible49,50.
+Herein, we propose TransPolymer, a Transformer-based language
+model for polymer property predictions. To the best of our
+knowledge, it is the ﬁrst work to introduce the Transformer-based
+model to polymer sciences. Polymers are represented by sequences
+based on SMILES of their repeating units as well as structural
+descriptors and then tokenized by a chemically-aware tokenizer as
+the input of TransPolymer, shown in Fig. 1a. Even though there is still
+information which cannot be explicitly obtained from input
+sequences, like bond angles or overall polymer chain conﬁguration,
+such information can still be learned implicitly by the model.
+TransPolymer consists of a RoBERTa architecture and a multi-layer
+perceptron (MLP) regressor head, for predictions of various polymer
+properties. In the pretraining phase, TransPolymer is trained through
+Masked Language Modeling (MLM) with approximately 5M aug-
+mented unlabeled polymers from the PI1M database51. In MLM,
+tokens in sequences are randomly masked and the objective is to
+recover the original tokens based on the contexts. Afterward,
+TransPolymer is ﬁnetuned and evaluated on ten datasets of polymers
+concerning various properties, covering polymer electrolyte con-
+ductivity, band gap, electron afﬁnity, ionization energy, crystallization
+tendency, dielectric constant, refractive index, and p-type polymer
+OPV power conversion efﬁciency52–55. For each entry in the datasets,
+the corresponding polymer sequence, containing polymer SMILES as
+well as useful descriptors like temperature and special tokens are
+tokenized as input of TransPolymer. The pretraining and ﬁnetuning
+processes are illustrated in Fig. 1b and d. Data augmentation is also
+implemented for better learning of features from polymer sequences.
+TransPolymer achieves state-of-the-art (SOTA) results on all ten
+benchmarks and surpasses other baseline models by large margins
+in most cases. Ablation studies provide further evidence of what
+contributes to the superior performance of TransPolymer by
+investigating the roles of MLM pretraining on large unlabeled data,
+ﬁnetuning both Transformer encoders and the regressor head, and
+data augmentation. The evidence from visualization of attention
+scores illustrates that TransPolymer can encode chemical information
+about internal interactions of polymers and inﬂuential factors of
+polymer properties. Such a method learns generalizable features that
+can be transferred to property prediction of polymers, which is of
+great signiﬁcance in polymer design.
+RESULTS
+TransPolymer framework
+Our TransPolymer framework consists of tokenization, Transformer
+encoder, pretraining, and ﬁnetuning. Each polymer data is ﬁrst
+converted to a string of tokens through tokenization. Polymer
+sequences are more challenging to design than molecule or
+protein sequences as polymers contain complex hierarchical
+structures and compositions. For instance, two polymers that
+have the same repeating units can vary in terms of the degree of
+polymerization. Therefore, we propose a chemical-aware polymer
+tokenization method as shown in Fig. 1a. The repeating units of
+polymers are embedded using SMILES and additional descriptors
+(e.g., degree of polymerization, polydispersity, and chain con-
+formation) are included to model the polymer system. Plus,
+copolymers are modeled by combining the SMILES of each
+constituting repeating unit along with the ratios and the
+arrangements of those repeating units. Moreover, materials
+consisting of mixtures of polymers are represented by concate-
+nating the sequences for each component as well as the
+descriptors for the materials. Besides, each token represents
+either an element, the value of a polymer descriptor, or a special
+separator. Therefore, the tokenization strategy is chemical-aware
+and thus has an edge over the tokenizer trained for natural
+languages which tokenizes based on single letters. More details
+about the design of our chemical-aware tokenization strategy
+could be found in the Methods section.
+Transformer encoders are built upon stacked self-attention and
+point-wise, fully connected layers34, shown in Fig. 1c. Unlike RNN
+or CNN models, Transformer depends on the self-attention
+mechanism that relates tokens at different positions in a sequence
+to learn representations. Scaled dot-product attention across
+tokens is applied which relies on the query, key, and value
+matrices. More details about self-attention can be found in the
+Methods section. In our case, the Transformer encoder is made up
+of 6 hidden layers and each hidden layer contains 12 attention
+heads. The hyperparameters of TransPolymer are chosen by
+starting from the common setting of RoBERTa36 and then tuned
+according to model performance.
+To learn better representations from large unlabeled polymer
+data, the Transformer encoder is pretrained via Masked Language
+Modeling (MLM), a universal and effective pretraining method for
+various NLP tasks56–58. As shown in Fig. 1d (left), 15% of tokens of
+a sequence are randomly chosen for possible replacement, and
+the pretraining objective is to predict the original tokens by
+learning from the contexts. The pretrained model is then
+ﬁnetuned for predicting polymer properties with labeled data.
+Particularly, the ﬁnal hidden vector of the special token ‘〈s〉’ at the
+beginning of the sequence is fed into a regressor head which is
+made up of one hidden layer with SiLU as the activation function
+for prediction as illustrated in Fig. 1d (right).
+C. Xu et al.
+2
+npj Computational Materials (2023) 64 
+Published in partnership with the Shanghai Institute of Ceramics of the Chinese Academy of Sciences
+1234567890():,;
+
+Experimental settings
+PI1M, the benchmark of polymer informatics, is used for pretraining.
+The benchmark, whose size is around 1M, was built by Ma et al. by
+training a generative model on polymer data collected from the
+PolyInfo database51,59. The generated sequences consist of monomer
+SMILES and ‘*’ signs representing the polymerization points. The ~1M
+database was demonstrated to cover similar chemical space as
+PolyInfo but populate space where data in PolyInfo are sparse.
+Therefore, the database can serve as an important benchmark for
+multiple tasks in polymer informatics.
+To ﬁnetune the pretrained TransPolymer, ten datasets are used
+in our experiments which cover various properties of different
+Fig. 1
+Overview of TransPolymer. (a) Polymer tokenization. Illustrated by the example, the sequence which comprises components with
+polymer SMILES and other descriptors is tokenized with chemical awareness. b The whole TransPolymer framework with a pretrain-ﬁnetune
+pipeline. c Sketch of Transformer encoder and multi-head attention. d Illustration of the pretraining (left) and ﬁnetuning (right) phases of
+TransPolymer. The model is pretrained with Masked Language Modeling to recover original tokens, while the feature vector corresponding to
+the special token ‘〈s〉’ of the last hidden layer is used for prediction when ﬁnetuning. Within the TransPolymer block, lines of deeper color and
+larger width stand for higher attention scores.
+C. Xu et al.
+3
+Published in partnership with the Shanghai Institute of Ceramics of the Chinese Academy of Sciences
+npj Computational Materials (2023) 64 
+
+polymer materials, and the distributions of polymer sequence
+lengths vary from each other (shown in Supplementary Fig. 1).
+Plus, data in all the datasets are of different types: sequences from
+Egc, Egb, Eea, Ei, Xc, EPS, and Nc datasets are about polymers only
+so that the inputs are just polymer SMILES; while PE-I, PE-II, and
+OPV datasets describe polymer-based materials so that the
+sequences contain additional descriptors. In particular, PE-I which
+is about polymer electrolytes involves mixtures of multiple
+components in polymer materials. Hence, these datasets provide
+challenging and comprehensive benchmarks to evaluate the
+performance of TransPolymer. A summary of the ten datasets for
+downstream tasks is shown in Table 1.
+We apply data augmentation to each dataset that we use by
+removing canonicalization from SMILES and generating non-
+canonical SMILES which correspond to the same structure as the
+canonical ones. For PI1M database, each data entry is augmented
+to ﬁve so that the augmented dataset with the size of ~5M is used
+for pretraining. For downstream datasets, we limit the numbers of
+augmented SMILES for large datasets with long SMILES for the
+following reasons: long SMILES tend to generate more non-
+canonical SMILES which might alter the original data distribution;
+we are not able to use all the augmented data for ﬁnetuning given
+the limited computation resources. We include the number of
+data points after augmentation in Table 1 and summarize the
+augmentation strategy for each downstream dataset in Supple-
+mentary Table 1.
+Polymer property prediction results
+The performance of our pretrained TransPolymer model on ten
+property prediction tasks is illustrated below. We use root mean
+square error (RMSE) and R2 as metrics for evaluation. For each
+benchmark, the baseline models and data splitting are adopted
+from the original literature. Except for PE-I which is trained on
+data from the year 2018 and evaluated on data from the year
+2019, all other datasets are split by ﬁve-fold cross-validation.
+When cross-validation is used, the metrics are calculated by
+taking the average of those by each fold. We also train Random
+Forest
+models
+using
+Extended
+Connectivity
+Fingerprint
+(ECFP)19,20, one of the state-of-the-art ﬁngerprint approaches,
+to compare with TransPolymer. Besides, we develop long short-
+term memory (LSTM), another widely used language model, as
+well as unpretrained TransPolymer trained purely via super-
+vised learning as baseline models in all the benchmarks.
+TransPolymerunpretrained
+and
+TransPolymerpretrained
+denote
+unpretrained and pretrained TransPolymer, respectively.
+The results of TransPolymer and baselines on PE-I are illustrated
+in Table 2. The original literature used gated GNN to generate
+ﬁngerprints for the prediction of polymer electrolyte conductivity
+by Gaussian Process53. The ﬁngerprints are also passed to random
+forest and supporting vector machine (SVM) for comparison.
+Another random forest is trained based on ECFP ﬁngerprints. The
+results of most baseline models indicate strong overﬁtting which
+is attributed to the introduction of unconventional conductors
+consisting of conjugated polybenzimidazole and ionic liquid. For
+instance, Gaussian Process trained on GNN ﬁngerprints achieves a
+R2 of 0.90 on the training set but only 0.16 on the test set, and
+Random Forest trained on GNN FP gets a negative test R2 even the
+train R2 is 0.91. Random Forest trained on ECFP stands out among
+all the baseline models, whereas its performance on test dataset is
+still poor. However, TransPolymerpretrained not only achieves the
+highest scores on the training set but also improves the
+performance on the test set signiﬁcantly, which is illustrated by
+the R2 of 0.69 on the test set. Such information demonstrates that
+TransPolymer is capable of learning the intrinsic relationship
+between polymers and their properties and suffers less from
+overﬁtting. Notably, TransPolymerunpretrained also achieves compe-
+titive results and shows mild overﬁtting compared with other
+baseline models. This indicates the effectiveness of the attention
+mechanism of Transformer-based models. The scatter plots of
+ground truth vs. predicted values for PE-I by TransPolymerpretrained
+are illustrated in Fig. 2a and Supplementary Fig. 2a.
+As is shown in Table 3, the results of TransPolymer and
+baselines including Ridge, Random Forest, Gradient Boosting, and
+Extra Trees which were trained on chemical descriptors generated
+from polymers from PE-II in the original paper52 are listed, as well
+as Random Forest trained on ECFP. Although Gradient Boosting
+surpasses other models on training sets by obtaining nearly
+perfect regression outcomes, its performance on test sets drops
+signiﬁcantly. In contrast, TransPolymerpretrained, which achieves the
+lowest RMSE of 0.61 and highest R2 of 0.73 on the average of
+cross-validation sets, exhibits better generalization. The scatter
+Table 1.
+Summary of datasets for downstream tasks.
+Dataset
+Property
+# Data
+# Augmented train data
+# Test data
+Data split
+PE-I53
+conductivity
+9185
+34803
+146
+train-test split by year
+PE-II52
+conductivity
+271
+8864
+55
+5-fold cross-validation
+Egc54
+bandgap (chain)
+3380
+5408
+676
+5-fold cross-validation
+Egb54
+bandgap (bulk)
+561
+6443
+113
+5-fold cross-validation
+Eea54
+electron afﬁnity
+368
+3993
+74
+5-fold cross-validation
+Ei54
+ionization energy
+370
+4000
+74
+5-fold cross-validation
+Xc54
+crystallization tendency
+432
+8837
+87
+5-fold cross-validation
+EPS54
+dielectric constant
+382
+4188
+77
+5-fold cross-validation
+Nc54
+refractive index
+382
+4188
+77
+5-fold cross-validation
+OPV55
+power conversion efﬁciency
+1203
+4810
+241
+5-fold cross-validation
+Table 2.
+Performance of TransPolymer and baseline models on PE-I.
+Model
+Train RMSE
+(S ⋅cm−1*) (↓)
+Test RMSE
+(S ⋅cm−1*) (↓)
+Train
+R2 (↑)
+Test
+R2 (↑)
+Gaussian Process
+(GNN FP)
+0.55
+0.97
+0.90
+0.16
+Random Forest
+(GNN FP)
+0.50
+2.23
+0.91
+−2.64
+SVM (GNN FP)
+1.34
+2.12
+0.04
+−1.94
+Random Forest (ECFP)
+0.15
+1.00
+0.99
+0.32
+LSTM
+1.03
+1.36
+0.67
+−0.25
+TransPolymerunpretrained 0.88
+1.02
+0.70
+0.30
+TransPolymerpretrained
+0.20
+0.67
+0.98
+0.69
+*The units are in logarithm scale.
+The bold values indicate the best results in terms of the metrics we use.
+C. Xu et al.
+4
+npj Computational Materials (2023) 64 
+Published in partnership with the Shanghai Institute of Ceramics of the Chinese Academy of Sciences
+
+Fig. 2
+Ground truth vs. predicted values by TransPolymerpretrained. Scatter plots of ground truth vs. predicted values for downstream tasks:
+a PE-I, b PE-II, c Egc, d Egb, e Eea, f Ei, g Xc, h EPS, i Nc, and j OPV. The dashed lines on diagonals stand for perfect regression.
+C. Xu et al.
+5
+Published in partnership with the Shanghai Institute of Ceramics of the Chinese Academy of Sciences
+npj Computational Materials (2023) 64 
+
+plots of ground truth vs. predicted values for PE-II by TransPoly-
+merpretrained are illustrated in Fig. 2b and Supplementary Fig. 2b.
+Table 4 summarizes the performance of TransPolymer and
+baselines on Egc, Egb, Eea, Ei, Xc, EPS, and Nc datasets from
+Kuenneth et al.54. In the original literature, both Gaussian process and
+neural networks were trained on each dataset with polymer genome
+(PG) ﬁngerprints60 as input, some of which resulted in desirable
+performance while some of which did not. Meanwhile, PG
+ﬁngerprints are demonstrated to surpass ECFP on the datasets used
+by Kuenneth et al. For Egc, Egb, and Eea, despite the high scores by
+other models, TransPolymerpretrained is still able to enhance the
+performance, lowering RMSE and enhancing R2. In contrast, baseline
+models perform poorly on Xc whose test R2 scores are less than 0.
+However, TransPolymerpretrained signiﬁcantly lowers test RMSE and
+increases R2 to 0.50. Notably, The authors of the original paper used
+multi-task learning to enhance model performance and achieved
+higher scores than TransPolymerpretrained on some of the datasets,
+like Egb, EPS, and Nc (the average test RMSE and R2 are 0.43 and 0.95
+for Egb, 0.39 and 0.86 for EPS, and 0.07 and 0.91 for Nc, respectively).
+Access to multiple properties of one polymer, however, may not be
+available from time to time, which limits the application of multi-task
+learning. In addition, the TransPolymerpretrained still outperforms
+multi-task learning models on four out of the seven chosen datasets.
+Hence the improvement by TransPolymer compared with single-task
+baselines should still be highly valued. The scatter plots of ground
+truth vs. predicted values for Egc, Egb, Eea, Ei, Xc, EPS, and Nc
+datasets by TransPolymerpretrained are depicted in Fig. 2c–i and
+Supplementary Fig. 2c–i, respectively.
+Table 3.
+Performance of TransPolymer and baseline models on PE-II.
+Model
+Train RMSE(S ⋅cm−1*) (↓)
+Test RMSE (S ⋅cm−1*) (↓)
+Train R2 (↑)
+Test R2 (↑)
+Ridge (Chemical descriptors)
+0.58
+0.67
+0.77
+0.58
+Random Forest (Chemical descriptors)
+0.26
+0.64
+0.96
+0.71
+Gradient Boosting (Chemical descriptors)
+0.00
+0.66
+0.99
+0.68
+Extra Trees (Chemical descriptors)
+0.10
+0.63
+0.98
+0.72
+Random Forest (ECFP)
+0.22
+0.94
+0.96
+0.27
+LSTM
+1.16
+1.18
+0.05
+0.00
+TransPolymerunpretrained
+0.18
+0.80
+0.97
+0.54
+TransPolymerpretrained
+0.18
+0.61
+0.96
+0.73
+*The units are in logarithm scale.
+The bold values indicate the best results in terms of the metrics we use.
+Table 4.
+Performance of TransPolymer and baseline models on datasets from literature by Kuenneth et al.54.
+Model
+Test RMSE (↓)
+Test R2 (↑)
+Egc (eV)
+Egb (eV)
+Eea (eV)
+Ei (eV)
+Xc (%)
+EPS
+Nc
+Egc
+Egb
+Eea
+Ei
+Xc
+EPS
+Nc
+Gaussian Process (PG)
+0.48
+0.55
+0.32
+0.42
+24.42
+0.53
+0.10
+0.90
+0.91
+0.90
+0.77
+<0
+0.68
+0.79
+Neural Network (PG)
+0.49
+0.57
+0.32
+0.45
+20.74
+0.54
+0.10
+0.89
+0.89
+0.87
+0.74
+<0
+0.71
+0.78
+Random Forest (ECFP)
+0.81
+0.88
+0.56
+0.58
+25.61
+0.75
+0.14
+0.65
+0.66
+0.70
+0.57
+−0.29
+0.50
+0.56
+LSTM
+0.58
+1.94
+1.04
+0.94
+23.67
+1.11
+0.23
+0.86
+0.00
+0.06
+0.10
+0.00
+−0.02
+0.02
+TransPolymerunpretrained
+0.63
+0.61
+0.36
+0.46
+20.11
+0.59
+0.10
+0.84
+0.90
+0.89
+0.78
+0.27
+0.70
+0.80
+TransPolymerpretrained
+0.44
+0.52
+0.32
+0.39
+16.57
+0.52
+0.10
+0.92
+0.93
+0.91
+0.84
+0.50
+0.76
+0.82
+The bold values indicate the best results in terms of the metrics we use.
+Table 5.
+Performance of TransPolymer and baseline models on p-type
+polymer OPV.
+Model
+Train RMSE
+(%) (↓)
+Test RMSE
+(%) (↓)
+Train R2
+(↑)
+Test R2
+(↑)
+Random Forest (ECFP)
+0.66
+1.92
+0.92
+0.27
+ANN (ECFP)
+1.58
+2.03
+0.55
+0.20
+LSTM
+2.35
+2.34
+−0.01
+0.00
+TransPolymerunpretrained 1.91
+2.10
+0.33
+0.19
+TransPolymerpretrained
+1.19
+1.92
+0.74
+0.32
+The bold values indicate the best results in terms of the metrics we use.
+Table 6.
+Improvement of performance of TransPolymerpretrained
+compared with baselines and TransPolymerunpretrained in terms of
+decrease of test RMSE (in percentage) and increase of test R2 (in
+absolute value).
+Dataset
+vs. best baselines
+vs. TransPolymerunpretrained
+RMSE (↓)
+R2 (↑)
+RMSE (↓)
+R2 (↑)
+PE-I
+−30.9%
++0.37
+−52.2%
++0.39
+PE-II
+−3.17%
++0.01
+−23.8%
++0.19
+Egc
+−8.33%
++0.02
+−30.2%
++0.08
+Egb
+−5.45%
++0.02
+14.8%
++0.03
+Eea
+0.00%
++0.01
+−11.1%
++0.02
+Ei
+−7.14%
++0.07
+−15.2%
++0.06
+Xc
+−20.1%
++0.50
+−17.6%
++0.23
+EPS
+−1.89%
++0.05
+−11.9%
++0.06
+Nc
+0.00%
++0.03
+0.00%
++0.02
+OPV
+0.00%
++0.05
+−8.57%
++0.13
+Average
+−7.70%
++0.11
+−18.5%
++0.12
+C. Xu et al.
+6
+npj Computational Materials (2023) 64 
+Published in partnership with the Shanghai Institute of Ceramics of the Chinese Academy of Sciences
+
+TransPolymer and baselines are trained on p-type polymer OPV
+dataset whose results are shown in Table 5. The original paper
+trained random forest and artiﬁcial neural network (ANN) on the
+dataset using ECFP55. TransPolymerpretrained, in comparison with
+baselines, gives a slightly better performance as the average RMSE
+is the same as that of random forest, and the average test R2 is
+increased by 0.05. Although all the model performance is not
+satisfying enough, possibly attributed to the noise in data,
+TransPolymerpretrained still outperforms baselines. The scatter plots
+of ground truth vs. predicted values for OPV by TransPolymerpre-
+trained are depicted in Fig. 2j and Supplementary Fig. 2j.
+Table 6 summarizes the improvement of TransPolymerpretrained
+over the best baseline models as well as TransPolymerunpretrained
+on each dataset. TransPolymerpretrained has outperformed all other
+models on all ten datasets, further providing evidence for the
+generalization of TransPolymer. TransPolymerpretrained exhibits an
+average decrease of evaluation RMSE by 7.70% (in percentage)
+and an increase of evaluation R2 by 0.11 (in absolute value)
+compared with the best baseline models, and the two values
+become
+18.5%
+and
+0.12,
+respectively,
+when
+it
+comes
+to
+comparison with TransPolymerunpretrained. Therefore, the pre-
+trained TransPolymer could hopefully be a universal pretrained
+model for polymer property prediction tasks and applied to other
+tasks by ﬁnetuning. Besides, TransPolymer equipped with MLM
+pretraining technique shows signiﬁcant advantages over other
+models in dealing with complicated polymer systems. Speciﬁcally,
+on PE-I benchmark, TransPolymerpretrained improves R2 by 0.37
+comparing with the previous best baseline model and by 0.39
+comparing with TransPolymerunpretrained. PE-I contains not only
+polymer SMILES but also key descriptors of the materials like
+temperature and component ratios within the materials. The data
+in PE-I is noisy due to the existence of different types of
+components in the polymer materials, for instance, copolymers,
+anions, and ionic liquids. Also, models are trained on data from the
+year 2018 and evaluated on data from the year 2019, which gives
+a more challenging setting. Therefore it is reasonable to infer that
+TransPolymer is better at learning features out of noisy data and
+giving a robust performance. It is noticeable that LSTM becomes
+the least competitive model in almost every downstream task,
+such
+evidence
+demonstrates
+the
+signiﬁcance
+of
+attention
+mechanisms in understanding chemical knowledge from polymer
+sequences.
+Abaltion studies
+The effects of pretraining could be further demonstrated by the
+chemical space taken up by polymer SMILES from the pretraining
+and downstream datasets visualized by t-SNE61, shown in Fig. 3.
+Each polymer SMILES is converted to TransPolymer embedding
+with the size of sequence length × embedding size. Max pooling is
+implemented to convert the embedding matrices to vectors so
+that the strong characteristics in embeddings could be preserved
+in the input of t-SNE. We use openTSNE library62 to create 2D
+embeddings via pretraining data and map downstream data to
+the same 2D space. As illustrated in Fig. 3a, almost every
+downstream data point lies in the space covered by the original
+~1M pretraining data points, indicating the effectiveness of
+pretraining in better representation learning of TransPolymer.
+Data points from datasets like Xc which exhibit minor evidence of
+clustering in the chemical space cover a wide range of polymers,
+explaining the phenomenon that other models struggle on Xc
+while pretrained TransPolymer learns reasonable representations.
+Meanwhile, for datasets that cluster in the chemical space, other
+models can obtain reasonable results whereas TransPolymer
+achieves better results. Additionally, it should be pointed out that
+the numbers of unique polymer SMILES in PE-I and PE-II are much
+smaller than the sizes of the datasets as many instances share the
+same polymer SMILES while differing in descriptors like molecular
+weight and temperature, hence the visualization of polymer
+SMILES cannot fully reﬂect the chemical space taken up by the
+polymers from these datasets.
+Besides, we have also investigated how the size of the
+pretraining dataset affects the downstream performance. We
+randomly pick up 5K, 50K, 500K, and 1M (original size) data points
+from the initial pretraining dataset without augmentation, and
+pretrain TransPolymer with them and compare the results with
+those by TransPolymer trained with 5M augmented data. The
+results are summarized in Supplementary Table 5. Plus, Fig. 4
+presents the bar plot of R2 for each experiment we have
+performed. Error bars are included in the ﬁgure if cross-
+validation is implemented in experiments. As shown in the table
+and the ﬁgure, the results demonstrate a clear trend of enhanced
+downstream performance (decreasing RMSE and increasing R2)
+with increasing pretraining size. In particular, the model perfor-
+mance on some datasets, for example, PE-I, Nc, and OPV, are even
+worse than training TransPolymer from scratch (the results by
+TransPolymerunpretrained in Tables 2–5). A possible explanation is
+that the small amount of pretraining size results in the limited
+data space covered by pretraining data, thus making some
+downstream data points out of the distribution of pretraining
+data. Figure 3b, c visualize the data space by ﬁtting on 50K and 5K
+pretraining data, respectively, in which a lot of space taken up
+downstream data points is not covered by pretraining data.
+Therefore, the results emphasize the effects of pretraining with a
+large number of unlabeled sequences.
+The results from TransPolymerpretrained so far are all derived by
+pretraining ﬁrst and then ﬁnetuning the whole model on the
+downstream datasets. Besides, we also consider another setting
+where in downstream tasks only the regressor head is ﬁnetuned
+while the pretrained Transformer encoder is frozen. The compar-
+ison
+of
+the
+performance
+of
+TransPolymerpretrained
+between
+ﬁnetuning the regressor head only and ﬁnetuning the whole
+model is presented in Table 7. Standard deviation is included in
+the results if cross-validation is applied for downstream tasks.
+Reasonable results could be obtained by freezing the pretrained
+encoders and training the regressor head only. For instance, the
+model performance on Xc dataset already surpasses the baseline
+models, and the model performance on Ei, Nc, and OPV datasets is
+slightly worse than the corresponding best baselines. However,
+the performance on all the downstream tasks increases signiﬁ-
+cantly if both the Transformer encoders and the regressor head
+are ﬁnetuned, which indicates that the regressor head only is not
+enough to learn task-speciﬁc information. In fact, the attention
+mechanism plays a key role in learning not only generalizable but
+also
+task-speciﬁc
+information.
+Even
+though
+the
+pretrained
+TransPolymer is transferable to various downstream tasks and
+more efﬁcient, it is necessary to ﬁnetune the Transformer
+encoders with task-related data points for better performance.
+Data augmentation is implemented not only in pretraining but
+also in ﬁnetuning. The comparison between the model perfor-
+mance on downstream tasks with pretraining on the original ~1M
+dataset and the augmented ~5M dataset (shown in Supplemen-
+tary Table 5) has already demonstrated the signiﬁcance of data
+augmentation in model performance enhancement. In this part,
+we use the model pretrained on the ~5M augmented pretraining
+dataset but ﬁnetune TransPolymer without augmenting the
+downstream datasets to investigate to what extent the TransPo-
+lymer model can improve the best baseline models for down-
+stream tasks. The model performance enhancement with or
+without data augmentation compared with best baseline models
+is summarized in Table 8. For most downstream tasks, TransPo-
+lymerpretrained can improve model performance without data
+augmentation, while such improvement would become more
+signiﬁcant if data augmentation is applied. For PE-II dataset,
+however, TransPolymerpretrained is not comparable to the best
+baseline model without data augmentation since the original
+C. Xu et al.
+7
+Published in partnership with the Shanghai Institute of Ceramics of the Chinese Academy of Sciences
+npj Computational Materials (2023) 64 
+
+dataset contains only 271 data points in total. Because of the data-
+greedy characteristics of Transformer, data augmentation could be
+a crucial factor in ﬁnetuning, especially when data are scarce
+(which is very common in chemical and materials science
+regimes). Therefore, data augmentation can help generalize the
+model to sequences unseen in training data.
+Self-attention visualization
+Attention scores, serving as an indicator of how closely two
+tokens align with each other, could be used for understanding
+how much chemical knowledge TransPolymer learns from
+pretraining and how each token contributes to the prediction
+results. Take poly(ethylene oxide) (*CCO*), which is one of the
+most prevailing polymer electrolytes, as an example. The
+attention scores between each token in the ﬁrst and last
+hidden layer are shown in Fig. 5a and b, respectively. The
+attention score matrices of 12 attention heads generated from
+the ﬁrst hidden layer indicate strong relationships between
+tokens in the neighborhood, which could be inferred from the
+emergence of high attention scores around the diagonals of
+matrices. This trend makes sense because the nearby tokens in
+polymer SMILES usually represent atoms bonded to each other
+in the polymer, and atoms are most signiﬁcantly affected by
+their local environments. Therefore,i the ﬁrst hidden layer,
+which is the closest layer to inputs, could capture such chemical
+information. In contrast, the attention scores from the last
+hidden layer tend to be more uniform, thus lacking an
+interpretable
+pattern.
+Such
+phenomenon
+has
+also
+been
+observed by Abnar et al. who discovered that the embeddings
+of tokens would become contextualized for deeper hidden
+layers and might carry similar information63.
+When ﬁnetuning TransPolymer, the vector of the special token
+‘〈s〉’ from the last hidden state is used for prediction. Hence, to
+check the impacts of tokens on prediction results, the attention
+scores between ‘〈s〉’ and other tokens from all 6 hidden layers in
+each attention head are illustrated with the example of the PEC-
+PEO blend electrolyte coming from PE-II whose polymer SMILES is
+‘*COC(=O)OC*.*CCO*’.
+In
+addition
+to
+polymer
+SMILES,
+the
+Fig. 3
+t-SNE visualization of pretraining and downstream data. The embeddings are obtained by ﬁrst ﬁtting on the (a) 1M (original), (b) 50K,
+and (c) 5K pretraining data and then transforming downstream data to the corresponding data space.
+C. Xu et al.
+8
+npj Computational Materials (2023) 64 
+Published in partnership with the Shanghai Institute of Ceramics of the Chinese Academy of Sciences
+
+sequence also includes ‘F[B-](F)(F)F’, ‘0.17’, ‘95.2’, ‘37.0’, ‘−23’, and
+‘S_1’ which stand for the anion in the electrolyte, the ratio
+between lithium ions and functional groups in the polymer,
+comonomer percentage, molecular weight (kDa), glass transition
+temperature (Tg), and linear chain structure, respectively. As is
+illustrated in Fig. 6, the ‘〈s〉’ token tends to focus on certain tokens,
+like ‘*’, ‘$’, and ‘−23’, which are marked in red in the example
+sequence in Fig. 6. Since Tg usually plays an important role in
+determining
+the
+conductivity
+of
+polymers64,
+the
+ﬁnetuned
+Transpolyemr could understand the inﬂuential parts on properties
+in a polymer sequence. However, it is also widely argued that the
+attention weights cannot fully depict the relationship between
+tokens and prediction results because a high attention score does
+not necessarily guarantee that the pair of tokens is important to
+the prediction results given that attention scores do not consider
+Value matrices65. More related work is needed to fully address the
+attention interpretation problem.
+DISCUSSION
+In summary, we have proposed TransPolymer, a Transformer-
+based model with MLM pretraining, for accurate and efﬁcient
+polymer property prediction. By rationally designing a polymer
+tokenization strategy, we can map a polymer instance to a
+sequence of tokens. Data augmentation is implemented to
+enlarge the available data for representation learning. TransPoly-
+mer is ﬁrst pretrained on approximately 5M unlabeled polymer
+sequences by MLM, then ﬁnetuned on different downstream
+datasets, outperforming all the baselines and unpretrained
+TransPolymer. The superior model performance could be further
+explained by the impact of pretraining with large unlabeled data,
+ﬁnetuning Transformer encoders, and data augmentation for data
+space enlargement. The attention scores from hidden layers in
+TransPolymer provide evidence of the efﬁcacy of learning
+representations
+with
+chemical
+awareness
+and
+suggest
+the
+inﬂuential tokens on ﬁnal prediction results.
+Given the desirable model performance and outstanding
+generalization ability out of a small number of labeled down-
+stream data, we anticipate that TransPolymer would serve as a
+potential solution to predicting newly designed polymer proper-
+ties and guiding polymer design. For example, the pretrained
+TransPolymer could be applied in the active-learning-guided
+polymer discovery framework66,67, in which TransPolymer serves
+to virtually screen the polymer space, recommend the potential
+candidates with desirable properties based on model predictions,
+and get updated by learning on data from experimental
+evaluation. In addition, the outstanding performance of TransPo-
+lymer on copolymer datasets compared with existing baseline
+models has shed light on the exploration of copolymers. In a
+nutshell, even though the main focus of this paper is placed on
+regression, TransPolymer can pave the way for several promising
+(co)polymer discovery frameworks.
+METHODS
+Polymer tokenization
+Unlike small molecules which are easily represented by SMILES,
+polymers are more complex to be converted to sequences since
+SMILES fails to incorporate pivotal information like connectivity
+between repeating units and degree of polymerization. As a result,
+we need to design the polymer sequences to take account of that
+information. To design the polymer sequences, each repeating
+unit of the polymer is ﬁrst recognized and converted to SMILES,
+Fig. 4
+Model performance with varying pretraining data sizes.
+The R2 for each downstream task with different pretraining data
+sizes are presented in the bar plot. Error bars are included if cross-
+validation is implemented.
+Table 7.
+Comparison of performance of TransPolymerpretrained
+between ﬁnetuning the regressor head only and ﬁnetuning the whole
+model in terms of test RMSE and R2.
+Dataset
+Finetuning the
+regressor head
+Finetuning the
+whole model
+RMSE
+R2
+RMSE
+R2
+PE-I
+1.14
+0.12
+0.67
+0.69
+PE-II
+0.91 ± 0.12
+0.40 ± 0.10
+0.61 ± 0.07
+0.73 ± 0.04
+Egc
+0.69 ± 0.03
+0.81 ± 0.02
+0.44 ± 0.01
+0.92 ± 0.00
+Egb
+0.83 ± 0.05
+0.81 ± 0.02
+0.52 ± 0.05
+0.93 ± 0.01
+Eea
+0.52 ± 0.04
+0.76 ± 0.04
+0.32 ± 0.02
+0.91 ± 0.03
+Ei
+0.51 ± 0.05
+0.73 ± 0.05
+0.39 ± 0.07
+0.84 ± 0.06
+Xc
+19.18 ± 2.15
+0.34 ± 0.10
+16.57 ± 0.68
+0.50 ± 0.06
+EPS
+0.72 ± 0.09
+0.58 ± 0.07
+0.52 ± 0.07
+0.76 ± 0.11
+Nc
+0.13 ± 0.02
+0.70 ± 0.06
+0.10 ± 0.02
+0.82 ± 0.07
+OPV
+2.04 ± 0.06
+0.24 ± 0.03
+1.92 ± 0.06
+0.32 ± 0.05
+Table 8.
+Improvement of performance of TransPolymerpretrained
+without and with data augmentation in ﬁnetuning compared with
+best baselines in terms of decrease of test RMSE (in percentage) and
+increase of test R2 (in absolute value).
+Dataset
+No Augmentation
+Augmentation
+RMSE (↓)
+R2 (↑)
+RMSE (↓)
+R2 (↑)
+PE-I
+−15.5%
++0.22
+−30.9%
++0.37
+PE-II
++22.2%
+−0.15
+−3.17%
++0.01
+Egc
+−4.17%
++0.01
+−8.33%
++0.02
+Egb
++9.09%
+−0.02
+−5.45%
++0.02
+Eea
++9.38%
+0.00
+0.00%
++0.01
+Ei
+0.00%
++0.03
+−7.14%
++0.07
+Xc
+−14.5%
++0.43
+−20.1%
++0.50
+EPS
++7.55%
+0.00
+−1.89%
++0.05
+Nc
+0.00%
++0.02
+0.00%
++0.03
+OPV
++0.52%
++0.03
+0.00%
++0.05
+Average
++1.46%
++0.06
+−7.70%
++0.11
+C. Xu et al.
+9
+Published in partnership with the Shanghai Institute of Ceramics of the Chinese Academy of Sciences
+npj Computational Materials (2023) 64 
+
+Fig. 5
+Visualization of attention scores from pretrained TransPolymer. a Attention scores in the ﬁrst hidden layer. b Attention scores in the
+last hidden layer.
+C. Xu et al.
+10
+npj Computational Materials (2023) 64 
+Published in partnership with the Shanghai Institute of Ceramics of the Chinese Academy of Sciences
+
+then ‘*’ signs are added at the places which represent the ends of
+the repeating unit to indicate the connectivity between repeating
+units. Such a strategy to indicate repeating units has been widely
+used in string-based polymer representations68,69. For the cases of
+copolymers, ‘.’ is used to separate different constituents, and ‘^’ is
+used to indicate branches in copolymers. Other information like
+the degree of polymerization and molecular weight, if accessible,
+will be put after the polymer SMILES separated by special tokens.
+Take the example of the sequence given in Fig. 1a, the sequence
+describes a polymer electrolyte system including two components
+separated by the special token ‘∣’. Descriptors like the ratio
+between repeating units in the copolymer, component type, and
+glass transition temperature (Tg for short) are added for each
+component separated by ‘$’, and the ratio between components
+and temperature are put at the end of the sequence. Adding these
+descriptors can improve the performance of property predictions
+as suggested by Patel et al.29. Unique ‘NAN’ tokens are assigned
+for missing values of each descriptor in the dataset. For example,
+‘NAN_Tg’ indicates the missing value of glass transition tempera-
+ture, and ‘NAN_MW’ indicates the missing molecular weight at
+that place. These unique NAN tokens are added during ﬁnetuning
+to include available chemical descriptors in the datasets. There-
+fore, different datasets can contain different NAN tokens. Notably,
+other descriptors like molecular weight and degree of polymer-
+ization are omitted in this example because their values for each
+component are missing. However, for practical usage, these values
+should also be included with unique ‘NAN’ characters. Besides,
+considering the varying constituents in copolymers as well as
+components in composites, the ‘NAN’ tokens for ratios are padded
+to the maximum possible numbers.
+When tokenizing the polymer sequences, the regular expression
+in
+the
+tokenizer
+adapted
+from
+the
+RoBERTa
+tokenizer
+is
+transformed to search for all the possible elements in polymers
+as well as the vocabulary for descriptors and special tokens.
+Consequently, the polymer tokenizer can correctly slice polymers
+into constituting atoms. For example, ‘Si’ which represents a
+silicon atom in polymer sequences would be recognized as a
+single token by our polymer tokenizer whereas ‘S’ and ‘i’ are likely
+to be separated into different tokens when using the RoBERTa
+tokenizer. Values for descriptors and special tokens are converted
+to single tokens as well, where all the non-text values, e.g.,
+temperature, are discretized and treated as one token by the
+tokenizer.
+Data augmentation
+To enlarge the available polymer data for better representation
+learning, data augmentation is applied to the polymer SMILES
+within polymer sequences from each dataset we use. The
+augmentation technique is borrowed from Lambard et al.70. First,
+canonicalization is removed from SMILES representations; then,
+atoms in SMILES are renumbered by rotation of their indices;
+ﬁnally, for each renumbering case, grammatically correct SMILES
+which preserve isomerism of original polymers or molecules and
+prevent Kekulisation are reconstructed31,71. Also, duplicate SMILES
+are removed from the expanded list. SMILES augmentation is
+implemented by RDKit library72. In particular, data augmentation
+is only applied to training sets after the train-test split to avoid
+information leakage.
+Fig. 6
+Visualization of attention scores from ﬁnetuned TransPolymer. The attention scores between the ‘〈s〉’ token and other tokens at
+different hidden layers in each attention head after ﬁnetuning are visualized. At the bottom is the sequence used for visualization in which the
+tokens having high attention scores with ‘〈s〉’ are marked in red.
+C. Xu et al.
+11
+Published in partnership with the Shanghai Institute of Ceramics of the Chinese Academy of Sciences
+npj Computational Materials (2023) 64 
+
+Transformer-based encoder
+Our TransPolymer model is based on Transformer encoder
+architecture34. Unlike RNN-based models which encoded temporal
+information by recurrence, Transformer uses self-attention layers
+instead. The attention mechanism used in Transformer is named
+Scaled Dot-Product Attention, which maps input data into three
+vectors: queries (Q), keys (K), and values (V). The attention is
+computed by ﬁrst computing the dot product of the query with all
+keys, dividing each by
+ﬃﬃﬃﬃﬃ
+dk
+p
+for scaling where dk is the dimension
+of keys, applying softmax function to obtain the weights of values,
+and ﬁnally deriving the attention. The dot product between
+queries and keys computes how closely aligned the keys are with
+the queries. Therefore, the attention score is able to reﬂect how
+closely related the two embeddings of tokens are. The formula of
+Scaled Dot-Product Attention can be written as:
+AttentionðQ; K; VÞ ¼ softmax QKT
+ﬃﬃﬃﬃﬃ
+dk
+p
+
+
+V
+(1)
+Multi-head attention is performed instead of single attention by
+linearly projecting Q, K, and V with different projections and
+applying the attention function in parallel. The outputs are
+concatenated and projected again to obtain the ﬁnal results. In
+this way, information from different subspaces could be learned
+by the model.
+The input of Transformer model, namely embeddings, maps
+tokens in sequences to vectors. Due to the absence of recurrence,
+word embeddings only are not sufﬁcient to encode sequence
+order. Therefore, positional encodings are introduced so that the
+model can know the relative or absolute position of the token in
+the sequence. In Transformer, position encodings are represented
+by trigonometric functions:
+PEpos;2i ¼ sinðpos=100002i=dmodelÞ
+(2)
+PEpos;2iþ1 ¼ cosðpos=100002i=dmodelÞ
+(3)
+where pos is the position of the token and i is the dimension. By
+this means, the relative positions of tokens could be learned by
+the model.
+Pretraining with MLM
+To pretrain TransPolymer with Masked Language Modeling (MLM),
+15% of tokens of a sequence are chosen for possible replacement.
+Among the chosen tokens, 80% of which are masked, 10% of
+which are replaced by randomly selected vocabulary tokens, and
+10% are left unchanged, in order to generate proper contextual
+embeddings for all tokens and bias the representation towards
+the actual observed words35. Such a pretraining strategy enables
+TransPolymer to learn the “chemical grammar" of polymer
+sequences by recovering the original tokens so that chemical
+knowledge is encoded by the model.
+The pretraining database is split into training and validation sets
+by a ratio of 80/20. We use AdamW as the optimizer, where the
+learning rate is 5 × 10−5, betas parameters are (0.9, 0.999), epsilon
+is 1 × 10−6, and weight decay is 0. A linear scheduler with a warm-
+up ratio of 0.05 is set up so that the learning rate increases from 0
+to the learning rate set in the optimizer in the ﬁrst 5% training
+steps then decreases linearly to zero. The batch size is set to 200,
+and the hidden layer dropout and attention dropout are set to 0.1.
+The model is pretrained for 30 epochs during which the binary
+cross entropy loss decreases steadily from over 1 to around 0.07,
+and the one with the best performance on the validation set is
+used
+for
+ﬁnetuning.
+The
+whole
+pretraining
+process
+takes
+approximately 3 days on two RTX 6000 GPUs.
+Finetuning for polymer property prediction
+The ﬁnetuning process involves the pretrained Transformer
+encoder and a one-layer MLP regressor head so that representa-
+tions
+of
+polymer
+sequences
+could
+be
+used
+for
+property
+predictions.
+For the experimental settings of ﬁnetuning, AdamW is set to be
+the optimizer whose betas parameters are (0.9, 0.999), epsilon is
+1 × 10−6, and weight decay is 0.01. Different learning rates are
+used for the pretrained TransPolymer and regressor head.
+Particularly, for some experiments a strategy of layer-wise learning
+rate the decay (LLRD), suggested by Zhang et al.73, is applied.
+Speciﬁcally, in LLRD, the learning rate is decreased layer-by-layer
+from top to bottom with a multiplicative decay rate. The strategy
+is based on the observation that different layers learn different
+information from sequences. Top layers near the output learn
+more local and speciﬁc information, thus requiring larger learning
+rates; while bottom layers near inputs learn more general and
+common information. The speciﬁc choices of learning rates for
+each dataset as well as other hyperparameters of the optimizer
+and scheduler are exhibited in Supplementary Table 2. For each
+downstream dataset, the model is trained for 20 epochs and the
+best model is determined in terms of the RMSE and R2 on the test
+set for evaluation.
+DATA AVAILABILITY
+All data used in this work are publicly available. Original datasets could be found in
+corresponding literature51–55. Besides, the original and processed datasets used in
+this work are also available at https://github.com/ChangwenXu98/TransPolymer.git.
+CODE AVAILABILITY
+The
+codes
+developed
+for
+this
+work
+are
+available
+at
+https://github.com/
+ChangwenXu98/TransPolymer.git.
+Received: 2 September 2022; Accepted: 3 April 2023;
+REFERENCES
+1. Wang, Y. et al. Toward designing highly conductive polymer electrolytes by
+machine learning assisted coarse-grained molecular dynamics. Chem. Mater. 32,
+4144–4151 (2020).
+2. Xie, T. et al. Accelerating amorphous polymer electrolyte screening by learning to
+reduce errors in molecular dynamics simulated properties. Nat. Commun. 13,
+1–10 (2022).
+3. St. John, P. C. et al. Message-passing neural networks for high-throughput
+polymer screening. J. Chem. Phys. 150, 234111 (2019).
+4. Munshi, J., Chen, W., Chien, T. & Balasubramanian, G. Transfer learned designer
+polymers for organic solar cells. J. Chem. Inf. Model. 61, 134–142 (2021).
+5. Luo, H. et al. Core–shell nanostructure design in polymer nanocomposite capa-
+citors for energy storage applications. ACS Sustain. Chem. Eng. 7, 3145–3153
+(2018).
+6. Hu, H. et al. Recent advances in rational design of polymer nanocomposite
+dielectrics for energy storage. Nano Energy 74, 104844 (2020).
+7. Bai, Y. et al. Accelerated discovery of organic polymer photocatalysts for
+hydrogen evolution from water through the integration of experiment and
+theory. J. Am. Chem. Soc. 141, 9063–9071 (2019).
+8. Liang, J., Xu, S., Hu, L., Zhao, Y. & Zhu, X. Machine-learning-assisted low dielectric
+constant polymer discovery. Mater. Chem. Front. 5, 3823–3829 (2021).
+9. Mannodi-Kanakkithodi, A. et al. Scoping the polymer genome: a roadmap for
+rational polymer dielectrics design and beyond. Mater. Today 21, 785–796
+(2018).
+10. Chen, L. et al. Polymer informatics: current status and critical next steps. Mater.
+Sci. Eng. R. Rep. 144, 100595 (2021).
+11. Rahman, A. et al. A machine learning framework for predicting the shear strength
+of carbon nanotube-polymer interfaces based on molecular dynamics simulation
+data. Compos Sci. Technol. 207, 108627 (2021).
+12. Scarselli, F., Gori, M., Tsoi, A. C., Hagenbuchner, M. & Monfardini, G. The graph
+neural network model. IEEE trans. neural netw. 20, 61–80 (2008).
+C. Xu et al.
+12
+npj Computational Materials (2023) 64 
+Published in partnership with the Shanghai Institute of Ceramics of the Chinese Academy of Sciences
+
+13. Xie, T. & Grossman, J. C. Crystal graph convolutional neural networks for an
+accurate and interpretable prediction of material properties. Phys. Rev. Lett. 120,
+145301 (2018).
+14. Duvenaud, D. K. et al. Convolutional networks on graphs for learning molecular
+ﬁngerprints. Adv. Neural. Inf. Process. Syst. 28, (2015).
+15. Yang, K. et al. Analyzing learned molecular representations for property predic-
+tion. J. Chem. Inf. Model. 59, 3370–3388 (2019).
+16. Karamad, M. et al. Orbital graph convolutional neural network for material
+property prediction. Phys. Rev. Mater. 4, 093801 (2020).
+17. Wang, Y., Wang, J., Cao, Z. & Barati Farimani, A. Molecular contrastive learning of
+representations via graph neural networks. Nat. Mach. Intell. 4, 279–287 (2022).
+18. Park, J. et al. Prediction and interpretation of polymer properties using the graph
+convolutional network. ACS polym. Au. 2, 213-222 (2022).
+19. Cereto-Massagué, A. et al. Molecular ﬁngerprint similarity search in virtual
+screening. Methods 71, 58–63 (2015).
+20. Rogers, D. & Hahn, M. Extended-connectivity ﬁngerprints. J. Chem. Inf. Model 50,
+742–754 (2010).
+21. Aldeghi, M. & Coley, C. W. A graph representation of molecular ensembles for
+polymer property prediction. Chem. Sci. 13, 10486–10498 (2022).
+22. Cho, K. et al. Learning phrase representations using rnn encoder-decoder for
+statistical machine translation. In Proceedings of the 2014 Conference on Empirical
+Methods in Natural Language Processing (EMNLP), 1724–1734 (ACL, 2014).
+23. Schwaller, P., Gaudin, T., Lanyi, D., Bekas, C. & Laino, T. "found in translation”:
+predicting outcomes of complex organic chemistry reactions using neural
+sequence-to-sequence models. Chem. Sci. 9, 6091–6098 (2018).
+24. Tsai, S.-T., Kuo, E.-J. & Tiwary, P. Learning molecular dynamics with simple lan-
+guage model built upon long short-term memory neural network. Nat. Commun.
+11, 1–11 (2020).
+25. Flam-Shepherd, D., Zhu, K. & Aspuru-Guzik, A. Language models can learn
+complex molecular distributions. Nat. Commun. 13, 3293 (2022).
+26. Cadeddu, A., Wylie, E. K., Jurczak, J., Wampler-Doty, M. & Grzybowski, B. A. Organic
+chemistry as a language and the implications of chemical linguistics for structural
+and retrosynthetic analyses. Angew. Chem. Int. Ed. 53, 8108–8112 (2014).
+27. Simine, L., Allen, T. C. & Rossky, P. J. Predicting optical spectra for optoelectronic
+polymers using coarse-grained models and recurrent neural networks. Proc. Natl
+Acad. Sci. USA 117, 13945–13948 (2020).
+28. Webb, M. A., Jackson, N. E., Gil, P. S. & Pablo, J. J. Targeted sequence design within
+the coarse-grained polymer genome. Sci. Adv. 6, 6216 (2020).
+29. Patel, R. A., Borca, C. H. & Webb, M. A. Featurization strategies for polymer
+sequence or composition design by machine learning. Mol. Syst. Des. Eng. 7,
+661–676 (2022).
+30. Bhattacharya, D., Kleeblatt, D. C., Statt, A. & Reinhart, W. F. Predicting aggregate
+morphology of sequence-deﬁned macromolecules with recurrent neural net-
+works. Soft Matter 18, 5037–5051 (2022).
+31. Weininger, D. Smiles, a chemical language and information system. 1. introduc-
+tion to methodology and encoding rules. J. Chem. Inf. Comput. 28, 31–36 (1988).
+32. Lin, T.-S. et al. Bigsmiles: a structurally-based line notation for describing mac-
+romolecules. ACS Cent. Sci. 5, 1523–1531 (2019).
+33. Goswami, S., Ghosh, R., Neog, A. & Das, B. Deep learning based approach for
+prediction of glass transition temperature in polymers. Mater. Today.: Proc. 46,
+5838–5843 (2021).
+34. Vaswani, A. et al. Attention is all you need. Adv. Neural. Inf. Process. Syst. 30,
+(2017).
+35. Devlin, J., Chang, M.-W., Lee, K. & Toutanova, K. Bert: Pre-training of deep bidir-
+ectional transformers for language understanding. In Proceedings of NAACL-HLT
+4171–4186 (2019).
+36. Liu, Y. et al. Roberta: A robustly optimized bert pretraining approach. Preprint at
+https://arxiv.org/abs/1907.11692 (2019).
+37. Brown, T. et al. Language models are few-shot learners. Adv. Neural Inf. Process.
+Syst. 33, 1877–1901 (2020).
+38. Peters, M. E., Neumann, M., Zettlemoyer, L. & Yih, W.-t. Dissecting contextual
+word embeddings: architecture and representation. In Proceedings of the 2018
+Conference on Empirical Methods in Natural Language Processing 1499–1509
+(2018).
+39. Conneau, A. & Lample, G. Cross-lingual language model pretraining. Adv. Neural.
+Inf. Process. Syst. 32, (2019).
+40. Honda, S., Shi, S. & Ueda, H. R. Smiles transformer: pre-trained molecular ﬁn-
+gerprint for low data drug discovery. Preprint at https://arxiv.org/abs/1911.04738
+(2019).
+41. Ying, C. et al. Do transformers really perform badly for graph representation? Adv.
+Neural Inf. Process. Syst. 34, 28877–28888 (2021).
+42. Irwin, R., Dimitriadis, S., He, J. & Bjerrum, E. J. Chemformer: a pre-trained trans-
+former for computational chemistry. Mach. Learn.: Sci. Technol. 3, 015022 (2022).
+43. Magar, R., Wang, Y. & Barati Farimani, A. Crystal twins: self-supervised learning for
+crystalline material property prediction. NPJ Comput. Mater. 8, 231 (2022).
+44. Wang, S., Guo, Y., Wang, Y., Sun, H. & Huang, J. Smiles-bert: large scale unsu-
+pervised pre-training for molecular property prediction. In Proceedings of the 10th
+ACM International Conference on Bioinformatics, Computational Biology and Health
+Informatics 429–436 (2019).
+45. Chithrananda, S., Grand, G. & Ramsundar, B. Chemberta: large-scale self-super-
+vised pretraining for molecular property prediction. Preprint at https://arxiv.org/
+abs/2010.09885 (2020).
+46. Schwaller, P. et al. Molecular transformer: a model for uncertainty-calibrated
+chemical reaction prediction. ACS Cent. Sci. 5, 1572–1583 (2019).
+47. Cao, Z., Magar, R., Wang, Y. & Barati Farimani, A. Moformer: self-supervised
+transformer model for metal–organic framework property prediction. J. Am.
+Chem. Soc. 145, 2958–2967 (2023).
+48. Perry, S. L. & Sing, C. E. 100th anniversary of macromolecular science viewpoint:
+opportunities in the physics of sequence-deﬁned polymers. ACS Macro Lett. 9,
+216–225 (2020).
+49. Le, T., Epa, V. C., Burden, F. R. & Winkler, D. A. Quantitative structure–property
+relationship modeling of diverse materials properties. Chem. Rev. 112, 2889–2919
+(2012).
+50. Persson, N., McBride, M., Grover, M. & Reichmanis, E. Silicon valley meets the ivory
+tower: searchable data repositories for experimental nanomaterials research.
+Curr. Opin. Solid State Mater. Sci. 20, 338–343 (2016).
+51. Ma, R. & Luo, T. Pi1m: a benchmark database for polymer informatics. J. Chem. Inf.
+Model 60, 4684–4690 (2020).
+52. Schauser, N. S., Kliegle, G. A., Cooke, P., Segalman, R. A. & Seshadri, R. Database
+creation, visualization, and statistical learning for polymer li+-electrolyte design.
+Chem. Mater. 33, 4863–4876 (2021).
+53. Hatakeyama-Sato, K., Tezuka, T., Umeki, M. & Oyaizu, K. Ai-assisted exploration of
+superionic glass-type li+ conductors with aromatic structures. J. Am. Chem. Soc.
+142, 3301–3305 (2020).
+54. Kuenneth, C. et al. Polymer informatics with multi-task learning. Patterns 2,
+100238 (2021).
+55. Nagasawa, S., Al-Naamani, E. & Saeki, A. Computer-aided screening of conjugated
+polymers for organic solar cell: classiﬁcation by random forest. J. Phys. Chem. Lett.
+9, 2639–2646 (2018).
+56. Salazar, J., Liang, D., Nguyen, T. Q. & Kirchhoff, K. Masked language model scoring.
+In Proceedings of the 58th Annual Meeting of the Association for Computational
+Linguistics 2699–2712 (ACL, 2020).
+57. Bao, H. et al. Unilmv2: Pseudo-masked language models for uniﬁed language
+model pre-training. In International Conference on Machine Learning (ICML)
+642–652 (ICML, 2020).
+58. Yang, Z., Yang, Y., Cer, D., Law, J. & Darve, E. Universal sentence representation
+learning with conditional masked language model. In Proceedings of the 2021
+Conference on Empirical Methods in Natural Language Processing 6216–6228
+(2021).
+59. Otsuka, S., Kuwajima, I., Hosoya, J., Xu, Y. & Yamazaki, M. Polyinfo: Polymer
+database for polymeric materials design. In 2011 International Conference on
+Emerging Intelligent Data and Web Technologies 22–29 (2011).
+60. Kim, C., Chandrasekaran, A., Huan, T. D., Das, D. & Ramprasad, R. Polymer genome:
+a data-powered polymer informatics platform for property predictions. J. Phys.
+Chem. C. 122, 17575–17585 (2018).
+61. Maaten, L. & Hinton, G. Visualizing data using t-sne. J. Mach. Learn Res. 9,
+2579–2605 (2008).
+62. Poličar, P.G., Stražar, M. & Zupan, B. Opentsne: a modular python library for t-sne
+dimensionality reduction and embedding. Preprint at https://www.biorxiv.org/
+content/10.1101/731877v3.abstract (2019).
+63. Abnar, S. & Zuidema, W. Quantifying attention ﬂow in transformers. In Proceed-
+ings of the 58th Annual Meeting of the Association for Computational Linguistics
+4190–4197 (ACL, 2020).
+64. Schauser, N. S. et al. Glass transition temperature and ion binding determine
+conductivity and lithium–ion transport in polymer electrolytes. ACS Macro Lett.
+10, 104–109 (2020).
+65. Hao, Y., Dong, L., Wei, F. & Xu, K. Self-attention attribution: interpreting infor-
+mation interactions inside transformer. In Proceedings of the AAAI Conference on
+Artiﬁcial Intelligence 35, 12963–12971 (2021).
+66. Reis, M. et al. Machine-learning-guided discovery of 19f mri agents enabled by
+automated copolymer synthesis. J. Am. Chem. Soc. 143, 17677–17689 (2021).
+67. Tamasi, M. J. et al. Machine learning on a robotic platform for the design of
+polymer–protein hybrids. Adv. Mater. 34, 2201809 (2022).
+68. Batra, R. et al. Polymers for extreme conditions designed using syntax-directed
+variational autoencoders. Chem. Mater. 32, 10489–10500 (2020).
+69. Chen, G., Tao, L. & Li, Y. Predicting polymers’ glass transition temperature by a
+chemical language processing model. Polymers 13, 1898 (2021).
+70. Lambard, G. & Gracheva, E. Smiles-x: autonomous molecular compounds char-
+acterization for small datasets without descriptors. Mach. Learn.: Sci. Technol. 1,
+025004 (2020).
+C. Xu et al.
+13
+Published in partnership with the Shanghai Institute of Ceramics of the Chinese Academy of Sciences
+npj Computational Materials (2023) 64 
+
+71. Eyben, F., Wöllmer, M. & Schuller, B. Opensmile: the munich versatile and fast
+open-source audio feature extractor. In Proceedings of the 18th ACM International
+Conference on Multimedia 1459–1462 (2010).
+72. Landrum, G. et al. Rdkit: open-source cheminformatics. https://www.rdkit.org
+(2006).
+73. Zhang, T., Wu, F., Katiyar, A., Weinberger, K. Q. & Artzi, Y. Revisiting few-sample
+bert ﬁne-tuning. In International Conference on Learning Representations (ICLR)
+(ICLR, 2021).
+ACKNOWLEDGEMENTS
+We thank the Advanced Research Projects Agency—Energy (ARPA-E), U.S. Depart-
+ment of Energy, under Award No. DE-AR0001221 and the start-up fund provided by
+the Department of Mechanical Engineering at Carnegie Mellon University.
+AUTHOR CONTRIBUTIONS
+A.B.F., Y.W., and C.X. conceived the idea; C.X. trained and evaluated the TransPolymer
+model; C.X. wrote the manuscript; A.B.F. supervised the work; all authors modiﬁed
+and approved the manuscript.
+COMPETING INTERESTS
+The authors declare no competing interests.
+ADDITIONAL INFORMATION
+Supplementary information The online version contains supplementary material
+available at https://doi.org/10.1038/s41524-023-01016-5.
+Correspondence and requests for materials should be addressed to Amir Barati
+Farimani.
+Reprints and permission information is available at http://www.nature.com/
+reprints
+Publisher’s note Springer Nature remains neutral with regard to jurisdictional claims
+in published maps and institutional afﬁliations.
+Open Access This article is licensed under a Creative Commons
+Attribution 4.0 International License, which permits use, sharing,
+adaptation, distribution and reproduction in any medium or format, as long as you give
+appropriate credit to the original author(s) and the source, provide a link to the Creative
+Commons license, and indicate if changes were made. The images or other third party
+material in this article are included in the article’s Creative Commons license, unless
+indicated otherwise in a credit line to the material. If material is not included in the
+article’s Creative Commons license and your intended use is not permitted by statutory
+regulation or exceeds the permitted use, you will need to obtain permission directly
+from
+the
+copyright
+holder.
+To
+view
+a
+copy
+of
+this
+license,
+visit
+http://
+creativecommons.org/licenses/by/4.0/.
+© The Author(s) 2023
+C. Xu et al.
+14
+npj Computational Materials (2023) 64 
+Published in partnership with the Shanghai Institute of Ceramics of the Chinese Academy of Sciences

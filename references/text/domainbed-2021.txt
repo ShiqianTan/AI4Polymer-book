@@ -1,0 +1,2911 @@
+In Search of Lost Domain Generalization
+Ishaan Gulrajani and David Lopez-Paz∗
+Facebook AI Research
+igul222@gmail.com, dlp@fb.com
+Abstract
+The goal of domain generalization algorithms is to predict well on distributions
+different from those seen during training. While a myriad of domain generalization
+algorithms exist, inconsistencies in experimental conditions—datasets, architec-
+tures, and model selection criteria—render fair and realistic comparisons difﬁcult.
+In this paper, we are interested in understanding how useful domain generalization
+algorithms are in realistic settings. As a ﬁrst step, we realize that model selection
+is non-trivial for domain generalization tasks. Contrary to prior work, we argue
+that domain generalization algorithms without a model selection strategy should be
+regarded as incomplete. Next, we implement DOMAINBED, a testbed for domain
+generalization including seven multi-domain datasets, nine baseline algorithms,
+and three model selection criteria. We conduct extensive experiments using DO-
+MAINBED and ﬁnd that, when carefully implemented, empirical risk minimization
+shows state-of-the-art performance across all datasets. Looking forward, we hope
+that the release of DOMAINBED, along with contributions from fellow researchers,
+will streamline reproducible and rigorous research in domain generalization.
+1
+Introduction
+Machine learning systems often fail to generalize out-of-distribution, crashing in spectacular ways
+when tested outside the domain of training examples [Torralba and Efros, 2011]. The overreliance of
+learning systems on the training distribution manifests widely. For instance, self-driving car systems
+struggle to perform under conditions different to those of training, including variations in light [Dai
+and Van Gool, 2018], weather [Volk et al., 2019], and object poses [Alcorn et al., 2019]. As another
+example, systems trained on medical data collected in one hospital do not generalize to other health
+centers [Castro et al., 2019, AlBadawy et al., 2018, Perone et al., 2019, Heaven, 2020]. Arjovsky et al.
+[2019] suggest that failing to generalize out-of-distribution is failing to capture the causal factors of
+variation in data, clinging instead to easier-to-ﬁt spurious correlations, which are prone to change
+from training to testing domains. Examples of spurious correlations commonly absorbed by learning
+machines include racial biases [Stock and Cisse, 2018], texture statistics [Geirhos et al., 2018], and
+object backgrounds [Beery et al., 2018]. Alas, the capricious behaviour of machine learning systems
+out-of-distribution is a roadblock to their deployment in critical applications.
+Aware of this problem, the research community has spent signiﬁcant effort during the last decade
+to develop algorithms able to generalize out-of-distribution. In particular, the literature in domain
+generalization assumes access to multiple datasets during training, each of them containing examples
+about the same task, but collected under a different domain or environment [Blanchard et al., 2011,
+Muandet et al., 2013]. The goal of domain generalization algorithms is to incorporate the invariances
+across these training datasets into a classiﬁer, in hopes that such invariances also hold in novel test
+domains. Different domain generalization solutions assume different types of invariances and propose
+algorithms to estimate them from data.
+∗Alphabetical order, equal contribution.
+Preprint. Under review.
+arXiv:2007.01434v1  [cs.LG]  2 Jul 2020
+
+Table 1: State-of-the-art domain generalization for typical datasets and their domains. Our implemen-
+tation of Empirical Risk Minimization (ERM) outperforms previous literature.
+Dataset / algorithm
+Out-of-distribution accuracy (by domain)
+Rotated MNIST
+0◦
+15◦
+30◦
+45◦
+60◦
+75◦
+Average
+Ilse et al. [2019]
+93.5
+99.3
+99.1
+99.2
+99.3
+93.0
+97.2
+Our ERM
+95.6
+99.0
+98.9
+99.1
+99.0
+96.7
+98.0
+PACS
+A
+C
+P
+S
+Average
+Asadi et al. [2019]
+83.0
+79.4
+96.8
+78.6
+84.5
+Our ERM
+88.1
+78.0
+97.8
+79.1
+85.7
+VLCS
+C
+L
+S
+V
+Average
+Albuquerque et al. [2019]
+95.5
+67.6
+69.4
+71.1
+75.9
+Our ERM
+97.6
+63.3
+72.2
+76.4
+77.4
+Ofﬁce-Home
+A
+C
+P
+R
+Average
+Zhou et al. [2020]
+59.2
+52.3
+74.6
+76.0
+65.5
+Our ERM
+62.7
+53.4
+76.5
+77.3
+67.5
+Despite the enormous importance of domain generalization, the literature is scattered: a plethora
+of different algorithms appear yearly, and these are evaluated under different datasets and model
+selection criteria. Borrowing from the success of standard computer vision benchmarks such as
+ImageNet [Russakovsky et al., 2015], the purpose of this work is to perform a standardized, rigorous
+comparison of domain generalization algorithms. In particular, we ask: how useful are domain
+generalization algorithms in realistic settings? Towards answering this question, we ﬁrst study model
+selection criteria for domain generalization methods, resulting in the recommendation:
+A domain generalization algorithm should be responsible for specifying a model selection method.
+We then carefully implement nine domain generalization algorithms on seven multi-domain datasets
+and three model selection criteria, leading us to the conclusion reﬂected in Tables 1 and 4:
+When equipped with modern neural network architectures and data augmentation techniques,
+empirical risk minimization achieves state-of-the-art performance in domain generalization.
+As a result of our research, we release DOMAINBED, a framework to streamline rigorous and
+reproducible experimentation in domain generalization. Using DOMAINBED, adding a new algorithm
+or dataset is a matter of a few lines of code; a single command runs all the experiments, performs
+all the model selections, and auto-generates all the tables included in this work. Moreover, our
+motivation is to keep DOMAINBED alive, welcoming pull requests from our fellow colleagues to
+update the available algorithms, datasets, model selection criteria, and result tables.
+Section 2 kicks off our exposition with a review of the domain generalization setup. Section 3
+discusses the difﬁculties of model selection in domain generalization and makes recommendations for
+a path forward. Section 4 introduces DOMAINBED, describing the algorithms and datasets contained
+in the initial release. Section 5 discusses the experimental results of running the entire DOMAINBED
+suite; these illustrate the strength of ERM and the importance of model selection criteria. Finally,
+Section 6 offers our view on future research directions in domain generalization. Our Appendices
+review one hundred articles spanning a decade of research in this topic, collecting the experimental
+performance of over thirty published algorithms.
+2
+The problem of domain generalization
+The goal of supervised learning is to predict values y ∈Y of a target random variable Y , given
+values x ∈X of an input random variable X. Predictions ˆy about x originate from a predictor
+f : X →Y, such that ˆy = f(x). We often decompose predictors as f = w ◦φ, where we call
+φ : X →H the featurizer, and w : H →Y the classiﬁer. Our main tool to solve the prediction task is
+the training dataset D = {(xi, yi)}n
+i=1, which contains identically and independently distributed (iid)
+2
+
+Table 2: Learning setups. Ld and U d denote the labeled and unlabeled distributions from domain d.
+Setup
+Training inputs
+Test inputs
+Generative learning
+U 1
+∅
+Unsupervised learning
+U 1
+U 1
+Supervised learning
+L1
+U 1
+Semi-supervised learning
+L1, U 1
+U 1
+Multitask learning
+L1, . . . , Ldtr
+U 1, . . . , U dtr
+Continual (or lifelong) learning
+L1, . . . , L∞
+U 1, . . . , U ∞
+Domain adaptation
+L1, . . . , Ldtr, U dtr+1
+U dtr+1
+Transfer learning
+U 1, . . . , U dtr, Ldtr+1
+U dtr+1
+Domain generalization
+L1, . . . , Ldtr
+U dtr+1
+examples from the joint probability distribution P(X, Y ). Given a loss function ℓ: Y × Y →[0, ∞)
+measuring the prediction error at one example, we often cast supervised learning as ﬁnding a
+predictor minimizing the population risk E(x,y)∼P [ℓ(f(x), y)]. Since we only have access to the data
+distribution P(X, Y ) via the dataset D, we instead choose a predictor minimizing the empirical risk
+1
+n
+Pn
+i=1 ℓ(f(xi), yi) [Vapnik, 1998].
+The rest of this paper studies the problem of domain generalization, an extension of supervised
+learning where training datasets from multiple domains (or environments) are available to train our
+predictor [Blanchard et al., 2011]. More speciﬁcally, we characterize each domain d by a dataset
+Dd = {(xd
+i , yd
+i )}nd
+d=1 containing iid examples from some probability distribution P(Xd, Y d), for
+all training domains d ∈{1, . . . , dtr}. The goal of domain generalization is out-of-distribution
+generalization: learning a predictor able to perform well at some unseen test domain dte = dtr + 1.
+Since no data about the test domain is available during training, we must assume the existence of some
+statistical invariances across training and testing domains in order to incorporate such invariances
+(but nothing else) into our predictor. The type of invariance assumed, as well as how to estimate it
+from the training datasets, varies between domain generalization algorithms.
+Domain generalization differs from unsupervised domain adaptation. In the latter, it is assumed that
+unlabeled data from the test domain is available during training [Pan and Yang, 2009, Patel et al., 2015,
+Wilson and Cook, 2018]. Table 2 compares different machine learning setups to highlight the nature of
+domain generalization problems. The causality literature refers to domain generalization as learning
+from multiple environments [Peters et al., 2016, Arjovsky et al., 2019]. Although challenging, domain
+generalization is the best approximation to real prediction problems, where unforeseen distributional
+discrepancies between training and testing data are surely expected.
+3
+Model selection as part of the learning problem
+Here we discuss issues surrounding model selection (choosing hyperparameters, training checkpoints,
+architecture variants) in domain generalization and make speciﬁc recommendations for a path forward.
+Because we lack access to a validation set identically distributed to the test data, model selection in
+domain generalization is not as straightforward as in supervised learning. Some works adopt heuristic
+strategies whose behavior is not well-studied, while others simply omit a description of how to choose
+hyperparameters. This leaves open the possibility that hyperparameters were chosen using the test
+data, which is not methodologically sound. Differences in results arising from inconsistent tuning
+practices may be misattributed to the algorithms under study, complicating fair assessments.
+We believe that much of the confusion surrounding model selection in domain generalization arises
+from treating it as a question of experimental design. In reality, selecting hyperparameters is a
+learning problem at least as hard as ﬁtting the model (inasmuch as we may interpret any model
+parameter as a hyperparameter). Like all learning problems, model selection requires assumptions
+about how the test data relates to the training data. Different domain generalization algorithms
+make different assumptions, and it is not clear a priori what assumptions are correct, or how these
+assumptions inﬂuence the model selection criterion. Indeed, choosing reasonable assumptions is at
+3
+
+the heart of domain generalization research. Therefore, a domain generalization algorithm without a
+strategy to choose its hyperparameters remains incomplete.
+Recommendation 1 A domain generalization algorithm should be responsible for specifying a
+model selection method.
+While algorithms without well-justiﬁed model selection methods are incomplete, they may be useful
+as stepping-stones in a research agenda. In this case, instead of using an ad-hoc model selection
+method, we can evaluate incomplete algorithms by considering an oracle model selection method,
+where we select hyperparameters on the test domain. Of course, it is important that we avoid invalid
+comparisons between oracle results and baselines tuned without an oracle method. Also, unless we
+restrict access to the test domain data somehow, we risk obtaining meaningless results. For instance,
+we could just train on such test domain data using supervised learning.
+Recommendation 2 Researchers should disclaim any oracle-selection results as such and specify
+policies to limit access to the test domain.
+3.1
+Three model selection methods
+Having made broad recommendations, we review and justify three methods for model selection in
+domain generalization, often used but rarely discerned.
+Training-domain validation set
+We split each training domain into training and validation subsets.
+Then, we pool the validation subsets of each training domain to create an overall validation set.
+Finally, we choose the model maximizing the accuracy on the overall validation set.
+This strategy assumes that the training and test examples follow similar distributions. For example,
+Ben-David et al. [2010] bound the test domain error of a classiﬁer by the training domain error, plus
+a divergence measure between the training and test domains.
+Leave-one-domain-out cross-validation
+Given dtr training domains, we train dtr models with
+equal hyperparameters, each holding one of the training domains out. We evaluate each model on its
+held-out domain, and average the accuracies of these models over their held-out domains. Finally, we
+choose the model maximizing this average accuracy, re-trained on all dtr domains.
+This strategy assumes that training and test domains are drawn from a meta-distribution over domains,
+and that our goal is to maximize the expected performance under this meta-distribution.
+Test-domain validation set (oracle)
+We choose the model maximizing the accuracy on a validation
+set that follows the distribution of the test domain. Following our earlier recommendation to limit test
+domain access, we allow 20 queries per algorithm (one query per choice of hyperparameters in our
+random search). This means that we do not allow early stopping based on the validation set. Instead,
+we train all models for the same ﬁxed number of steps and consider only the ﬁnal checkpoint. Recall
+that we do not consider this a valid benchmarking methodology, since it requires access to the test
+domain. Oracle-selection results can be either optimistic, because we access the test distribution, or
+pessimistic, because the query limit reduces the number of considered hyperparameter combinations.
+As an alternative to limiting the number of queries, we could borrow tools from differential privacy,
+previously applied to enable multiple re-uses of validation sets in standard supervised learning [Dwork
+et al., 2015]. In a nutshell, differential privacy tools add Laplace noise to the accuracy statistic of the
+algorithm before reporting it to the practitioner.
+3.2
+Considerations from the literature
+Some references in prior work discuss additional strategies to choose hyperparemeters in domain
+generalization problems. For instance, Krueger et al. [2020, Appendix B.1] suggest choosing
+hyperparameters to maximize the performance across all domains of an external dataset. The validity
+of this strategy depends on the relatedness between datasets. Albuquerque et al. [2019, Section
+5.3.2] suggest performing model selection based on the loss function (which often incorporates an
+algorithm-speciﬁc regularizer), and DInnocente and Caputo [2018, Section 3] derive an strategy
+speciﬁc to their algorithm.
+4
+
+Table 3: Datasets included in DOMAINBED. For each dataset, we pick a single class and show
+illustrative images from each domain.
+Dataset
+Domains
++90%
++80%
+-90%
+Colored MNIST
+(degree of correlation between color and label)
+0◦
+15◦
+30◦
+45◦
+60◦
+75◦
+Rotated MNIST
+Caltech101
+LabelMe
+SUN09
+VOC2007
+VLCS
+Art
+Cartoon
+Photo
+Sketch
+PACS
+Art
+Clipart
+Product
+Photo
+Ofﬁce-Home
+L100
+L38
+L43
+L46
+Terra Incognita
+(camera trap location)
+Clipart
+Infographic
+Painting
+QuickDraw
+Photo
+Sketch
+DomainNet
+4
+DOMAINBED: A PyTorch testbed for domain generalization
+At the heart of our large scale experimentation is DOMAINBED, a PyTorch [Paszke et al., 2019]
+testbed to streamline reproducible and rigorous research in domain generalization:
+https://github.com/facebookresearch/DomainBed (coming soon)
+The initial release comprises nine algorithms, seven datasets, and three model selection methods
+(described in Section 3), as well as the infrastructure to run all the experiments and generate all the
+LATEX tables below with a single command. DOMAINBED is a living project: we expect to update
+the above repository with new results, algorithms, and datasets. Contributions via pull requests from
+fellow researchers are welcome. Adding a new algorithm or dataset to DOMAINBED is a matter of a
+few lines of code (see Appendix E for an example).
+4.1
+Datasets
+DOMAINBED includes downloaders and loaders for seven multi-domain image classiﬁcation tasks:
+Colored MNIST [Arjovsky et al., 2019], Rotated MNIST [Ghifary et al., 2015], PACS [Li et al.,
+2017], VLCS [Fang et al., 2013], Ofﬁce-Home [Venkateswara et al., 2017], Terra Incognita [Beery
+et al., 2018], and DomainNet [Peng et al., 2019]. We list and show example images from each dataset
+in Table 3, and provide their full details in Appendix C.
+The datasets differ in many ways but two are particularly important. The ﬁrst difference is between
+synthetic and real datasets. In Rotated MNIST and Colored MNIST, domains are synthetically
+constructed such that we know what features will generalize a priori, so using too much prior
+knowledge (e.g. by augmenting with rotations) is off-limits, whereas the other datasets contain
+5
+
+domains arising from natural processes, making it sensible to use prior knowledge. The second
+difference is about what changes across domains. On one hand, in datasets other than Colored
+MNIST, the domain changes the distribution of images, but likely bears no information about the
+true image-to-label mapping. On the other hand, in Colored MNIST, the domain inﬂuences the true
+image-to-label mapping, biasing algorithms that try to estimate this function directly.
+4.2
+Algorithms
+The initial release of DOMAINBED includes implementations of nine baseline algorithms:
+• Empirical Risk Minimization (ERM, Vapnik [1998]) minimizes the sum of errors across domains
+and examples.
+• Group Distributionally Robust Optimization (DRO, Sagawa et al. [2019]) performs ERM while
+increasing the importance of domains with larger errors.
+• Inter-domain Mixup (Mixup, Xu et al. [2019], Yan et al. [2020], Wang et al. [2020]) performs
+ERM on linear interpolations of examples from random pairs of domains and their labels.
+• Meta-Learning for Domain Generalization (MLDG, Li et al. [2018a]) leverages MAML [Finn
+et al., 2017] to meta-learn how to generalize across domains.
+• Different variants of the popular algorithm of Ganin et al. [2016] to learn features φ(Xd) with
+distributions matching across domains:
+– Domain-Adversarial Neural Networks (DANN, Ganin et al. [2016]) employ an adversarial
+network to match feature distributions.
+– Class-conditional DANN (C-DANN, Li et al. [2018d]) is a variant of DANN matching the
+conditional distributions P(φ(Xd)|Y d = y) across domains, for all labels y.
+– CORAL [Sun and Saenko, 2016] matches the mean and covariance of feature distributions.
+– MMD [Li et al., 2018b] matches the MMD [Gretton et al., 2012] of feature distributions.
+• Invariant Risk Minimization (IRM [Arjovsky et al., 2019]) learns a feature representation φ(Xd)
+such that the optimal linear classiﬁer on top of that representation matches across domains.
+Appendix D describes the network architectures and hyperparameter search spaces for all algorithms.
+4.3
+Implementation choices for realistic evaluation
+Our goal is a realistic evaluation of domain generalization algorithms. To that end, we make several
+implementation choices which depart from prior work, explained below.
+Large models
+Most prior work on VLCS and PACS borrows features from or ﬁnetune ResNet-18
+models [He et al., 2016]. Since larger ResNets are known to generalize better, we opt to ﬁnetune
+ResNet-50 models for all datasets except Rotated MNIST and Colored MNIST, where we use a
+smaller CNN architecture (see Appendix D).
+Data augmentation
+Data augmentation is a standard ingredient to train image classiﬁcation models.
+In domain generalization, data augmentation can play an especially important role when augmen-
+tations can approximate some of the variations between domains. Therefore, for all non-MNIST
+datasets, we train using the following data augmentations: crops of random size and aspect ratio,
+resizing to 224 × 224 pixels, random horizontal ﬂips, random color jitter, grayscaling the image with
+10% probability, and normalization using the ImageNet channel means and standard deviations. For
+MNIST datasets, we use no data augmentation.
+Using all available data
+In Rotated MNIST, whereas the usual version of the dataset constructs all
+domains from the same set of 1000 digits, we divide all the MNIST digits evenly among domains. We
+deviate from standard practice for two reasons: we believe that using the same digits across training
+and test domains amounts to leaking test data, and we believe that artiﬁcially restricting the available
+training domain data complicates the task in an unrealistic way.
+6
+
+5
+Experiments
+We run experiments for all algorithms (Section 4.2), datasets (Section 4.1), and model selection
+criteria (Section 3) shipped in DOMAINBED. We consider all conﬁgurations of a dataset where we
+hide one domain for testing and train on the remaining ones.
+Hyperparameter search
+For each algorithm and test environment, we conduct a random search
+[Bergstra and Bengio, 2012] of 20 trials over the hyperparameter distribution (see Appendix D). We
+use each model selection method from Section 3 to select amongst the 20 models from the random
+search. We split the data from each domain into 80% and 20% splits. We use the larger splits for
+training and ﬁnal evaluation, and the smaller splits to select hyperparameters.
+Standard error bars
+While some domain generalization literature reports error bars across seeds,
+randomness arising from model selection is often ignored. While this is acceptable if the goal is a
+best-versus-best comparison, it prohibits nuanced analyses. For instance, does method A outperform
+method B only because random search for A got lucky? We therefore repeat our entire study three
+times making every random choice anew: hyperparameters, weight initializations, and dataset splits.
+Every number we report is a mean over these repetitions, together with their estimated standard error.
+This experimental protocol amounts to training a total of 45,900 neural networks.
+5.1
+Results
+Table 4 summarizes the results of our experiments. For each dataset and model, we average the best
+results (according to each model selection criterion) across test domains. We then report the average
+of this number across three independent runs of the entire sweep, and its corresponding standard
+error. For results per dataset and domain, we refer the reader to Appendix B. We draw three main
+conclusions from our results:
+Our ERM baseline outperforms all previously published results
+Table 1 summarizes this result
+when model selection is performed using a training domain validation set. What is responsible for this
+strong performance? We suspect four factors: a bigger network architecture (ResNet-50), strong data
+augmentations, careful hyperparameter tuning and, in Rotated MNIST, using the full training data to
+construct our domains (instead of using a 1000-image subset). While we are not ﬁrst to use any these
+techniques alone, we may be ﬁrst to combine all of them. Interestingly, these results suggest standard
+techniques to improve in-distribution generalization are very effective at improving out-of-distribution
+generalization. Our result does not refute prior work: it is possible that with similar techniques,
+some competing methods may improve upon ERM. Rather, our results highlight the importance of
+comparing domain generalization algorithms to strong and realistic baselines. Incorporating novel
+algorithms into DOMAINBED is an easy way to do so. For an extensive review of results published in
+the literature about more than thirty algorithms, we refer the reader to Appendix A.5.
+When all conditions are equal, no algorithm outperforms ERM by a signiﬁcant margin
+We
+observe this result in Table 4, obtained from running from scratch every combination of dataset,
+algorithm, and model selection criteria included in DOMAINBED. Given any model selection criterion,
+no method improves upon the average performance of ERM in more than one point. We do not claim
+that any of these algorithms cannot possibly improve upon ERM, but getting substantial domain
+generalization improvements over ERM on these datasets proved challenging.
+Model selection methods matter
+We observe that model selection with a training domain valida-
+tion set outperforms leave-one-domain-out cross-validation across multiple datasets and algorithms.
+This does not mean that using a training domain validation set is the right way to tune hyperparameters.
+After all, it did not enable any algorithm to signiﬁcantly outperform the ERM baseline. Moreover,
+the stronger performance of oracle-selection (+2%) suggests possible headroom for improvement.
+6
+Outlook
+We have conducted an extensive empirical evaluation of domain generalization algorithms. Our
+results led to two major conclusions. First, empirical risk minimization achieves state-of-the-art
+7
+
+Table 4: Average out-of-distribution test accuracies for all algorithms, datasets and model selection
+criteria included in the initial release of DOMAINBED. These experiments compare nine popular
+domain generalization algorithms in the exact same conditions, showing the state-of-the-art perfor-
+mance of ERM. For a comparison against the numbers reported for thirty other algorithms in the
+previous literature, we refer the reader to Appendix A.5.
+Model selection method: training domain validation set
+Algorithm
+CMNIST
+RMNIST
+VLCS
+PACS
+Ofﬁce-Home
+TerraInc
+DomainNet
+Avg
+ERM
+52.0 ± 0.1
+98.0 ± 0.0
+77.4 ± 0.3
+85.7 ± 0.5
+67.5 ± 0.5
+47.2 ± 0.4
+41.2 ± 0.2
+67.0
+IRM
+51.8 ± 0.1
+97.9 ± 0.0
+78.1 ± 0.0
+84.4 ± 1.1
+66.6 ± 1.0
+47.9 ± 0.7
+35.7 ± 1.9
+66.0
+DRO
+52.0 ± 0.1
+98.1 ± 0.0
+77.2 ± 0.6
+84.1 ± 0.4
+66.9 ± 0.3
+47.0 ± 0.3
+33.7 ± 0.2
+65.5
+Mixup
+51.9 ± 0.1
+98.1 ± 0.0
+77.7 ± 0.4
+84.3 ± 0.5
+69.0 ± 0.1
+48.9 ± 0.8
+39.6 ± 0.1
+67.1
+MLDG
+51.6 ± 0.1
+98.0 ± 0.0
+77.1 ± 0.4
+84.8 ± 0.6
+68.2 ± 0.1
+46.1 ± 0.8
+41.8 ± 0.4
+66.8
+CORAL
+51.7 ± 0.1
+98.1 ± 0.1
+77.7 ± 0.5
+86.0 ± 0.2
+68.6 ± 0.4
+46.4 ± 0.8
+41.8 ± 0.2
+67.2
+MMD
+51.8 ± 0.1
+98.1 ± 0.0
+76.7 ± 0.9
+85.0 ± 0.2
+67.7 ± 0.1
+49.3 ± 1.4
+39.4 ± 0.8
+66.8
+DANN
+51.5 ± 0.3
+97.9 ± 0.1
+78.7 ± 0.3
+84.6 ± 1.1
+65.4 ± 0.6
+48.4 ± 0.5
+38.4 ± 0.0
+66.4
+C-DANN
+51.9 ± 0.1
+98.0 ± 0.0
+78.2 ± 0.4
+82.8 ± 1.5
+65.6 ± 0.5
+47.6 ± 0.8
+38.9 ± 0.1
+66.1
+Model selection method: Leave-one-domain-out cross-validation
+Algorithm
+CMNIST
+RMNIST
+VLCS
+PACS
+Ofﬁce-Home
+TerraInc
+DomainNet
+Avg
+ERM
+34.2 ± 1.2
+98.0 ± 0.0
+76.8 ± 1.0
+83.3 ± 0.6
+67.3 ± 0.3
+46.2 ± 0.2
+40.8 ± 0.2
+63.8
+IRM
+36.3 ± 0.4
+97.7 ± 0.1
+77.2 ± 0.3
+82.9 ± 0.6
+66.7 ± 0.7
+44.0 ± 0.7
+35.3 ± 1.5
+62.9
+DRO
+32.2 ± 3.7
+97.9 ± 0.1
+77.5 ± 0.1
+83.1 ± 0.6
+67.1 ± 0.3
+42.5 ± 0.2
+32.8 ± 0.2
+61.8
+Mixup
+31.2 ± 2.1
+98.1 ± 0.1
+78.6 ± 0.2
+83.7 ± 0.9
+68.2 ± 0.3
+46.1 ± 1.6
+39.4 ± 0.3
+63.6
+MLDG
+36.9 ± 0.2
+98.0 ± 0.1
+77.1 ± 0.6
+82.4 ± 0.7
+67.6 ± 0.3
+45.8 ± 1.2
+42.1 ± 0.1
+64.2
+CORAL
+29.9 ± 2.5
+98.1 ± 0.1
+77.0 ± 0.5
+83.6 ± 0.6
+68.6 ± 0.2
+48.1 ± 1.3
+41.9 ± 0.2
+63.9
+MMD
+42.6 ± 3.0
+98.1 ± 0.1
+76.7 ± 0.9
+82.8 ± 0.3
+67.1 ± 0.5
+46.3 ± 0.5
+39.3 ± 0.9
+64.7
+DANN
+29.0 ± 7.7
+89.1 ± 5.5
+77.7 ± 0.3
+84.0 ± 0.5
+65.5 ± 0.1
+45.7 ± 0.8
+37.5 ± 0.2
+61.2
+C-DANN
+31.1 ± 8.5
+96.3 ± 1.0
+74.0 ± 1.0
+81.7 ± 1.4
+64.7 ± 0.4
+40.6 ± 1.8
+38.7 ± 0.2
+61.1
+Model selection method: Test-domain validation set (oracle)
+Algorithm
+CMNIST
+RMNIST
+VLCS
+PACS
+Ofﬁce-Home
+TerraInc
+DomainNet
+Avg
+ERM
+58.5 ± 0.3
+98.1 ± 0.1
+77.8 ± 0.3
+87.1 ± 0.3
+67.1 ± 0.5
+52.7 ± 0.2
+41.6 ± 0.1
+68.9
+IRM
+70.2 ± 0.2
+97.9 ± 0.0
+77.1 ± 0.2
+84.6 ± 0.5
+67.2 ± 0.8
+50.9 ± 0.4
+36.0 ± 1.6
+69.2
+DRO
+61.2 ± 0.6
+98.1 ± 0.0
+77.4 ± 0.6
+87.2 ± 0.4
+67.7 ± 0.4
+53.1 ± 0.5
+34.0 ± 0.1
+68.4
+Mixup
+58.4 ± 0.2
+98.0 ± 0.0
+78.7 ± 0.4
+86.4 ± 0.2
+68.5 ± 0.5
+52.9 ± 0.3
+40.3 ± 0.3
+69.0
+MLDG
+58.4 ± 0.2
+98.0 ± 0.1
+77.8 ± 0.4
+86.8 ± 0.2
+67.4 ± 0.2
+52.4 ± 0.3
+42.5 ± 0.1
+69.1
+CORAL
+57.6 ± 0.5
+98.2 ± 0.0
+77.8 ± 0.1
+86.9 ± 0.2
+68.6 ± 0.4
+52.6 ± 0.6
+42.1 ± 0.1
+69.1
+MMD
+63.4 ± 0.7
+97.9 ± 0.1
+78.0 ± 0.4
+87.1 ± 0.5
+67.0 ± 0.2
+52.7 ± 0.2
+39.8 ± 0.7
+69.4
+DANN
+58.3 ± 0.2
+97.9 ± 0.0
+80.1 ± 0.6
+85.4 ± 0.7
+65.6 ± 0.3
+51.6 ± 0.6
+38.3 ± 0.1
+68.2
+C-DANN
+62.0 ± 1.1
+97.8 ± 0.1
+80.2 ± 0.1
+85.7 ± 0.3
+65.6 ± 0.3
+51.0 ± 1.0
+38.9 ± 0.1
+68.7
+performance when compared to eight popular domain generalization alternatives, also improving
+upon all the numbers previously reported in the literature. Second, model selection has a signiﬁcant
+effect on domain generalization, and it should be regarded as an integral part of any proposed method.
+We conclude with a series of mini-discussions that answer some questions, but raise even more.
+How can we push data augmentation further?
+While conducting our experiments, we became
+aware of the power of data augmentation. Zhang et al. [2019] show that strong data augmentation
+can improve out-of-distribution generalization while not impacting in-distribution generalization.
+We think of data augmentation as feature removal: the more we augment a training example, the
+more invariant we make our predictor with respect to the applied transformations. If the practitioner
+is lucky and performs the data augmentations that cancel the spurious correlations varying from
+domain to domain, then out-of-distribution performance should improve. Given a particular domain
+generalization problem, what sort of data augmentation pipelines should we implement?
+Is this as good as it gets?
+We question whether domain generalization is expected in the considered
+datasets. Why do we assume a neural network should be able to classify cartoons, given only photore-
+alistic training data? In the case of Rotated MNIST, do truly rotation-invariant features discriminative
+8
+
+of the digit class exist? Are those features expressible by a neural network? Even in the presence of
+correct model selection, is the out-of-distribution performance of modern ERM implementations as
+good as it gets? Or is it simply as bad as every other alternative? How can we establish upper-bounds
+on what performance is achievable out-of-distribution via domain generalization techniques?
+Are these the right datasets?
+Some of the datasets considered in the domain-generalization
+literature do not reﬂect realistic situations. In reality, if one wanted to classify cartoons, the easiest
+option would be to collect a small labeled dataset of cartoons. Should we consider more realistic,
+impactful tasks for better research in domain generalization? Attractive alternatives include medical
+imaging in different hospitals and self-driving cars in different cities.
+It is all about (untestable) assumptions
+Every time we use ERM, we assume that training and
+testing examples are drawn from the same distribution. Also every time, this is an untestable
+assumption. The same applies for domain generalization: each algorithm assumes a different
+(untestable) type of invariance across domains. Therefore, the performance of a domain generalization
+algorithm depends on the problem at hand, and only time can tell if we have made a good choice.
+This is akin to the generalization of a scientiﬁc theory such as Newton’s gravitation, which cannot
+be proved but has so far resisted falsiﬁcation. We believe there is promise in algorithms with
+self-adaptation capabilities during test time.
+Benchmarking and the rules of the game
+While limiting the use of modern techniques cheapens
+experiments, it also distorts them from more realistic scenarios, which is the focus of our study. Our
+view is that benchmark designers should balance these factors to promote a set of rules of the game
+that are not only well-deﬁned, but realistic and well-motivated. Synthetic datasets are helpful tools,
+but we must not lose sight of the goal, which is artiﬁcial intelligence able to generalize in the real
+world. In words of Marcel Proust:
+Perhaps the immobility of the things that surround us is forced upon them by our conviction that they
+are themselves, and not anything else, and by the immobility of our conceptions of them.
+Broader impact
+Current machine learning systems fail capriciously when facing novel distributions of examples.
+This unreliability hinders the application of machine learning systems in critical applications such as
+transportation, security, and healthcare. Here we strive to ﬁnd robust machine learning models that
+discard spurious correlations, as we expect invariant patterns to generalize out-of-distribution. This
+should lead to fairer, safer, and more reliable machine learning systems. But with great powers comes
+great responsibility: researchers in domain generalization must adhere to the strictest standards of
+model selection and evaluation. We hope that our results and the release of DOMAINBED are some
+small steps in this direction, and we look forward to collaborate with fellow researchers to streamline
+reproducible and rigorous research towards true generalization power.
+References
+Kartik Ahuja, Karthikeyan Shanmugam, Kush Varshney, and Amit Dhurandhar. Invariant risk
+minimization games. arXiv, 2020.
+Kei Akuzawa, Yusuke Iwasawa, and Yutaka Matsuo. Adversarial invariant feature learning with
+accuracy constraint for domain generalization. arXiv, 2019.
+Ehab A AlBadawy, Ashirbani Saha, and Maciej A Mazurowski. Deep learning for segmentation of
+brain tumors: Impact of cross-institutional training and testing. Medical physics, 2018.
+Isabela Albuquerque, Jo˜ao Monteiro, Tiago H Falk, and Ioannis Mitliagkas. Adversarial target-
+invariant representation learning for domain generalization. arXiv, 2019.
+Isabela Albuquerque, Nikhil Naik, Junnan Li, Nitish Keskar, and Richard Socher. Improving
+out-of-distribution generalization via multi-task self-supervised pretraining. arXiv, 2020.
+9
+
+Michael A Alcorn, Qi Li, Zhitao Gong, Chengfei Wang, Long Mai, Wei-Shinn Ku, and Anh Nguyen.
+Strike (with) a pose: Neural networks are easily fooled by strange poses of familiar objects. CVPR,
+2019.
+Martin Arjovsky, L´eon Bottou, Ishaan Gulrajani, and David Lopez-Paz. Invariant risk minimization.
+arXiv preprint arXiv:1907.02893, 2019.
+Nader Asadi, Mehrdad Hosseinzadeh, and Mahdi Eftekhari. Towards shape biased unsupervised
+representation learning for domain generalization. arXiv, 2019.
+Yogesh Balaji, Swami Sankaranarayanan, and Rama Chellappa. MetaReg: Towards domain general-
+ization using meta-regularization. NIPS, 2018.
+Sara Beery, Grant Van Horn, and Pietro Perona. Recognition in terra incognita. ECCV, 2018.
+Shai Ben-David, John Blitzer, Koby Crammer, Alex Kulesza, Fernando Pereira, and Jennifer Wortman
+Vaughan. A theory of learning from different domains. Machine learning, 2010.
+James Bergstra and Yoshua Bengio. Random search for hyper-parameter optimization. JMLR, 2012.
+Gilles Blanchard, Gyemin Lee, and Clayton Scott. Generalizing from several related classiﬁcation
+tasks to a new unlabeled sample. NIPS, 2011.
+Gilles Blanchard, Aniket Anand Deshmukh, Urun Dogan, Gyemin Lee, and Clayton Scott. Domain
+generalization by marginal transfer learning. arXiv, 2017.
+Victor Bouvier, Philippe Very, C´eline Hudelot, and Cl´ement Chastagnol. Hidden covariate shift: A
+minimal assumption for domain adaptation. arXiv, 2019.
+Fabio M Carlucci, Antonio D’Innocente, Silvia Bucci, Barbara Caputo, and Tatiana Tommasi. Domain
+generalization by solving jigsaw puzzles. CVPR, 2019a.
+Fabio Maria Carlucci, Paolo Russo, Tatiana Tommasi, and Barbara Caputo. Hallucinating agnostic
+images to generalize across domains. ICCVW, 2019b.
+Daniel C Castro, Ian Walker, and Ben Glocker. Causality matters in medical imaging. arXiv, 2019.
+Dengxin Dai and Luc Van Gool. Dark model adaptation: Semantic image segmentation from daytime
+to nighttime. ITSC, 2018.
+Aniket Anand Deshmukh, Yunwen Lei, Srinagesh Sharma, Urun Dogan, James W Cutler, and Clayton
+Scott. A generalization error bound for multi-class domain generalization. arXiv, 2019.
+Zhengming Ding and Yun Fu. Deep domain generalization with structured low-rank constraint. IEEE
+Transactions on Image Processing, 2017.
+Qi Dou, Daniel Coelho de Castro, Konstantinos Kamnitsas, and Ben Glocker. Domain generalization
+via model-agnostic learning of semantic features. NIPS, 2019.
+Cynthia Dwork, Vitaly Feldman, Moritz Hardt, Toniann Pitassi, Omer Reingold, and Aaron Roth.
+The reusable holdout: Preserving validity in adaptive data analysis. Science, 2015.
+Antonio DInnocente and Barbara Caputo. Domain generalization with domain-speciﬁc aggregation
+modules. German Conference on Pattern Recognition, 2018.
+Chen Fang, Ye Xu, and Daniel N Rockmore. Unbiased metric learning: On the utilization of multiple
+datasets and web images for softening bias. ICCV, 2013.
+Chelsea Finn, Pieter Abbeel, and Sergey Levine. Model-agnostic meta-learning for fast adaptation of
+deep networks. ICML, 2017.
+Yaroslav Ganin, Evgeniya Ustinova, Hana Ajakan, Pascal Germain, Hugo Larochelle, Franc¸ois
+Laviolette, Mario Marchand, and Victor Lempitsky. Domain-adversarial training of neural networks.
+JMLR, 2016.
+10
+
+Robert Geirhos, Patricia Rubisch, Claudio Michaelis, Matthias Bethge, Felix A Wichmann, and
+Wieland Brendel. ImageNet-trained CNNs are biased towards texture; increasing shape bias
+improves accuracy and robustness. arXiv, 2018.
+Muhammad Ghifary, W Bastiaan Kleijn, Mengjie Zhang, and David Balduzzi. Domain generalization
+for object recognition with multi-task autoencoders. ICCV, 2015.
+Muhammad Ghifary, David Balduzzi, W Bastiaan Kleijn, and Mengjie Zhang. Scatter component
+analysis: A uniﬁed framework for domain adaptation and domain generalization. IEEE TPAMI,
+2016.
+Ian Goodfellow, Jean Pouget-Abadie, Mehdi Mirza, Bing Xu, David Warde-Farley, Sherjil Ozair,
+Aaron Courville, and Yoshua Bengio. Generative adversarial nets. NIPS, 2014.
+Arthur Gretton, Karsten M Borgwardt, Malte J Rasch, Bernhard Sch¨olkopf, and Alexander Smola. A
+kernel two-sample test. JMLR, 2012.
+Kaiming He, Xiangyu Zhang, Shaoqing Ren, and Jian Sun. Deep residual learning for image
+recognition. CVPR, 2016.
+Will D. Heaven. Googles medical AI was super accurate in a lab. real life was a different story. MIT
+Technology Review, 2020.
+Shoubo Hu, Kun Zhang, Zhitang Chen, and Laiwan Chan. Domain generalization via multidomain
+discriminant analysis. UAI, 2019.
+Weihua Hu, Gang Niu, Issei Sato, and Masashi Sugiyama. Does distributionally robust supervised
+learning give robust classiﬁers? arXiv, 2016.
+Maximilian Ilse, Jakub M Tomczak, Christos Louizos, and Max Welling. DIVA: Domain invariant
+variational autoencoders. arXiv preprint arXiv:1905.10427, 2019.
+Sergey Ioffe and Christian Szegedy. Batch normalization: Accelerating deep network training by
+reducing internal covariate shift. arXiv, 2015.
+Fredrik D Johansson, David Sontag, and Rajesh Ranganath. Support and invertibility in domain-
+invariant representations. arXiv, 2019.
+Aditya Khosla, Tinghui Zhou, Tomasz Malisiewicz, Alexei A Efros, and Antonio Torralba. Undoing
+the damage of dataset bias. ECCV, 2012.
+Diederik P Kingma and Jimmy Ba. Adam: A method for stochastic optimization. ICLR, 2015.
+Diederik P Kingma and Max Welling. Auto-encoding variational bayes. ICLR, 2014.
+David Krueger, Ethan Caballero, Joern-Henrik Jacobsen, Amy Zhang, Jonathan Binas, Remi Le Priol,
+and Aaron Courville. Out-of-distribution generalization via risk extrapolation (REx). arXiv, 2020.
+Yann LeCun. The mnist database of handwritten digits. http://yann. lecun. com/exdb/mnist/, 1998.
+Da Li, Yongxin Yang, Yi-Zhe Song, and Timothy M. Hospedales. Deeper, broader and artier domain
+generalization. 2017.
+Da Li, Yongxin Yang, Yi-Zhe Song, and Timothy M Hospedales. Learning to generalize: Meta-
+learning for domain generalization. AAAI, 2018a.
+Da Li, Jianshu Zhang, Yongxin Yang, Cong Liu, Yi-Zhe Song, and Timothy M Hospedales. Episodic
+training for domain generalization. ICCV, 2019a.
+Da Li, Yongxin Yang, Yi-Zhe Song, and Timothy Hospedales. Sequential learning for domain
+generalization. arXiv, 2020.
+Haoliang Li, Sinno Jialin Pan, Shiqi Wang, and Alex C Kot. Domain generalization with adversarial
+feature learning. CVPR, 2018b.
+11
+
+Ya Li, Mingming Gong, Xinmei Tian, Tongliang Liu, and Dacheng Tao. Domain generalization via
+conditional invariant representations. AAAI, 2018c.
+Ya Li, Xinmei Tian, Mingming Gong, Yajing Liu, Tongliang Liu, Kun Zhang, and Dacheng Tao.
+Deep domain generalization via conditional invariant adversarial networks. ECCV, 2018d.
+Yiying Li, Yongxin Yang, Wei Zhou, and Timothy M Hospedales. Feature-critic networks for
+heterogeneous domain generalization. arXiv, 2019b.
+Massimiliano Mancini, Samuel Rota Bul`o, Barbara Caputo, and Elisa Ricci. Best sources forward:
+domain generalization through source-speciﬁc nets. ICIP, 2018a.
+Massimiliano Mancini, Samuel Rota Bulo, Barbara Caputo, and Elisa Ricci. Robust place categoriza-
+tion with deep domain generalization. IEEE Robotics and Automation Letters, 2018b.
+Toshihiko Matsuura and Tatsuya Harada. Domain generalization using a mixture of multiple latent
+domains. arXiv, 2019.
+Saeid Motiian, Marco Piccirilli, Donald A Adjeroh, and Gianfranco Doretto. Uniﬁed deep supervised
+domain adaptation and generalization. ICCV, 2017.
+Krikamol Muandet, David Balduzzi, and Bernhard Sch¨olkopf. Domain generalization via invariant
+feature representation. ICML, 2013.
+Krikamol Muandet, Kenji Fukumizu, Bharath Sriperumbudur, Bernhard Sch¨olkopf, et al. Kernel
+mean embedding of distributions: A review and beyond. Foundations and Trends in Machine
+Learning, 2017.
+Hyeonseob Nam, HyunJae Lee, Jongchan Park, Wonjun Yoon, and Donggeun Yoo. Reducing domain
+gap via style-agnostic networks. arXiv, 2019.
+Sinno Jialin Pan and Qiang Yang. A survey on transfer learning. IEEE TKDE, 2009.
+Adam Paszke, Sam Gross, Francisco Massa, Adam Lerer, James Bradbury, Gregory Chanan, Trevor
+Killeen, Zeming Lin, Natalia Gimelshein, Luca Antiga, et al. PyTorch: An imperative style,
+high-performance deep learning library. NIPS, 2019.
+Vishal M Patel, Raghuraman Gopalan, Ruonan Li, and Rama Chellappa. Visual domain adaptation:
+A survey of recent advances. IEEE Signal Processing, 2015.
+Xingchao Peng, Qinxun Bai, Xide Xia, Zijun Huang, Kate Saenko, and Bo Wang. Moment matching
+for multi-source domain adaptation. ICCV, 2019.
+Christian S Perone, Pedro Ballester, Rodrigo C Barros, and Julien Cohen-Adad. Unsupervised
+domain adaptation for medical imaging segmentation with self-ensembling. NeuroImage, 2019.
+Jonas Peters, Peter B¨uhlmann, and Nicolai Meinshausen. Causal inference by using invariant
+prediction: identiﬁcation and conﬁdence intervals. Journal of the Royal Statistical Society: Series
+B (Statistical Methodology), 2016.
+Mohammad Mahfujur Rahman, Clinton Fookes, Mahsa Baktashmotlagh, and Sridha Sridharan.
+Correlation-aware adversarial domain adaptation and generalization. Pattern Recognition, 2019a.
+Mohammad Mahfujur Rahman, Clinton Fookes, Mahsa Baktashmotlagh, and Sridha Sridharan.
+Multi-component image translation for deep domain generalization. WACV, 2019b.
+Mateo Rojas-Carulla, Bernhard Sch¨olkopf, Richard Turner, and Jonas Peters. Invariant models for
+causal transfer learning. JMLR, 2018.
+Olga Russakovsky, Jia Deng, Hao Su, Jonathan Krause, Sanjeev Satheesh, Sean Ma, Zhiheng Huang,
+Andrej Karpathy, Aditya Khosla, Michael Bernstein, et al. ImageNET large scale visual recognition
+challenge. IJCV, 2015.
+Shiori Sagawa, Pang Wei Koh, Tatsunori B Hashimoto, and Percy Liang. Distributionally robust
+neural networks for group shifts: On the importance of regularization for worst-case generalization.
+arXiv, 2019.
+12
+
+Shiv Shankar, Vihari Piratla, Soumen Chakrabarti, Siddhartha Chaudhuri, Preethi Jyothi, and Sunita
+Sarawagi. Generalizing across domains via cross-gradient training. arXiv, 2018.
+Pierre Stock and Moustapha Cisse. Convnets and imagenet beyond accuracy: Understanding mistakes
+and uncovering biases. ECCV, 2018.
+Baochen Sun and Kate Saenko. Deep CORAL: Correlation alignment for deep domain adaptation.
+ECCV, 2016.
+Baochen Sun, Jiashi Feng, and Kate Saenko. Return of frustratingly easy domain adaptation. AAAI,
+2016.
+Damien Teney, Ehsan Abbasnejad, and Anton van den Hengel. Unshufﬂing data for improved
+generalization. arxiv, 2020.
+Antonio Torralba and Alexei Efros. Unbiased look at dataset bias. CVPR, 2011.
+Vladimir Vapnik. Statistical learning theory wiley. New York, 1998.
+Hemanth Venkateswara, Jose Eusebio, Shayok Chakraborty, and Sethuraman Panchanathan. Deep
+hashing network for unsupervised domain adaptation. CVPR, 2017.
+Georg Volk, Stefan M¨uller, Alexander von Bernuth, Dennis Hospach, and Oliver Bringmann. Towards
+robust cnn-based object detection through augmentation with synthetic rain variations. ITSC, 2019.
+Riccardo Volpi, Hongseok Namkoong, Ozan Sener, John C Duchi, Vittorio Murino, and Silvio
+Savarese. Generalizing to unseen domains via adversarial data augmentation. NIPS, 2018.
+Haohan Wang, Zexue He, Zachary C Lipton, and Eric P Xing. Learning robust representations by
+projecting superﬁcial statistics out. arXiv, 2019.
+Yufei Wang, Haoliang Li, and Alex C Kot. Heterogeneous domain generalization via domain mixup.
+ICASSP, 2020.
+Garrett Wilson and Diane J Cook. A survey of unsupervised deep domain adaptation. arXiv, 2018.
+Minghao Xu, Jian Zhang, Bingbing Ni, Teng Li, Chengjie Wang, Qi Tian, and Wenjun Zhang.
+Adversarial domain adaptation with domain mixup. arXiv, 2019.
+Shen Yan, Huan Song, Nanxiang Li, Lincan Zou, and Liu Ren. Improve unsupervised domain
+adaptation with mixup training. arXiv, 2020.
+Hongyi Zhang, Moustapha Cisse, Yann N Dauphin, and David Lopez-Paz. mixup: Beyond empirical
+risk minimization. ICLR, 2018.
+Ling Zhang, Xiaosong Wang, Dong Yang, Thomas Sanford, Stephanie Harmon, Baris Turkbey, Holger
+Roth, Andriy Myronenko, Daguang Xu, and Ziyue Xu. When unseen domain generalization is
+unnecessary? rethinking data augmentation. arXiv, 2019.
+Han Zhao, Remi Tachet des Combes, Kun Zhang, and Geoffrey J Gordon. On learning invariant
+representation for domain adaptation. arXiv, 2019.
+Kaiyang Zhou, Yongxin Yang, Timothy Hospedales, and Tao Xiang. Deep domain-adversarial image
+generation for domain generalisation. arXiv preprint arXiv:2003.06054, 2020.
+13
+
+A
+A decade of literature on domain generalization
+In this section, we provide an exhaustive literature review on a decade of domain generalization
+research. The following classiﬁes domain generalization algorithms according into four strategies
+to learn invariant predictors: learning invariant features, sharing parameters, meta-learning, or
+performing data augmentation.
+A.1
+Learning invariant features
+Muandet et al. [2013] use kernel methods to ﬁnd a feature transformation that (i) minimizes the
+distance between transformed feature distributions across domains, and (ii) does not destroy any
+of the information between the original features and the targets. In their pioneering work, Ganin
+et al. [2016] propose Domain Adversarial Neural Networks (DANN), a domain adaptation technique
+which uses generative adversarial networks (GANs, Goodfellow et al. [2014]), to learn a feature
+representation that matches across training domains. Akuzawa et al. [2019] extend DANN by
+considering cases where there exists an statistical dependence between the domain and the class label
+variables. Albuquerque et al. [2019] extend DANN by considering one-versus-all adversaries that try
+to predict to which training domain does each of the examples belong to. Li et al. [2018b] employ
+GANs and the maximum mean discrepancy criteria [Gretton et al., 2012] to align feature distributions
+across domains. Matsuura and Harada [2019] leverages clustering techniques to learn domain-
+invariant features even when the separation between training domains is not given. Li et al. [2018c,d]
+learns a feature transformation φ such that the conditional distributions P(φ(Xd) | Y d = y) match
+for all training domains d and label values y. Shankar et al. [2018] use a domain classiﬁer to construct
+adversarial examples for a label classiﬁer, and use a label classiﬁer to construct adversarial examples
+for the domain classiﬁer. This results in a label classiﬁer with better domain generalization. Li et al.
+[2019a] train a robust feature extractor and classiﬁer. The robustness comes from (i) asking the
+feature extractor to produce features such that a classiﬁer trained on domain d can classify instances
+for domain d′̸ = d, and (ii) asking the classiﬁer to predict labels on domain d using features produced
+by a feature extractor trained on domain d′̸ = d. Li et al. [2020] adopt a lifelong learning strategy to
+attack the problem of domain generalization. Motiian et al. [2017] learn a feature representation such
+that (i) examples from different domains but the same class are close, (ii) examples from different
+domains and classes are far, and (iii) training examples can be correctly classiﬁed. Ilse et al. [2019]
+train a variational autoencoder [Kingma and Welling, 2014] where the bottleneck representation
+factorizes knowledge about domain, class label, and residual variations in the input space. Fang et al.
+[2013] learn a structural SVM metric such that the neighborhood of each example contains examples
+from the same category and all training domains. The algorithms of Sun and Saenko [2016], Sun et al.
+[2016], Rahman et al. [2019a] match the feature covariance (second order statistics) across training
+domains at some level of representation. The algorithms of Ghifary et al. [2016], Hu et al. [2019] use
+kernel-based multivariate component analysis to minimize the mismatch between training domains
+while maximizing class separability.
+Although popular, learning domain-invariant features has received some criticism [Zhao et al., 2019,
+Johansson et al., 2019]. Some alternatives exist, as we review next. Peters et al. [2016], Rojas-Carulla
+et al. [2018] considered that one should search for features that lead to the same optimal classiﬁer
+across training domains. In their pioneering work, Peters et al. [2016] linked this type of invariance
+to the causal structure of data, and provided a basic algorithm to learn invariant linear models, based
+on feature selection. Arjovsky et al. [2019] extend the previous to general gradient-based models,
+including neural networks, in their Invariant Risk Minimization (IRM) principle. Teney et al. [2020]
+build on IRM to learn a feature transformation that minimizes the relative variance of classiﬁer
+weights across training datasets. The authors apply their method to reduce the learning of spurious
+correlations in Visual Question Answering (VQA) tasks. Ahuja et al. [2020] analyze IRM under
+a game-theoretic perspective to develop an alternative algorithm. Krueger et al. [2020] propose
+an approximation to the IRM problem consisting in reducing the variance of error averages across
+domains. Bouvier et al. [2019] attack the same problem as IRM by re-weighting data samples.
+A.2
+Sharing parameters
+Blanchard et al. [2011] build classiﬁers f(xd, µd), where µd is a kernel mean embedding [Muandet
+et al., 2017] that summarizes the dataset associated to the example xd. Since the distributional
+14
+
+identity of test instances is unknown, these embeddings are estimated using single test examples
+at test time. See Blanchard et al. [2017], Deshmukh et al. [2019] for theoretical results on this
+family of algorithms. Khosla et al. [2012] learn one max-margin linear classiﬁer wd = w + ∆d
+per domain d, from which they distill their ﬁnal, invariant predictor w. Ghifary et al. [2015] use a
+multitask autoencoder to learn invariances across domains. To achieve this, the authors assume that
+each training dataset contains the same examples; for instance, photographs about the same objects
+under different views. Mancini et al. [2018b] train a deep neural network with one set of dedicated
+batch-normalization layers [Ioffe and Szegedy, 2015] per training dataset. Then, a softmax domain
+classiﬁer predicts how to linearly-combine the batch-normalization layers at test time. Similarly,
+Mancini et al. [2018a] learn a softmax domain classiﬁer used to linearly-combine domain-speciﬁc
+predictors at test time. DInnocente and Caputo [2018] explore more sophisticated ways of aggregating
+domain-speciﬁc predictors. Li et al. [2017] extends Khosla et al. [2012] to deep neural networks by
+extending each of their parameter tensors with one additional dimension, indexed by the training
+domains, and set to a neutral value to predict domain-agnostic test examples. Ding and Fu [2017]
+implement parameter-tying and low-rank reconstruction losses to learn a predictor that relies on
+common knowledge across training domains. Hu et al. [2016], Sagawa et al. [2019] weight the
+importance of the minibatches of the training distributions proportional to their error.
+A.3
+Meta-learning
+Li et al. [2018a] employ Model-Agnostic Meta-Learning, or MAML [Finn et al., 2017], to build a
+predictor that learns how to adapt fast between training domains. Dou et al. [2019] use a similar
+MAML strategy, together with two regularizers that encourage features from different domains to
+respect inter-class relationships, and be compactly clustered by class labels. Li et al. [2019b] extend
+the MAML meta-learning strategy to instances of domain generalization where the categories vary
+from domain to domain. Balaji et al. [2018] use MAML to meta-learn a regularizer encouraging the
+model trained on one domain to perform well on another domain.
+A.4
+Augmenting data
+Data augmentation is an effective strategy to address domain generalization [Zhang et al., 2019].
+Unfortunately, how to design efﬁcient data augmentation routines depends on the type of data at hand,
+and demands a signiﬁcant amount of work from human experts. Xu et al. [2019], Yan et al. [2020],
+Wang et al. [2020] use mixup [Zhang et al., 2018] to blend examples from the different training
+distributions. Carlucci et al. [2019a] constructs an auxiliary classiﬁcation task aimed at solving jigsaw
+puzzles of image patches. The authors show that this self-supervised learning task learns features
+that improve domain generalization. Albuquerque et al. [2020] introduce the self-supervised task
+of predicting responses to Gabor ﬁlter banks, in order to learn more transferrable features. Wang
+et al. [2019] remove textural information from images to improve domain generalization. Volpi et al.
+[2018] show that training with adversarial data augmentation on a single domain is sufﬁcient to
+improve domain generalization. Nam et al. [2019], Asadi et al. [2019] promote representations of
+data that ignore texture and focus on shape. Rahman et al. [2019b], Zhou et al. [2020], Carlucci et al.
+[2019a] are three alternatives that use GANs to augment the data available during training time.
+A.5
+Previous state-of-the-art numbers
+Table 5 compiles the best out-of-distribution test accuracies reported across a decade of domain
+generalization research.
+15
+
+Table 5: Previous state-of-the-art in the literature of domain generalization.
+Benchmark
+Accuracy (by domain)
+Algorithm
+Rotated
+MNIST
+0
+15
+30
+45
+60
+75
+Average
+82.50
+96.30
+93.40
+78.60
+94.20
+80.50
+87.58
+D-MTAE [Ghifary et al., 2015]
+84.60
+95.60
+94.60
+82.90
+94.80
+82.10
+89.10
+CCSA [Motiian et al., 2017]
+83.70
+96.90
+95.70
+85.20
+95.90
+81.20
+89.80
+MMD-AAE [Li et al., 2018b]
+85.60
+95.00
+95.60
+95.50
+95.90
+84.30
+92.00
+BestSources [Mancini et al., 2018a]
+88.80
+97.60
+97.50
+97.80
+97.60
+91.90
+95.20
+ADAGE [Carlucci et al., 2019b]
+88.30
+98.60
+98.00
+97.70
+97.70
+91.40
+95.28
+CrossGrad [Shankar et al., 2018]
+90.10
+98.90
+98.90
+98.80
+98.30
+90.00
+95.80
+HEX [Wang et al., 2019]
+89.23
+99.68
+99.20
+99.24
+99.53
+91.44
+96.39
+FeatureCritic [Li et al., 2019b]
+93.50
+99.30
+99.10
+99.20
+99.30
+93.00
+97.20
+DIVA [Ilse et al., 2019]
+VLCS
+C
+L
+S
+V
+Average
+88.92
+59.60
+59.20
+64.36
+64.06
+SCA [Ghifary et al., 2016]
+92.30
+62.10
+59.10
+67.10
+65.00
+CCSA [Motiian et al., 2017]
+89.15
+64.99
+58.88
+62.59
+67.67
+MTSSL [Albuquerque et al., 2020]
+89.05
+60.13
+61.33
+63.90
+68.60
+D-MTAE [Ghifary et al., 2015]
+91.12
+60.43
+60.85
+65.65
+69.41
+CIDG [Li et al., 2018c]
+88.83
+63.06
+62.10
+64.38
+69.59
+CIDDG [Li et al., 2018d]
+92.64
+61.78
+59.60
+66.86
+70.22
+MDA [Hu et al., 2019]
+92.76
+62.34
+63.54
+65.25
+70.97
+MDA [Ding and Fu, 2017]
+93.63
+63.49
+61.32
+69.99
+72.11
+DBADG [Li et al., 2017]
+94.40
+62.60
+64.40
+67.60
+72.30
+MMD-AAE [Li et al., 2018b]
+94.10
+64.30
+65.90
+67.10
+72.90
+Epi-FCR [Li et al., 2019a]
+96.93
+60.90
+64.30
+70.62
+73.19
+JiGen [Carlucci et al., 2019a]
+96.72
+60.40
+63.68
+70.49
+73.30
+REx [Krueger et al., 2020]
+96.40
+64.80
+64.00
+68.70
+73.50
+S-MLDG [Li et al., 2020]
+96.66
+58.77
+68.13
+71.96
+73.88
+MMLD [Matsuura and Harada, 2019]
+94.78
+64.90
+67.64
+69.14
+74.11
+MASF [Dou et al., 2019]
+98.11
+63.61
+67.11
+74.33
+75.79
+DDEC [Asadi et al., 2019]
+95.52
+67.63
+69.37
+71.14
+75.92
+ATIR [Albuquerque et al., 2019]
+PACS
+A
+C
+P
+S
+Average
+62.86
+66.97
+89.50
+57.51
+69.21
+DBADG [Li et al., 2017]
+61.67
+67.41
+84.31
+63.91
+69.32
+MTSSL [Albuquerque et al., 2020]
+62.70
+69.73
+78.65
+64.45
+69.40
+CIDDG [Li et al., 2018d]
+62.64
+65.98
+90.44
+58.76
+69.45
+JAN-COMBO [Rahman et al., 2019b]
+66.23
+66.88
+88.00
+58.96
+70.01
+MLDG [Li et al., 2018a]
+66.80
+69.70
+87.90
+56.30
+70.20
+HEX [Wang et al., 2019]
+64.10
+66.80
+90.20
+60.10
+70.30
+BestSoruces [Mancini et al., 2018a]
+64.40
+68.60
+90.10
+58.40
+70.40
+FeatureCritic [Li et al., 2019b]
+67.04
+67.97
+89.74
+59.81
+71.14
+REx [Krueger et al., 2020]
+65.52
+69.90
+89.16
+63.37
+71.98
+CAADG [Rahman et al., 2019a]
+64.70
+72.30
+86.10
+65.00
+72.00
+Epi-FCR [Li et al., 2019a]
+66.60
+73.36
+88.12
+66.19
+73.55
+ATIR [Albuquerque et al., 2019]
+70.35
+72.46
+90.68
+67.33
+75.21
+MASF [Dou et al., 2019]
+79.42
+75.25
+96.03
+71.35
+80.51
+JiGen [Carlucci et al., 2019a]
+80.50
+77.80
+94.80
+72.80
+81.50
+S-MLDG [Li et al., 2020]
+79.48
+77.13
+94.30
+75.30
+81.55
+D-SAM-Λ [DInnocente and Caputo, 2018]
+84.20
+78.10
+95.30
+74.70
+83.10
+DDAIG [Zhou et al., 2020]
+81.28
+77.16
+96.09
+72.29
+81.83
+MMLD [Matsuura and Harada, 2019]
+83.58
+77.66
+95.47
+76.30
+83.25
+SagNets [Nam et al., 2019]
+87.20
+79.20
+97.60
+70.30
+83.60
+MetaReg [Balaji et al., 2018]
+83.01
+79.39
+96.83
+78.62
+84.46
+DDEC [Asadi et al., 2019]
+Ofﬁce
+Home
+A
+C
+P
+R
+Average
+48.09
+45.20
+66.52
+68.35
+57.04
+JAN-COMBO [Rahman et al., 2019b]
+53.04
+47.51
+71.47
+72.79
+61.20
+JiGen [Carlucci et al., 2019a]
+54.53
+49.04
+71.57
+71.90
+61.76
+D-SAM-Λ [DInnocente and Caputo, 2018]
+60.20
+45.38
+70.42
+73.38
+62.34
+SagNets [Nam et al., 2019]
+59.20
+52.30
+74.60
+76.00
+65.50
+DDAIG [Zhou et al., 2020]
+16
+
+B
+Domain generalization accuracies per algorithm, dataset, and domain
+B.1
+Colored MNIST
+Model selection method: training domain validation set
+Algorithm
+0.1
+0.2
+0.9
+ERM
+72.7 ± 0.2
+73.2 ± 0.3
+10.0 ± 0.0
+IRM
+72.0 ± 0.3
+73.2 ± 0.0
+10.1 ± 0.2
+DRO
+72.7 ± 0.3
+73.1 ± 0.3
+10.0 ± 0.0
+Mixup
+72.4 ± 0.2
+73.3 ± 0.3
+10.0 ± 0.1
+MLDG
+71.4 ± 0.4
+73.3 ± 0.0
+10.0 ± 0.0
+CORAL
+71.8 ± 0.4
+73.3 ± 0.2
+10.1 ± 0.1
+MMD
+72.1 ± 0.2
+72.8 ± 0.2
+10.5 ± 0.2
+ADA
+72.0 ± 0.3
+72.4 ± 0.5
+10.0 ± 0.2
+CondADA
+72.2 ± 0.3
+73.2 ± 0.2
+10.4 ± 0.3
+Model selection method: leave-one-domain-out cross-validation
+Algorithm
+0.1
+0.2
+0.9
+ERM
+46.0 ± 3.4
+46.6 ± 3.8
+10.0 ± 0.1
+IRM
+49.3 ± 0.9
+49.5 ± 0.2
+10.0 ± 0.2
+DRO
+36.7 ± 10.9
+49.9 ± 0.3
+10.2 ± 0.1
+Mixup
+43.0 ± 5.1
+40.7 ± 8.0
+10.0 ± 0.1
+MLDG
+50.3 ± 0.4
+50.1 ± 0.3
+10.1 ± 0.1
+CORAL
+24.5 ± 10.6
+47.2 ± 2.4
+18.1 ± 6.8
+MMD
+50.1 ± 0.3
+55.0 ± 4.2
+22.8 ± 10.5
+DANN
+50.2 ± 0.3
+39.9 ± 7.7
+10.2 ± 0.0
+C-DANN
+50.5 ± 0.0
+49.4 ± 0.0
+11.8 ± 1.1
+Model selection method: test-domain validation set (oracle)
+Algorithm
+0.1
+0.2
+0.9
+ERM
+72.3 ± 0.6
+73.1 ± 0.3
+30.0 ± 0.3
+IRM
+72.7 ± 0.1
+72.8 ± 0.3
+65.2 ± 0.8
+DRO
+73.3 ± 0.2
+72.9 ± 0.2
+37.4 ± 1.9
+Mixup
+72.6 ± 0.6
+73.7 ± 0.2
+28.8 ± 0.5
+MLDG
+71.2 ± 0.2
+73.6 ± 0.2
+30.4 ± 0.5
+CORAL
+71.2 ± 0.1
+72.2 ± 0.5
+29.4 ± 1.3
+MMD
+67.3 ± 2.6
+72.8 ± 0.3
+50.2 ± 0.3
+DANN
+72.6 ± 0.4
+73.0 ± 0.3
+29.3 ± 1.2
+C-DANN
+72.4 ± 0.0
+73.1 ± 0.5
+40.5 ± 3.8
+17
+
+B.2
+Rotated MNIST
+Model selection method: training domain validation set
+Algorithm
+0◦
+15◦
+30◦
+45◦
+60◦
+75◦
+ERM
+95.6 ± 0.1
+99.0 ± 0.1
+98.9 ± 0.0
+99.1 ± 0.1
+99.0 ± 0.0
+96.7 ± 0.2
+IRM
+95.9 ± 0.2
+98.9 ± 0.0
+99.0 ± 0.0
+98.8 ± 0.1
+98.9 ± 0.1
+95.5 ± 0.3
+DRO
+95.9 ± 0.1
+98.9 ± 0.0
+99.0 ± 0.1
+99.0 ± 0.0
+99.0 ± 0.0
+96.9 ± 0.1
+Mixup
+96.1 ± 0.2
+99.1 ± 0.0
+98.9 ± 0.0
+99.0 ± 0.0
+99.0 ± 0.1
+96.6 ± 0.1
+MLDG
+95.9 ± 0.2
+98.9 ± 0.1
+99.0 ± 0.0
+99.1 ± 0.0
+99.0 ± 0.0
+96.0 ± 0.2
+CORAL
+95.7 ± 0.2
+99.0 ± 0.0
+99.1 ± 0.1
+99.1 ± 0.0
+99.0 ± 0.0
+96.7 ± 0.2
+MMD
+96.6 ± 0.1
+98.9 ± 0.0
+98.9 ± 0.1
+99.1 ± 0.1
+99.0 ± 0.0
+96.2 ± 0.1
+DANN
+95.6 ± 0.3
+98.9 ± 0.0
+98.9 ± 0.0
+99.0 ± 0.1
+98.9 ± 0.0
+95.9 ± 0.5
+C-DANN
+96.0 ± 0.5
+98.8 ± 0.0
+99.0 ± 0.1
+99.1 ± 0.0
+98.9 ± 0.1
+96.5 ± 0.3
+Model selection method: leave-one-domain-out cross-validation
+Algorithm
+0◦
+15◦
+30◦
+45◦
+60◦
+75◦
+ERM
+95.9 ± 0.2
+99.0 ± 0.1
+99.0 ± 0.0
+99.0 ± 0.1
+99.0 ± 0.0
+96.3 ± 0.1
+IRM
+95.5 ± 0.4
+98.7 ± 0.2
+98.7 ± 0.1
+98.5 ± 0.3
+98.7 ± 0.1
+96.1 ± 0.1
+DRO
+95.5 ± 0.5
+98.4 ± 0.5
+99.0 ± 0.1
+99.0 ± 0.0
+98.8 ± 0.2
+96.6 ± 0.1
+Mixup
+95.9 ± 0.3
+98.8 ± 0.1
+99.0 ± 0.0
+99.0 ± 0.0
+99.0 ± 0.0
+96.5 ± 0.0
+MLDG
+95.8 ± 0.4
+98.9 ± 0.1
+99.0 ± 0.1
+99.0 ± 0.0
+98.9 ± 0.0
+96.2 ± 0.1
+CORAL
+96.2 ± 0.1
+98.9 ± 0.1
+99.1 ± 0.0
+99.0 ± 0.1
+98.7 ± 0.2
+96.5 ± 0.2
+MMD
+96.5 ± 0.2
+98.9 ± 0.0
+98.8 ± 0.2
+99.0 ± 0.1
+98.7 ± 0.1
+96.4 ± 0.1
+DANN
+85.5 ± 4.7
+78.1 ± 16.5
+98.1 ± 0.6
+98.7 ± 0.0
+93.8 ± 1.8
+95.9 ± 0.7
+C-DANN
+73.7 ± 0.0
+98.7 ± 0.0
+98.7 ± 0.1
+97.0 ± 0.0
+98.3 ± 0.4
+94.6 ± 1.2
+Model selection method: test-domain validation set (oracle)
+Algorithm
+0◦
+15◦
+30◦
+45◦
+60◦
+75◦
+ERM
+96.0 ± 0.2
+98.8 ± 0.1
+98.8 ± 0.1
+99.0 ± 0.0
+99.0 ± 0.0
+96.8 ± 0.1
+IRM
+96.0 ± 0.2
+98.9 ± 0.0
+99.0 ± 0.0
+98.8 ± 0.1
+98.9 ± 0.1
+95.7 ± 0.3
+DRO
+96.2 ± 0.1
+98.9 ± 0.0
+99.0 ± 0.1
+98.7 ± 0.1
+99.1 ± 0.0
+96.8 ± 0.1
+Mixup
+95.8 ± 0.3
+98.9 ± 0.1
+99.0 ± 0.1
+99.0 ± 0.1
+98.9 ± 0.1
+96.5 ± 0.1
+MLDG
+96.2 ± 0.1
+99.0 ± 0.0
+99.0 ± 0.1
+98.9 ± 0.1
+99.0 ± 0.1
+96.1 ± 0.2
+CORAL
+96.4 ± 0.1
+99.0 ± 0.0
+99.0 ± 0.1
+99.0 ± 0.0
+98.9 ± 0.1
+96.8 ± 0.2
+MMD
+95.7 ± 0.4
+98.8 ± 0.0
+98.9 ± 0.1
+98.8 ± 0.1
+99.0 ± 0.0
+96.3 ± 0.2
+DANN
+96.0 ± 0.1
+98.8 ± 0.1
+98.6 ± 0.1
+98.7 ± 0.1
+98.8 ± 0.1
+96.4 ± 0.1
+C-DANN
+95.8 ± 0.2
+98.8 ± 0.0
+98.9 ± 0.0
+98.6 ± 0.1
+98.8 ± 0.1
+96.1 ± 0.2
+18
+
+B.3
+VLCS
+Model selection method: training domain validation set
+Algorithm
+C
+L
+S
+V
+ERM
+97.6 ± 1.0
+63.3 ± 0.9
+72.2 ± 0.5
+76.4 ± 1.5
+IRM
+97.6 ± 0.3
+65.0 ± 0.9
+72.9 ± 0.5
+76.9 ± 1.3
+DRO
+97.7 ± 0.4
+62.5 ± 1.1
+70.1 ± 0.7
+78.4 ± 0.9
+Mixup
+97.9 ± 0.3
+64.5 ± 0.6
+71.5 ± 0.9
+76.9 ± 1.3
+MLDG
+98.1 ± 0.3
+63.0 ± 0.9
+73.5 ± 0.6
+73.7 ± 0.3
+CORAL
+98.8 ± 0.1
+64.6 ± 0.8
+71.7 ± 1.4
+75.8 ± 0.4
+MMD
+97.1 ± 0.4
+63.4 ± 0.7
+71.4 ± 0.8
+74.9 ± 2.5
+DANN
+98.5 ± 0.2
+64.9 ± 1.1
+73.1 ± 0.7
+78.3 ± 0.3
+C-DANN
+97.5 ± 0.1
+65.2 ± 0.4
+73.4 ± 1.1
+76.9 ± 0.2
+Model selection method: leave-one-domain-out cross-validation
+Algorithm
+C
+L
+S
+V
+ERM
+97.8 ± 0.0
+63.3 ± 1.6
+70.3 ± 1.6
+75.9 ± 1.4
+IRM
+98.9 ± 0.0
+63.6 ± 0.8
+71.1 ± 2.2
+75.4 ± 1.5
+DRO
+99.2 ± 0.2
+62.0 ± 1.6
+73.4 ± 0.8
+75.5 ± 1.0
+Mixup
+97.9 ± 0.7
+65.5 ± 0.8
+73.3 ± 0.8
+77.8 ± 0.5
+MLDG
+96.3 ± 1.1
+65.1 ± 0.9
+71.9 ± 1.5
+75.0 ± 0.5
+CORAL
+97.5 ± 0.1
+64.0 ± 0.2
+69.7 ± 2.0
+76.7 ± 0.3
+MMD
+97.7 ± 0.4
+63.1 ± 1.9
+68.6 ± 1.5
+77.5 ± 1.2
+DANN
+95.3 ± 1.8
+61.3 ± 1.8
+74.3 ± 1.0
+79.7 ± 0.9
+C-DANN
+92.3 ± 4.2
+60.3 ± 1.5
+68.4 ± 2.1
+74.9 ± 1.3
+Model selection method: test-domain validation set (oracle)
+Algorithm
+C
+L
+S
+V
+ERM
+97.7 ± 0.3
+65.2 ± 0.4
+73.2 ± 0.7
+75.2 ± 0.4
+IRM
+97.6 ± 0.5
+64.7 ± 1.1
+69.7 ± 0.5
+76.6 ± 0.7
+DRO
+97.8 ± 0.0
+66.4 ± 0.5
+68.7 ± 1.2
+76.8 ± 1.0
+Mixup
+98.3 ± 0.3
+66.7 ± 0.5
+73.3 ± 1.1
+76.3 ± 0.8
+MLDG
+98.4 ± 0.2
+65.9 ± 0.5
+70.7 ± 0.8
+76.1 ± 0.6
+CORAL
+98.1 ± 0.1
+67.1 ± 0.8
+70.1 ± 0.6
+75.8 ± 0.5
+MMD
+98.1 ± 0.3
+66.2 ± 0.2
+70.5 ± 1.0
+77.2 ± 0.6
+DANN
+98.2 ± 0.3
+67.8 ± 1.1
+74.2 ± 0.7
+80.1 ± 0.6
+C-DANN
+98.9 ± 0.3
+68.8 ± 0.6
+73.7 ± 0.6
+79.3 ± 0.6
+19
+
+B.4
+PACS
+Model selection method: training domain validation set
+Algorithm
+A
+C
+P
+S
+ERM
+88.1 ± 0.1
+77.9 ± 1.3
+97.8 ± 0.0
+79.1 ± 0.9
+IRM
+85.0 ± 1.6
+77.6 ± 0.9
+96.7 ± 0.3
+78.5 ± 2.6
+DRO
+86.4 ± 0.3
+79.9 ± 0.8
+98.0 ± 0.3
+72.1 ± 0.7
+Mixup
+86.5 ± 0.4
+76.6 ± 1.5
+97.7 ± 0.2
+76.5 ± 1.2
+MLDG
+89.1 ± 0.9
+78.8 ± 0.7
+97.0 ± 0.9
+74.4 ± 2.0
+CORAL
+87.7 ± 0.6
+79.2 ± 1.1
+97.6 ± 0.0
+79.4 ± 0.7
+MMD
+84.5 ± 0.6
+79.7 ± 0.7
+97.5 ± 0.4
+78.1 ± 1.3
+DANN
+85.9 ± 0.5
+79.9 ± 1.4
+97.6 ± 0.2
+75.2 ± 2.8
+C-DANN
+84.0 ± 0.9
+78.5 ± 1.5
+97.0 ± 0.4
+71.8 ± 3.9
+Model selection method: leave-one-domain-out cross-validation
+Algorithm
+A
+C
+P
+S
+ERM
+83.9 ± 1.6
+78.6 ± 2.0
+97.3 ± 0.1
+73.5 ± 1.1
+IRM
+82.5 ± 2.6
+78.0 ± 0.3
+96.7 ± 1.1
+74.4 ± 1.3
+DRO
+87.1 ± 0.3
+77.6 ± 1.9
+97.2 ± 0.4
+70.7 ± 3.0
+Mixup
+88.0 ± 0.5
+74.3 ± 4.0
+97.2 ± 0.2
+75.3 ± 0.2
+MLDG
+85.8 ± 0.7
+77.3 ± 0.5
+96.8 ± 0.5
+69.9 ± 3.6
+CORAL
+86.0 ± 1.1
+75.5 ± 2.3
+96.2 ± 0.9
+76.6 ± 2.1
+MMD
+85.9 ± 0.5
+78.1 ± 2.1
+96.2 ± 1.3
+71.1 ± 3.0
+DANN
+86.7 ± 0.3
+78.5 ± 0.5
+97.4 ± 0.4
+73.3 ± 2.3
+C-DANN
+83.6 ± 3.8
+75.9 ± 1.8
+97.4 ± 0.5
+70.0 ± 3.6
+Model selection method: test-domain validation set (oracle)
+Algorithm
+A
+C
+P
+S
+ERM
+87.8 ± 0.4
+82.8 ± 0.5
+97.6 ± 0.4
+80.4 ± 0.6
+IRM
+85.7 ± 1.0
+79.3 ± 1.1
+97.6 ± 0.4
+75.9 ± 1.0
+DRO
+88.2 ± 0.7
+82.4 ± 0.8
+97.7 ± 0.2
+80.6 ± 0.9
+Mixup
+87.4 ± 1.0
+80.7 ± 1.0
+97.9 ± 0.2
+79.7 ± 1.0
+MLDG
+87.1 ± 0.9
+81.3 ± 1.5
+97.6 ± 0.4
+81.2 ± 1.0
+CORAL
+87.4 ± 0.6
+82.2 ± 0.3
+97.6 ± 0.1
+80.2 ± 0.4
+MMD
+87.6 ± 1.2
+83.0 ± 0.4
+97.8 ± 0.1
+80.1 ± 1.0
+DANN
+86.4 ± 1.4
+80.6 ± 1.0
+97.7 ± 0.2
+77.1 ± 1.3
+C-DANN
+87.0 ± 1.2
+80.8 ± 0.9
+97.4 ± 0.5
+77.6 ± 0.1
+20
+
+B.5
+Ofﬁce-Home
+Model selection method: training domain validation set
+Algorithm
+A
+C
+P
+R
+ERM
+62.7 ± 1.1
+53.4 ± 0.6
+76.5 ± 0.4
+77.3 ± 0.3
+IRM
+61.8 ± 1.0
+52.3 ± 1.0
+75.2 ± 0.8
+77.2 ± 1.1
+DRO
+61.6 ± 0.7
+52.9 ± 0.2
+75.5 ± 0.5
+77.7 ± 0.2
+Mixup
+64.7 ± 0.7
+54.7 ± 0.6
+77.3 ± 0.3
+79.2 ± 0.3
+MLDG
+63.7 ± 0.3
+54.5 ± 0.6
+75.9 ± 0.4
+78.6 ± 0.1
+CORAL
+64.4 ± 0.3
+55.3 ± 0.5
+76.7 ± 0.5
+77.9 ± 0.5
+MMD
+63.0 ± 0.1
+53.7 ± 0.9
+76.1 ± 0.3
+78.1 ± 0.5
+DANN
+59.3 ± 1.1
+51.7 ± 0.2
+74.1 ± 0.8
+76.6 ± 0.6
+C-DANN
+61.0 ± 1.4
+51.1 ± 0.7
+74.1 ± 0.3
+76.0 ± 0.7
+Model selection method: leave-one-domain-out cross-validation
+Algorithm
+A
+C
+P
+R
+ERM
+62.3 ± 0.5
+54.1 ± 0.5
+75.3 ± 0.2
+77.4 ± 0.5
+IRM
+62.1 ± 0.9
+51.4 ± 0.6
+75.5 ± 0.7
+77.6 ± 0.8
+DRO
+62.7 ± 0.7
+52.8 ± 1.0
+75.4 ± 0.1
+77.7 ± 0.2
+Mixup
+63.8 ± 0.4
+52.9 ± 0.4
+77.3 ± 0.4
+78.7 ± 0.4
+MLDG
+62.9 ± 0.5
+53.5 ± 0.7
+76.0 ± 0.4
+77.9 ± 0.6
+CORAL
+64.4 ± 0.3
+55.4 ± 0.1
+76.2 ± 0.2
+78.4 ± 0.4
+MMD
+62.2 ± 0.3
+52.7 ± 1.0
+75.5 ± 0.4
+78.1 ± 0.3
+DANN
+61.1 ± 0.1
+51.6 ± 0.5
+73.6 ± 0.5
+75.8 ± 0.3
+C-DANN
+60.0 ± 0.4
+50.2 ± 0.7
+72.1 ± 1.0
+76.4 ± 0.5
+Model selection method: test-domain validation set (oracle)
+Algorithm
+A
+C
+P
+R
+ERM
+61.2 ± 1.4
+54.0 ± 0.5
+75.9 ± 0.7
+77.3 ± 0.4
+IRM
+62.4 ± 0.9
+53.4 ± 0.7
+75.5 ± 0.8
+77.7 ± 0.6
+DRO
+63.6 ± 0.5
+54.4 ± 0.7
+75.9 ± 0.1
+77.0 ± 0.4
+Mixup
+65.1 ± 0.6
+54.6 ± 0.7
+76.8 ± 0.6
+77.7 ± 0.6
+MLDG
+61.0 ± 0.9
+54.3 ± 0.3
+75.8 ± 0.5
+78.6 ± 0.1
+CORAL
+65.0 ± 0.5
+54.3 ± 0.8
+76.8 ± 0.4
+78.2 ± 0.2
+MMD
+62.4 ± 0.2
+53.6 ± 0.5
+75.8 ± 0.4
+76.4 ± 0.3
+DANN
+60.5 ± 0.9
+51.9 ± 0.4
+73.7 ± 0.4
+76.4 ± 0.6
+C-DANN
+60.0 ± 0.5
+52.0 ± 0.4
+74.2 ± 0.5
+76.3 ± 0.4
+21
+
+B.6
+TerraIncognita
+Model selection method: training domain validation set
+Algorithm
+L100
+L38
+L43
+L46
+ERM
+50.8 ± 1.8
+42.5 ± 0.7
+57.9 ± 0.6
+37.6 ± 1.2
+IRM
+52.2 ± 3.1
+43.4 ± 2.4
+57.7 ± 1.5
+38.1 ± 0.7
+DRO
+47.2 ± 1.6
+40.1 ± 1.6
+57.6 ± 0.9
+43.0 ± 0.7
+Mixup
+60.6 ± 1.3
+41.1 ± 1.8
+58.5 ± 0.8
+35.2 ± 1.1
+MLDG
+48.5 ± 3.3
+42.8 ± 0.4
+56.8 ± 0.9
+36.3 ± 0.5
+CORAL
+48.6 ± 0.9
+42.2 ± 3.5
+55.9 ± 0.6
+38.7 ± 0.7
+MMD
+52.2 ± 5.8
+47.0 ± 0.6
+57.8 ± 1.3
+40.3 ± 0.5
+DANN
+49.0 ± 3.8
+46.3 ± 1.7
+57.6 ± 0.8
+40.6 ± 1.7
+C-DANN
+49.5 ± 3.8
+44.8 ± 1.0
+57.3 ± 1.1
+38.8 ± 1.7
+Model selection method: leave-one-domain-out cross-validation
+Algorithm
+L100
+L38
+L43
+L46
+ERM
+47.5 ± 0.2
+43.8 ± 0.2
+55.4 ± 1.3
+38.3 ± 1.3
+IRM
+44.2 ± 2.7
+41.3 ± 0.6
+54.3 ± 2.0
+36.0 ± 1.7
+DRO
+31.8 ± 0.3
+43.7 ± 1.2
+58.0 ± 0.7
+36.6 ± 1.3
+Mixup
+49.6 ± 4.8
+44.4 ± 0.9
+55.0 ± 1.4
+35.2 ± 1.9
+MLDG
+50.9 ± 5.1
+39.9 ± 0.9
+58.0 ± 1.8
+34.6 ± 1.0
+CORAL
+51.8 ± 2.2
+42.1 ± 1.1
+59.6 ± 0.8
+38.7 ± 2.3
+MMD
+51.5 ± 1.7
+37.4 ± 2.0
+58.9 ± 0.9
+37.4 ± 1.8
+DANN
+47.2 ± 4.5
+40.6 ± 0.0
+55.7 ± 2.6
+39.4 ± 1.3
+C-DANN
+43.2 ± 3.5
+30.9 ± 4.1
+50.4 ± 4.4
+37.8 ± 1.5
+Model selection method: test-domain validation set (oracle)
+Algorithm
+L100
+L38
+L43
+L46
+ERM
+59.9 ± 1.0
+48.7 ± 0.4
+58.9 ± 0.3
+43.3 ± 0.9
+IRM
+56.8 ± 2.0
+46.5 ± 0.3
+57.9 ± 0.6
+42.4 ± 0.5
+DRO
+61.2 ± 1.2
+47.5 ± 0.6
+59.5 ± 0.6
+44.1 ± 0.8
+Mixup
+65.1 ± 1.8
+46.8 ± 0.6
+59.5 ± 0.3
+40.0 ± 1.1
+MLDG
+58.7 ± 0.5
+48.9 ± 0.7
+59.5 ± 0.4
+42.4 ± 0.6
+CORAL
+60.5 ± 1.0
+47.6 ± 1.8
+59.1 ± 0.3
+43.2 ± 0.5
+MMD
+60.0 ± 1.6
+46.7 ± 0.8
+60.0 ± 1.0
+44.2 ± 0.4
+DANN
+57.6 ± 1.3
+48.1 ± 1.1
+58.2 ± 0.5
+42.7 ± 1.4
+C-DANN
+56.3 ± 2.6
+46.9 ± 1.5
+57.8 ± 0.8
+43.3 ± 0.5
+22
+
+B.7
+DomainNet
+Model selection method: training domain validation set
+Algorithm
+clipart
+infograph
+painting
+quickdraw
+real
+sketch
+ERM
+58.4 ± 0.3
+19.2 ± 0.4
+46.3 ± 0.5
+12.8 ± 0.0
+60.6 ± 0.5
+49.7 ± 0.8
+IRM
+51.0 ± 3.3
+16.8 ± 1.0
+38.8 ± 2.1
+11.8 ± 0.5
+51.5 ± 3.6
+44.2 ± 3.1
+DRO
+47.8 ± 0.6
+17.1 ± 0.6
+36.6 ± 0.7
+8.8 ± 0.4
+51.5 ± 0.6
+40.7 ± 0.3
+Mixup
+55.3 ± 0.3
+18.2 ± 0.3
+45.0 ± 1.0
+12.5 ± 0.3
+57.1 ± 1.2
+49.2 ± 0.3
+MLDG
+59.5 ± 0.0
+19.8 ± 0.4
+48.3 ± 0.5
+13.0 ± 0.4
+59.5 ± 1.0
+50.4 ± 0.7
+CORAL
+58.7 ± 0.2
+20.9 ± 0.3
+47.3 ± 0.3
+13.6 ± 0.3
+60.2 ± 0.3
+50.2 ± 0.6
+MMD
+54.6 ± 1.7
+19.3 ± 0.3
+44.9 ± 1.1
+11.4 ± 0.5
+59.5 ± 0.2
+47.0 ± 1.6
+DANN
+53.8 ± 0.7
+17.8 ± 0.3
+43.5 ± 0.3
+11.9 ± 0.5
+56.4 ± 0.3
+46.7 ± 0.5
+C-DANN
+53.4 ± 0.4
+18.3 ± 0.7
+44.8 ± 0.3
+12.9 ± 0.2
+57.5 ± 0.4
+46.7 ± 0.2
+Model selection method: leave-one-domain-out cross-validation
+Algorithm
+clipart
+infograph
+painting
+quickdraw
+real
+sketch
+ERM
+56.0 ± 1.1
+19.6 ± 0.2
+47.3 ± 0.3
+12.5 ± 0.3
+60.5 ± 0.5
+49.1 ± 0.2
+IRM
+49.0 ± 2.4
+16.7 ± 0.9
+38.8 ± 2.1
+10.2 ± 0.6
+53.2 ± 2.1
+43.7 ± 2.1
+DRO
+47.3 ± 0.7
+16.8 ± 0.3
+35.2 ± 0.1
+8.8 ± 0.4
+50.1 ± 2.3
+38.9 ± 0.7
+Mixup
+54.4 ± 0.6
+18.1 ± 0.3
+45.2 ± 0.3
+12.1 ± 0.4
+57.9 ± 1.1
+48.6 ± 0.1
+MLDG
+58.7 ± 0.4
+20.3 ± 0.1
+48.8 ± 0.1
+13.0 ± 0.4
+61.2 ± 0.2
+50.3 ± 0.2
+CORAL
+57.9 ± 0.7
+20.8 ± 0.3
+47.5 ± 0.4
+13.5 ± 0.3
+61.0 ± 0.3
+50.6 ± 0.5
+MMD
+54.0 ± 2.2
+19.3 ± 0.3
+44.9 ± 1.1
+11.4 ± 0.5
+59.5 ± 0.2
+47.0 ± 1.6
+DANN
+53.1 ± 0.4
+17.5 ± 0.6
+42.8 ± 0.4
+10.2 ± 0.5
+56.4 ± 0.3
+44.9 ± 0.9
+C-DANN
+53.4 ± 0.4
+18.3 ± 0.7
+44.2 ± 0.5
+12.9 ± 0.2
+57.1 ± 0.2
+46.7 ± 0.2
+Model selection method: test-domain validation set (oracle)
+Algorithm
+clipart
+infograph
+painting
+quickdraw
+real
+sketch
+ERM
+58.4 ± 0.3
+19.8 ± 0.2
+47.3 ± 0.3
+13.4 ± 0.2
+60.7 ± 0.5
+49.9 ± 0.7
+IRM
+51.0 ± 3.3
+16.7 ± 0.9
+38.8 ± 2.1
+11.8 ± 0.5
+53.2 ± 2.1
+44.7 ± 2.7
+DRO
+47.8 ± 0.6
+17.2 ± 0.6
+36.3 ± 0.5
+9.0 ± 0.2
+52.8 ± 0.3
+40.7 ± 0.3
+Mixup
+55.8 ± 0.6
+19.2 ± 0.2
+46.2 ± 0.6
+12.8 ± 0.2
+58.7 ± 0.6
+49.2 ± 0.3
+MLDG
+59.3 ± 0.2
+20.3 ± 0.1
+48.8 ± 0.1
+14.0 ± 0.3
+61.2 ± 0.2
+51.2 ± 0.1
+CORAL
+58.8 ± 0.1
+20.8 ± 0.3
+47.5 ± 0.4
+13.6 ± 0.2
+61.0 ± 0.3
+50.8 ± 0.4
+MMD
+54.6 ± 1.7
+19.6 ± 0.1
+44.9 ± 1.1
+12.6 ± 0.1
+59.7 ± 0.2
+47.5 ± 1.2
+DANN
+53.8 ± 0.7
+17.5 ± 0.6
+43.5 ± 0.3
+11.8 ± 0.6
+56.4 ± 0.3
+46.7 ± 0.5
+C-DANN
+53.4 ± 0.4
+18.4 ± 0.6
+44.7 ± 0.3
+12.9 ± 0.2
+57.5 ± 0.4
+46.5 ± 0.2
+23
+
+C
+Dataset details
+DOMAINBED includes downloaders and loaders for seven multi-domain image classiﬁcation tasks:
+• Colored MNIST [Arjovsky et al., 2019] is a variant of the MNIST handwritten digit classiﬁcation
+dataset [LeCun, 1998]. Domain d ∈{0.1, 0.3, 0.9} contains a disjoint set of digits colored either
+red or blue. The label is a noisy function of the digit and color, such that color bears correlation d
+with the label and the digit bears correlation 0.75 with the label. This dataset contains 70, 000
+examples of dimension (2, 28, 28) and 2 classes.
+• Rotated MNIST [Ghifary et al., 2015] is a variant of MNIST where domain d ∈{ 0, 15, 30, 45,
+60, 75 } contains digits rotated by d degrees. Our dataset contains 70, 000 examples of dimension
+(1, 28, 28) and 10 classes.
+• PACS [Li et al., 2017] comprises four domains d ∈{ art, cartoons, photos, sketches }. This
+dataset contains 9, 991 examples of dimension (3, 224, 224) and 7 classes.
+• VLCS [Fang et al., 2013] comprises photographic domains d ∈{ Caltech101, LabelMe, SUN09,
+VOC2007 }. This dataset contains 10, 729 examples of dimension (3, 224, 224) and 5 classes.
+• Ofﬁce-Home [Venkateswara et al., 2017] includes domains d ∈{ art, clipart, product, real }.
+This dataset contains 15, 588 examples of dimension (3, 224, 224) and 65 classes.
+• Terra Incognita [Beery et al., 2018] contains photographs of wild animals taken by camera traps
+at locations d ∈{L100, L38, L43, L46}. Our version of this dataset contains 24, 788 examples of
+dimension (3, 224, 224) and 10 classes.
+• DomainNet [Peng et al., 2019] has six domains d ∈{ clipart, infograph, painting, quickdraw,
+real, sketch }. This dataset contains 586, 575 examples of size (3, 224, 224) and 345 classes.
+For all datasets, we ﬁrst pool the raw training, validation, and testing images together. For each
+random seed, we then instantiate random training, validation, and testing splits.
+24
+
+D
+Model architectures, hyperparameter spaces, and other training details
+In this section we describe the model architectures and hyperparameter search spaces used in our
+experiments.
+D.1
+Architectures
+We list the neural network architecture used for each dataset in Table 6 and specify the details of our
+MNIST network in 7.
+Table 6: Neural network architectures used
+for each dataset.
+Dataset
+Architecture
+Colored MNIST
+MNIST ConvNet
+Rotated MNIST
+PACS
+ResNet-50
+VLCS
+Ofﬁce-Home
+TerraIncognita
+DomainNet
+Table 7: Details of our MNIST ConvNet archi-
+tecture. All convolutions use 3 × 3 kernels and
+“same” padding.
+#
+Layer
+1
+Conv2D (in=d, out=64)
+2
+ReLU
+3
+GroupNorm (groups=8)
+4
+Conv2D (in=64, out=128, stride=2)
+5
+ReLU
+6
+GroupNorm (8 groups)
+7
+Conv2D (in=128, out=128)
+8
+ReLU
+9
+GroupNorm (8 groups)
+10
+Conv2D (in=128, out=128)
+11
+ReLU
+12
+GroupNorm (8 groups)
+13
+Global average-pooling
+For the architecture “Resnet-50”, we replace the ﬁnal (softmax) layer of a ResNet50 pretrained on
+ImageNet and ﬁne-tune. Observing that batch normalization interferes with domain generalization
+algorithms (as different minibatches follow different distributions), we freeze all batch normalization
+layers before ﬁne-tuning. We insert a dropout layer before the ﬁnal linear layer.
+25
+
+D.2
+Hyperparameters
+We list all hyperparameters, their default values, and the search distribution for each hyperparameter
+in our random hyperparameter sweeps, in Table 8.
+Table 8: Hyperparameters, their default values and distributions for random search.
+Condition
+Parameter
+Default value
+Random distribution
+ResNet
+learning rate
+0.00005
+10Uniform(−5,−3.5)
+batch size
+32
+2Uniform(3,5.5)
+generator learning rate
+0.00005
+10Uniform(−5,−3.5)
+discriminator learning rate
+0.00005
+10Uniform(−5,−3.5)
+not ResNet
+learning rate
+0.001
+10Uniform(−4.5,−3.5)
+batch size
+64
+2Uniform(3,9)
+generator learning rate
+0.001
+10Uniform(−4.5,−2.5)
+discriminator learning rate
+0.001
+10Uniform(−4.5,−2.5)
+MNIST
+weight decay
+0
+0
+generator weight decay
+0
+0
+not MNIST
+weight decay
+0
+10Uniform(−6,−2)
+generator weight decay
+0
+10Uniform(−6,−2)
+DANN,
+C-DANN
+lambda
+1.0
+10Uniform(−2,2)
+discriminator weight decay
+0
+10Uniform(−6,−2)
+discriminator steps
+1
+2Uniform(0,3)
+gradient penalty
+0
+10Uniform(−2,1)
+adam β1
+0.5
+RandomChoice([0, 0.5])
+IRM
+lambda
+100
+10Uniform(−1,5)
+iterations of penalty annealing
+500
+10Uniform(0,4)
+Mixup
+alpha
+0.2
+10Uniform(0,4)
+DRO
+eta
+0.01
+10Uniform(−1,1)
+MMD
+gamma
+1
+10Uniform(−1,1)
+MLDG
+beta
+1
+10Uniform(−1,1)
+all
+dropout
+0
+RandomChoice([0, 0.1, 0.5])
+D.3
+Other training details
+We optimize all models using Adam [Kingma and Ba, 2015].
+26
+
+E
+Adding new datasets and algorithms to our framework
+In their basic form, algorithms are classes that implement a method .update(minibatches) and a
+method .predict(x). The update method receives a list of minibatches, one minibatch per training
+domain, and each minibatch containing a number of input-output pairs. For example, to implement
+group DRO [Sagawa et al., 2019, Algorithm 1], we simply write the following in algorithms.py:
+class DRO(ERM):
+def
+__init__(self , input_shape , num_classes , num_domains , hparams ):
+super (). __init__(input_shape , num_classes , num_domains , hparams)
+self.register_buffer ("q", torch.Tensor ())
+def update(self , minibatches ):
+device = "cuda" if minibatches [0][0]. is_cuda
+else "cpu"
+if not len(self.q):
+self.q = torch.ones(len(minibatches )).to(device)
+losses = torch.zeros(len(minibatches )).to(device)
+for m in range(len(minibatches )):
+x, y = minibatches[m]
+losses[m] = F. cross_entropy (self.predict(x), y)
+self.q[m] *= (self.hparams["dro_eta"] * losses[m]. data ).exp()
+self.q /= self.q.sum()
+loss = torch.dot(losses , self.q) / len(minibatches)
+self.optimizer.zero_grad ()
+loss.backward ()
+self.optimizer.step ()
+return {’loss ’: loss.item ()}
+By inheriting from ERM, this new class has access to a default classiﬁer .network, optimizer
+.optimizer, and prediction method .predict(x). Finally, we should tell DOMAINBED about the
+hyperparameters of this new algorithm. To do so, add the following line to the function hparams
+from hparams registry.py:
+hparams[’dro_eta ’] = (1e-2, 10** random_state.uniform (-3,
+-1))
+To add a new image classiﬁcation dataset to DOMAINBED, arrange your image ﬁles as
+/path/MyDataset/domain/class/image.jpg. Then, append to datasets.py:
+class
+MyDataset( MultipleEnvironmentImageFolder ):
+N_STEPS = 2500
+CHECKPOINT_FREQ = 300
+def
+__init__(self , root , test_envs=None ):
+self.dir = os.path.join(root , "MyDataset/")
+super(MyDataset , self ). __init__(self.dir)
+In the previous, N STEPS determines the number of gradient updates an algorithm should perform
+to learn this dataset. The variable CHECKPOINT FREQ determines the number of gradient steps an
+algorithm should wait before reporting its performance in all domains.
+We are now ready to launch an experiment with our new algorithm and dataset:
+python
+train.py --model DRO --dataset
+MyDataset
+--data_dir /path --test\_envs 1 \
+--output_dir /path/to/logs_files
+--hparams ’{" dro_eta ":␣0.2} ’
+Finally, we can run a fully automated sweep on all datasets, algorithms, test domains, and model
+selection criteria by simply invoking python sweep.py. After adapting the ﬁle sweep.py to the
+computing infrastructure at hand, this single command automatically generates all the result tables
+that we report in this manuscript.
+E.1
+Extension to UDA
+By extending the method .update(minibatches, unlabeled) to accept a minibatch of unlabeled
+examples from the test domain, we can immediately use DOMAINBED as a framework to perform
+experimentation on unsupervised domain adaptation algorithms.
+27

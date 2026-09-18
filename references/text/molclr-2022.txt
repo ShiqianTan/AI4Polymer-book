@@ -1,0 +1,1330 @@
+Molecular Contrastive Learning of Representations
+via Graph Neural Networks
+Yuyang Wang1,2, Jianren Wang3, Zhonglin Cao1, and Amir Barati Farimani1,2,4,*
+1Department of Mechanical Engineering, Carnegie Mellon University, Pittsburgh, PA 15213, USA
+2Machine Learning Department, Carnegie Mellon University, Pittsburgh, PA 15213, USA
+3Robotics Institute, Carnegie Mellon University, Pittsburgh, PA 15213, USA
+4Department of Chemical Engineering, Carnegie Mellon University, Pittsburgh, PA 15213, USA
+*corresponding author: Amir Barati Farimani (barati@cmu.edu)
+ABSTRACT
+Molecular Machine Learning (ML) bears promise for efﬁcient molecule property prediction and drug discovery. However,
+labeled molecule data can be expensive and time-consuming to acquire. Due to the limited labeled data, it is a great challenge
+for supervised-learning ML models to generalize to the giant chemical space. In this work, we present MolCLR: Molecular
+Contrastive Learning of Representations via Graph Neural Networks (GNNs), a self-supervised learning framework that
+leverages large unlabeled data (∼10M unique molecules). In MolCLR pre-training, we build molecule graphs and develop
+GNN encoders to learn differentiable representations. Three molecule graph augmentations are proposed: atom masking,
+bond deletion, and subgraph removal. A contrastive estimator maximizes the agreement of augmentations from the same
+molecule while minimizing the agreement of different molecules. Experiments show that our contrastive learning framework
+signiﬁcantly improves the performance of GNNs on various molecular property benchmarks including both classiﬁcation and
+regression tasks. Beneﬁting from pre-training on the large unlabeled database, MolCLR even achieves state-of-the-art on
+several challenging benchmarks after ﬁne-tuning. Additionally, further investigations demonstrate that MolCLR learns to embed
+molecules into representations that can distinguish chemically reasonable molecular similarities.
+Introduction
+Molecular representation is fundamental and essential in the design of functional and novel chemical compounds1–3. Due to
+the enormous magnitude of possible stable chemical compounds, development of an informative representation to generalize
+among the entire chemical space can be challenging4. Conventional molecular representations, like Extended-Connectivity
+Fingerprints (ECFP)5, have became standard tools in computational chemistry. Recently, with the development of machine
+learning methods, data-driven molecular representation learning and its applications, including chemical property prediction6–8,
+chemical modeling9–11, and molecule design12–14, have gathered growing attentions.
+However, learning such representations can be difﬁcult due to three major challenges. Firstly, it is hard to represent the
+molecular information thoroughly. For instance, string-based representations, like SMILES15 and SELFIES16, fail to encode the
+important topology information directly. To preserve the rich structural information, many recent works exploit Graph Neural
+Networks (GNNs)17,18, and have shown promising results in molecular property prediction7,19,20. Secondly, the magnitude of
+chemical space is enormous21, e.g., the size of potential pharmacologically active molecules is estimated to be in the order of
+106022. This places a great difﬁculty for any molecular representations to generalize among the potential chemical compounds.
+Thirdly, labeled data for molecular learning tasks are expensive and far from sufﬁcient, especially when compared with the size
+of potential chemical space. Obtaining labels of molecular property usually requires sophisticated and time-consuming lab
+experiments23. The breadth of chemical research further complicates the challenges because the properties of interest range
+from quantum mechanics to biophysics24. Consequently, the number of labels in most molecular learning benchmarks is far
+from adequate. Machine learning models trained on such limited data can easily get over-ﬁt and perform poorly on molecules
+dissimilar to the training set.
+Molecular representation learning has been growing rapidly over the last decade with the development and success of
+machine learning, especially Deep Neural Networks (DNNs)6,25,26. In conventional cheminformatics, molecules are represented
+in unique ﬁngerprint (FP) vectors, such as ECFP. Given the FPs, DNNs are built to predict certain properties27–29. Besides
+the FP, string-based representations (e.g., SMILES) are widely used for molecular learning30,31. Language models built upon
+RNNs are a direct ﬁt for learning representation from SMILES32,33. With the recent success of transformer-based architectures,
+such language models have been also utilized in learning representations from SMILES34,35. Recently, GNNs, which naturally
+encode the structure information, have been introduced to molecular representation learning6,36. MPNN7 and D-MPNN20
+1
+arXiv:2102.10056v2  [cs.LG]  17 Jan 2022
+
+Cc1ccc(CCS)cc1F
+Molecule 
+graph 𝐺ଵ
+CCn1ccc2cc[nH]c(=O)c21
+Molecule 
+graph 𝐺ே
+…… 
+ℎଵ
+ℎଶ
+ℎଶேିଵ
+ℎଶே
+…… 
+…… 
+𝑧ଵ
+𝑧ଶ
+𝑧ଶேିଵ
+Contrastive Loss
+Augmentation
+𝑧ଶே
+Augmentation
+Graph 
+Conv
+Graph 
+Conv
+Readout
+Readout
+…… 
+SMILES 𝑠ଵ
+SMILES 𝑠ே
+𝐺෨ଶ
+𝐺෨ଵ
+𝐺෨ଶே
+𝐺෨ଶேିଵ
+(1) Atom masking
+(2) Bond deletion (3) Subgraph removal
+Deletion 
+Masking 
+a
+b
+c
+Parameter sharing 
+Contrastive 
+learning
+Unlabeled 
+databases
+Labeled 
+databases
+Step 1: MolCLR pre-training
+Step 2: Downstream fine-tuning
+Property 
+prediction
+Figure 1. Overview of MolCLR. (a) MolCLR pre-training: A SMILES sn from a mini-batch of N molecule data is converted
+to a molecule graph Gn. Two stochastic molecule graph data augmentation operators are applied to each graph, resulting two
+correlated masked graphs: ˜G2n−1 and ˜G2n. A base feature encoder built upon graph convolutions and the readout operation
+extracts the representation h2n−1, h2n. Contrastive loss is utilized to maximize agreement between the latent vectors z2n−1, z2n
+from the MLP projection head. (b) Molecule graph augmentation strategies: atom masking, bond deletion, and subgraph
+removal. (c) The whole MolCLR framework: GNNs are ﬁrst pre-trained via MolCLR to learn representative features.
+Fine-tuning for downstream molecular property predictions shares the pre-trained parameters of the GNN encoder and
+randomly initializes an MLP head. It then follows the supervised learning to train the model.
+implement a message-passing architecture to aggregate the information from molecule graphs. Further, SchNet19 models
+quantum interactions within molecules in the GNN. DimeNet37 integrates the directional information by transforming messages
+based on the angle between atoms.
+Beneﬁting from the growth of available molecule data24,38–40, self-supervised/pre-trained molecular representation learning
+has also been investigated. Self-supervised language models, like BERT41, have been implemented to learn molecular
+representation with SMILES as input42,43. On molecule graph, N-Gram Graph44 builds the representation for the graph by
+assembling the vertex embedding in short walks, which needs no training. Hu et al.45 propose both node-level and graph-level
+tasks for GNN pre-training. However, the graph-level pre-training is based on supervised-learning tasks, which is constraint by
+limited labels. You et al.46 extends the contrastive learning to unstructured graph data, but the framework is not speciﬁcally
+designed for molecule graph learning and is only trained on limited molecular data.
+In this work, we propose MolCLR: Molecular Contrastive Learning of Representations via Graph Neural Networks
+shown in Figure 1 to address all the above challenges. MolCLR is a self-supervised learning framework trained on the large
+unlabeled molecular dataset with ∼10M unique molecules. Through contrastive loss47,48, MolCLR learns the representations by
+contrasting positive molecule graph pairs against negative ones. Three molecule graph augmentation strategies are introduced:
+atom masking, bond deletion, and subgraph removal. Molecule graph pairs augmented from the same molecule are denoted
+as positive, while others are denoted as negative. Widely-used GNN models, Graph Convolutional Network (GCN)17 and
+Graph Isomorphism Network (GIN)18, are developed as GNN encoders in MolCLR to extract informative representation from
+molecule graphs. The pre-trained model is then ﬁne-tuned on the downstream molecular property prediction benchmarks
+from MoleculeNet24. In comparison to GCN and GIN trained via supervised learning, our MolCLR signiﬁcantly improves
+the performance on both classiﬁcation and regression tasks. Beneﬁting from pre-training on the large database, MolCLR
+surpasses other self-supervised learning and pre-training strategies in multiple molecular benchmarks. Moreover, on several
+2/19
+
+tasks, our MolCLR rivals or even exceeds supervised learning baselines which include sophisticated graph convolution
+operations for molecules or domain-speciﬁc featurization. We also demonstrate that our molecule graph augmentation strategies
+improve the performance of supervised learning on molecular benchmarks when utilized as a direct data augmentation plug-in.
+Further comparison between MolCLR representations and conventional FPs indicates MolCLR learns to distinguish molecular
+similarities from pre-training on the large unlabeled data.
+To summarize, (1) We propose MolCLR, a self-supervised learning framework for molecular representation learning. (2)
+Three molecule graph augmentation strategies are introduced to generate contrastive pairs, namely atom masking, bond deletion,
+and subgraph removal. (3) Beneﬁting from pre-training on large unlabeled data, simple GNN models trained via MolCLR
+demonstrate signiﬁcant improvements on all molecular benchmarks in comparison to supervised learning. (4) MolCLR even
+boosts simple GNN models to the state-of-the-art (SOTA) on several molecular benchmarks with ﬁne-tuning, compared to
+more sophisticated GNNs which cannot utilize unlabeled data.
+Results
+MolCLR Framework
+Our MolCLR model is developed upon the contrastive learning framework48,49. Latent representations from positive augmented
+molecule graph pairs are contrasted with representations from negative pairs. The whole pipeline (Figure 1(a)) is composed
+of four components: data processing and augmentation, GNN-based feature extractor, non-linear projection head, and the
+normalized temperature-scaled cross-entropy (NT-Xent)48 contrastive loss.
+Given a SMILES data sn from a mini-batch of size N, the corresponding molecule graph Gn is built, in which each node
+represents an atom and each edge represents a chemical bond between atoms. Using molecule graph augmentation strategies,
+Gn is transformed into two different but correlated molecule graphs: ˜Gi and ˜Gj, where i = 2n −1 and j = 2n. Molecule
+graphs augmented from the same molecule are denoted as a positive pair, whereas those from different molecules are denoted
+as negative pairs. The feature extractor f(·) is modeled by GNNs and maps the molecule graphs into the representations
+hi,hj ∈Rd. In our case, we implement GCN17 and GIN18 with an average pooling as the feature extractor. A non-linear
+projection head g(·) is modeled by an MLP with one hidden layer, which maps the representations hi and h j into latent vectors zi
+and zj, respectively. Normalized temperature cross-entropy (NT-Xent) loss48 is applied to the 2N latent vectors z’s to maximize
+the agreement of positive pairs while minimizing the agreement of negative ones. The framework is pre-trained on the ∼10M
+unlabeled data from PubChem40.
+The MolCLR pre-trained GNN models are ﬁne-tuned for molecular property prediction as shown in Figure 1(c). Similarly
+to the pre-training model, the prediction model consists of a GNN backbone and an MLP head, in which the former shares
+the same model as the pre-trained feature extractor, and the latter maps features into the predicted molecular property. The
+GNN backbone in the ﬁne-tuning model is initialized by parameter sharing from the pre-trained model while the MLP head
+is initialized randomly. The whole ﬁne-tuning model is then trained in a supervised learning manner on the target molecular
+property database. More details can be found in the Methods section.
+Molecule Graph Augmentation
+We employ three molecule graph data augmentation strategies (Figure 1(b)) for input molecules in MolCLR: atom masking,
+bond deletion, and subgraph removal.
+Atom Masking
+Atoms in the molecule graph are randomly masked with a given ratio. When an atom is masked, its atom
+feature xv is replaced by a mask token m, which is distinguished from any atom features in the molecule graph shown by the red
+box in Figure 1(b). Through masking, the model is forced to learn the intrinsic chemical information (such as possible types of
+atoms connected by certain covalent bonds) within molecules.
+Bond Deletion
+Bond deletion randomly deletes chemical bonds between the atoms with a certain ratio as the yellow box in
+Figure 1(b) illustrates. Unlike atom masking which substitutes the original feature with a mask token, bond deletion is a more
+rigorous augmentation as it removes the edges completely from the molecule graph. Forming and breaking of chemical bonds
+between atoms determines the attributes of molecules in chemical reactions50. Bond deletion mimics the breaking of chemical
+bonds which prompts the model to learn correlations between the involvements of one molecule in various reactions.
+Subgraph Removal
+Subgraph removal can be considered as a combination of atom masking and bond deletion. Subgraph
+removal starts from a randomly picked origin atom. The removal process proceeds by masking the neighbors of the original
+atom, and then the neighbors of the neighbors, until the number of masked atoms reaches a given ratio of the total number of
+atoms. The bonds between the masked atoms are then deleted, such that the masked atoms and deleted bonds form an induced
+subgraph of the original molecule graph. As the blue box in Figure 1(b) shows, the removed subgraph includes all the bonds
+3/19
+
+between the masked atoms. By matching the molecule graphs with different substructures removed, the model learns to ﬁnd the
+remarkable motifs within the remaining subgraphs51 which greatly determines the molecular properties.
+Molecular Property Predictions
+Dataset
+BBBP
+Tox21
+ClinTox
+HIV
+BACE
+SIDER
+MUV
+# Molecules
+2039
+7831
+1478
+41127
+1513
+1427
+93087
+# Tasks
+1
+12
+2
+1
+1
+27
+17
+RF
+71.4±0.0
+76.9±1.5
+71.3±5.6
+78.1±0.6
+86.7±0.8
+68.4±0.9
+63.2±2.3
+SVM
+72.9±0.0
+81.8±1.0
+66.9±9.2
+79.2±0.0
+86.2±0.0
+68.2±1.3
+67.3±1.3
+GCN17
+71.8±0.9
+70.9±2.6
+62.5±2.8
+74.0±3.0
+71.6±2.0
+53.6±3.2
+71.6±4.0
+GIN18
+65.8±4.5
+74.0±0.8
+58.0±4.4
+75.3±1.9
+70.1±5.4
+57.3±1.6
+71.8±2.5
+SchNet19
+84.8±2.2
+77.2±2.3
+71.5±3.7
+70.2±3.4
+76.6±1.1
+53.9±3.7
+71.3±3.0
+MGCN52
+85.0±6.4
+70.7±1.6
+63.4±4.2
+73.8±1.6
+73.4±3.0
+55.2±1.8
+70.2±3.4
+D-MPNN20
+71.2±3.8
+68.9±1.3
+90.5±5.3
+75.0±2.1
+85.3±5.3
+63.2±2.3
+76.2±2.8
+Hu et al.45
+70.8±1.5
+78.7±0.4
+78.9±2.4
+80.2±0.9
+85.9±0.8
+65.2±0.9
+81.4±2.0
+N-Gram44
+91.2±3.0
+76.9±2.7
+85.5±3.7
+83.0±1.3
+87.6±3.5
+63.2±0.5
+81.6±1.9
+MolCLRGCN
+73.8±0.2
+74.7±0.8
+86.7±1.0
+77.8±0.5
+78.8±0.5
+66.9±1.2
+84.0±1.8
+MolCLRGIN
+73.6±0.5
+79.8±0.7
+93.2±1.7
+80.6±1.1
+89.0±0.3
+68.0±1.1
+88.6±2.2
+Table 1. Test performance of different models on seven classiﬁcation benchmarks. The ﬁrst seven models are supervised
+learning methods and the last four are self-supervised/pre-training methods. Mean and standard deviation of test ROC-AUC
+(%) on each benchmark are reported.*
+*Best performing supervised and self-supervised/pre-training methods for each benchmark are marked as bold.
+Dataset
+FreeSolv
+ESOL
+Lipo
+QM7
+QM8
+QM9
+# Molecules
+642
+1128
+4200
+6830
+21786
+130829
+# Tasks
+1
+1
+1
+1
+12
+8
+RF
+2.03±0.22
+1.07±0.19
+0.88±0.04
+122.7±4.2
+0.0423±0.0021
+16.061±0.019
+SVM
+3.14±0.00
+1.50±0.00
+0.82±0.00
+156.9±0.0
+0.0543±0.0010
+24.613±0.144
+GCN17
+2.87±0.14
+1.43±0.05
+0.85±0.08
+122.9±2.2
+0.0366±0.0011
+5.796±1.969
+GIN18
+2.76±0.18
+1.45±0.02
+0.85±0.07
+124.8±0.7
+0.0371±0.0009
+4.741±0.912
+SchNet19
+3.22±0.76
+1.05±0.06
+0.91±0.10
+74.2±6.0
+0.0204±0.0021
+0.081±0.001
+MGCN52
+3.35±0.01
+1.27±0.15
+1.11±0.04
+77.6±4.7
+0.0223±0.0021
+0.050±0.002
+D-MPNN20
+2.18±0.91
+0.98±0.26
+0.65±0.05
+105.8±13.2
+0.0143±0.0022
+3.241±0.119
+Hu et al.45
+2.83±0.12
+1.22±0.02
+0.74±0.00
+110.2±6.4
+0.0191±0.0003
+4.349±0.061
+N-Gram44
+2.51±0.19
+1.10±0.03
+0.88±0.12
+125.6±1.5
+0.0320±0.0032
+7.636±0.027
+MolCLRGCN
+2.39±0.14
+1.16±0.00
+0.78±0.01
+83.1±4.0
+0.0181±0.0002
+3.552±0.041
+MolCLRGIN
+2.20±0.20
+1.11±0.01
+0.65±0.08
+87.2±2.0
+0.0174±0.0013
+2.357±0.118
+Table 2. Test performance of different models on six regression benchmarks. The ﬁrst seven models are supervised learning
+methods and the last four are self-supervised/pre-training methods. Mean and standard deviation of test RMSE (for FreeSolv,
+ESOL, Lipo) or MAE (for QM7, QM8, QM9) are reported.*
+*Best performing supervised and self-supervised/pre-training methods for each benchmark are marked as bold.
+To demonstrate the effectiveness of MolCLR, we benchmark the performance on multiple challenging classiﬁcation and
+regression tasks from MoleculeNet24. Details of molecular datasets can be found in Supplementary Table 1 and Supplementary
+Table 2. Table 1 shows the test ROC-AUC (%) of our MolCLR model on classiﬁcation tasks in comparison to supervised and self-
+supervised/pre-training baseline models. The average and standard deviation of three individual runs are reported. MolCLRGCN
+and MolCLRGIN denotes MolCLR pre-training with GCN and GIN as feature extractors, respectively. Observations from
+Table 1 are the followings. (1) In comparison with other self-supervised learning or pre-training strategies, our MolCLR
+framework achieves the best performance on 5 out of 7 benchmarks, with an average improvement of 4.0%. Such improvement
+illustrates that our MolCLR is a powerful self-supervised learning strategy, which is easy to implement and requires little
+4/19
+
+domain-speciﬁc sophistication. (2) Compared with best-performing supervised learning baselines, MolCLR also shows rival
+performance. In some benchmarks (e.g., ClinTox, BACE, MUV), our pre-training model even surpasses the SOTA supervised
+learning methods, which include sophisticated aggregation operations or domain-speciﬁc featurization. For instance, on
+ClinTox, MolCLR improves the ROC-AUC by 2.7% with respect to supervised D-MPNN. (3) Notably, MolCLR performs
+remarkably well on datasets with a limited number of molecules, like ClinTox, BACE, and SIDER. The performance validates
+that MolCLR learns informative representations that can be transferred among different datasets.
+Table 2 includes the test performance of MolCLR and baseline models on regression benchmarks. FreeSolv, ESOL, and
+Lipo use root-mean-square error (RMSE) as the evaluation metric while QM7, QM8, and QM9 are measured via mean-absolute
+error (MAE), following the recommendation from MoleculeNet24. Regression tasks are more challenging in comparison with
+classiﬁcation since the latter only considers manually-deﬁned discrete labels. Observations from Table 2 are the followings. (1)
+MolCLR surpasses other pre-training baselines in 5 out of 6 benchmarks and achieves almost the same performance on the
+remaining ESOL benchmark. Compared to Hu et al.45, which also implements GIN as the encoder, MolCLRGIN outperforms it
+on all the 6 regression databases. On QM7 and QM9, for example, the improvement ratios over Hu et al. are 20.9% and 45.8%,
+respectively. (2) In comparison with supervised learning models, MolCLR reaches competitive performance in most cases. For
+example, MolCLR obtains similar results as the best performing supervised D-MPNN on Lipo database. Also, GCN and GIN
+achieve better prediction performance via MolCLR pre-training on all regression benchmarks. Although, in QM9, MolCLR
+does not rival with supervised SchNet19 and MGCN52. As the two models are speciﬁcally designed for quantum interaction
+and make use of extra 3D positional information. Notably, though SchNet and MGCN demonstrate superior performance on
+datasets concerning quantum mechanics properties (i.e., QM7, QM8, and QM9), while they do not show advantages over other
+supervised learning baselines on remaining benchmarks. Moreover, MolCLR pre-training is still demonstrated to be effective
+on the challenging QM9 benchmark. In comparison to GCN and GIN without pre-training, MolCLR still greatly boosts the
+performance by 38.7% and 50.3%, respectively. Also, MolCLR performs better than other self-supervised learning baselines on
+QM9, which validates the efﬁcacy of MolCLR. Since properties in QM9 have of various units and magnitudes, detailed results
+of QM9 are reported in Supplementary Table 3.
+Both Table 1 and Table 2 show MolCLR pre-training greatly improves the performance on all the benchmarks compared to
+supervised GCN and GIN, which demonstrates the effectiveness of MolCLR. On classiﬁcation benchmarks, the average gains
+via MolCLR are 12.4% for GCN and 16.8% for GIN. Similarly, on regressions, the averaged improvement ratios are 27.6%
+for GCN and 33.5% for GCN. In general, GIN demonstrates more improvement than GCN through MolCLR pre-training.
+This could be because GIN has more parameters and are capable of learning more representative molecular features. Also,
+MolCLR shows better prediction accuracy in comparison to other pre-training/self-supervised learning baselines in most cases.
+It should be emphasized that MolCLR beneﬁts from pre-training on large unlabeled databases while the other supervised/self-
+supervised learning baselines do not. Leverage of unlabeled data provides a great advantage for MolCLR over other baselines
+in generalizing among the chemical space and various molecular properties. Inﬂuence of the pre-training database on MolCLR
+is further investigated in Supplementary Table 4 and Supplementary Figure 1. Such capability of generalization bears promises
+for predicting potential molecular properties in drug discovery and design.
+Optimal Molecule Graph Augmentations
+To systematically analyze the effect of molecule graph augmentation strategies, we compare different compositions of atom
+masking, bond deletion, and subgraph removal. Shown in Figure 2(a) are the ROC-AUC (%) mean and standard deviation of
+each data augmentation strategy on different benchmarks. Four augmentation strategies are considered. (1) Integration of atom
+masking and bond deletion with both ratios p set to 25%. (2) Subgraph removal with a random ratio p from 0% to 25%. (3)
+Subgraph removal with a ﬁxed 25% ratio. (4) Composition of all the three augmentation methods. Speciﬁcally, a subgraph
+removal with a random ratio 0% to 25% is applied at ﬁrst. Then if the ratio of masked atoms is smaller than 25%, we continue
+to randomly mask atoms until it reaches the ratio of 25%. Similarly, if the bond deletion ratio is smaller than 25%, more bonds
+are deleted to reach the set ratio.
+As Figure 2(a) illustrates, subgraph removal with a 25% ratio reaches the best performance on average among all the four
+compositions. Its outstanding performance can be attributed to that subgraph removal is an intrinsic combination of atom
+masking and bond deletion, and that subgraph removal further disentangles the local substructures compared with strategy
+(1). However, subgraph removal with a ﬁxed 25% ratio performs poorly in BBBP dataset because the molecule structures
+in BBBP are sensitive, such that a slight topology change can cause great property difference. Besides, it is worth noticing
+that the composition of all three augmentations (strategy (4)) hurts the ROC-AUC compared with single subgraph removal
+augmentation in most benchmarks. A possible reason is that the composition of all the three augmentation strategies can
+remove a wide range of substructures within the molecule graph, thus eliminate the important topology information. In general,
+subgraph removal achieves superior performance in most benchmarks. However, it is also indicated that the optimal molecule
+graph augmentation is task-independent.
+5/19
+
+50.00
+55.00
+60.00
+65.00
+70.00
+75.00
+80.00
+85.00
+90.00
+95.00
+100.00
+SIDER
+ClinTox
+BACE
+BBBP
+HIV
+Tox21
+MUV
+ROC-AUC (%)
+Atom masking + bond deletion
+Subgraph removal (p<25%)
+Subgraph removal
+Composition of three augmentations
+50.00
+55.00
+60.00
+65.00
+70.00
+75.00
+80.00
+85.00
+90.00
+SIDER
+ClinTox
+BACE
+BBBP
+HIV
+Tox21
+MUV
+ROC-AUC (%)
+w\o augmentations
+w\ augmentations
+a
+b
+Figure 2. Investigation of molecule graph augmentations on classiﬁcation benchmarks. (a) Test performance of MolCLR
+models with different compositions of molecule graph augmentation strategies. (b) Test performance of GIN models trained via
+supervised learning with and without molecular graph augmentations. The height of each bar represents the mean ROC-AUC
+(%) on the benchmark, and the length of each error bar represents the standard deviation.
+Molecule Graph Augmentation on Supervised Learning
+The molecule graph augmentation strategies in our work, namely atom masking, bond deletion, and subgraph removal,
+can be implemented as a generic data augmentation plug-in for any graph-based molecular learning methods. To validate
+the effectiveness of molecule graph augmentations on supervised molecular tasks, we train GIN models with and without
+augmentations from random initialization. Speciﬁcally, subgraph masking with a ﬁxed ratio 25% is implemented as the
+augmentation. Figure 2(b) documents the mean and standard deviation of test ROC-AUC (%) over the seven molecular
+property classiﬁcation benchmarks. On all the seven benchmarks, GINs trained with augmentations surpass the models without
+augmentations. Molecule graph augmentations improve the averaged ROC-AUC score by 7.2%. Implementation of our
+molecule graph augmentation strategies on supervised molecular property prediction tasks improves the performance greatly
+even without pre-training. It is indicated that molecule graph augmentations are effective in helping GNNs learn robust and
+representative features. For instance, subgraph removal matches partially observed molecule graphs. Therefore, the model
+learns to ﬁnd the remarkable motifs within the remaining subgraphs which greatly beneﬁts molecular property learning.
+Investigation of MolCLR Representation
+We examine the representations learned by pre-trained MolCLR using t-SNE embedding53. The t-SNE algorithm maps
+similar molecular representations to adjacent points in two-dimension (2D). Shown in Figure 3 are 100K molecules from the
+validation set of the PubChem database embedded to 2D via t-SNE, colored based on the molecular weights. We also include
+some randomly selected molecules in the ﬁgure to illustrate what are the similar/dissimilar molecules learned by MolCLR
+pre-training. As shown in Figure 3, MolCLR learns close representations for molecules with similar topology structures and
+functional groups. For instance, the three molecules shown on the top possess carbonyl groups connected with aryls. The
+two molecules shown on the bottom left have similar structures, where a halogen atom (Fluorine or Chlorine) is connected to
+benzene. This illustrates that even without labels, the model learns intrinsic connections between molecules as molecules with
+similar properties have close features. More visualizations of MolCLR representations can be found in Supplementary Figure 2.
+To further evaluate MolCLR, we compare the MolCLR-learned representations with conventional molecular ﬁngerprints
+(FPs), e.g., ECFP5 and RDKFP. In particular, given a query molecule, we extract its representation via MolCLR and calculate
+its cosine distances with all reference molecules in our pre-training database. Cosine distance between two representations
+(u,v) are deﬁnes as 1−
+u·v
+∥u∥∥v∥. All reference molecules are then ranked by the representation distances and uniformly divided
+into 20 bins based on the ranking percentage. The lower the percentage threshold is, the more similar molecules are expected
+with respect to the query, as the MolCLR representations are closer. Within each bin, 5000 molecules are randomly selected
+and their dice FP similarities with the query are calculated. Figure 4 shows an example of a query molecule (PubChem ID
+42953211). Shown in Figure 4(a) are the mean and standard deviation of FP similarities within each bin. The distribution of
+similarities using both ECFP and RDKFP are shown in Figure 4(b). ECFP tends to obtain lower similarities than RDKFP since
+the former covers a wider range of features relevant to molecular activity. It is shown, though, as the MolCLR representation
+distance increases, both the ECFP and RDKFP similarities decrease. The averaged RDKFP similarities at the top 5% is ∼0.9
+and drops to ∼0.67 at the last 5%. Similarly, the averaged ECFP similarity drops from ∼0.49 at the top 5% to ∼0.21 at the
+6/19
+
+≤ 100
+≥ 600
+300
+500
+400
+200
+Molecular weight
+Figure 3. Visualization of molecular representations learned by MolCLR via t-SNE. Representations are extracted from the
+validation set of the pre-training dataset, which contains 100k unique molecules. Each point is colored by its corresponding
+molecular weight. Some molecules close in the representation domain are also shown.
+last 5%. Though there are ﬂuctuations as the percentage threshold increases, the overall tendencies are consistent among the
+MolCLR learned representations and chemical FPs. Namely, the distance between MolCLR representations effectively reﬂects
+the molecular similarity. Besides, 9 molecules that are closest to the query molecule in the MolCLR representation domain are
+illustrated in Figure 4(c) with both FPs similarities labeled. These molecules share high RDKFP similarities from 0.833 to
+0.985, which further demonstrate MolCLR learns chemically meaningful representations. It is observed that these selected
+molecules share the same functional groups, including alkyl halides (chlorine), tertiary amines, ketones, and aromatics. A
+thiophene structure can also be found in all the molecules. Notably, the second molecule in the ﬁrst row in Figure 4(c) is
+exactly the same as the query molecule except for the position of the chlorine, hence the highest similarities. It is indicated
+that through contrastive learning on large unlabeled data, MolCLR automatically embeds molecules to representative features
+and distinguishes the compounds in a chemically reasonable manner. More examples of query molecules can be found in
+Supplementary Figure 3.
+Conclusion
+In this work, we investigate self-supervised learning for molecular representation. Speciﬁcally, we propose Molecular
+Contrastive Learning of Representations (MolCLR) via GNNs and three molecular graph augmentations strategies: atom
+masking, bond deletion, and subgraph removal. Through contrasting positive pairs against negative pairs from augmentations,
+MolCLR learns informative representation with general GNN backbones. Experiments show that MolCLR pre-trained GNN
+models achieve great improvement on various molecular benchmarks, and show better generalizations compared with models
+trained in the supervised learning manner.
+Molecular representations learned by MolCLR demonstrate the transferability to molecular tasks with limited data and the
+power of generalization on the large chemical space. There are many promising directions to investigate as future works. For
+instance, improvement of the GNN backbones (e.g. transformer-based GNN architectures54) can help extract better molecular
+representations. Besides, visualization and interpretation of self-supervised learned representations are of great interest55. Such
+investigations can help researchers better understand chemical compounds and beneﬁt drug discovery.
+7/19
+
+a
+RDKFP: 0.985
+ECFP: 0.976
+Query 
+molecule
+RDKFP: 0.927
+ECFP: 0.780
+RDKFP: 0.922
+ECFP: 0.805
+RDKFP: 0.924
+ECFP: 0.821
+RDKFP: 0.833
+ECFP: 0.683
+RDKFP: 0.866
+ECFP: 0.676
+RDKFP: 0.880
+ECFP: 0.700
+RDKFP: 0.902
+ECFP: 0.611
+RDKFP: 0.885
+ECFP: 0.713
+c
+0.2        0.4       0.6       0.8      1.0
+Distance Ranking Percentage 
+0.8
+0.6
+0.4
+0.2
+FP Similarity
+0.0       0.2        0.4       0.6        0.8      1.0
+FP Similarity
+0.12
+0.10
+0.08
+0.06
+0.04
+0.02
+0.00
+b
+Fraction
+Figure 4. Comparison of MolCLR-learned representations and conventional FPs using the query molecule (PubChem ID
+42953211). (a) Change of ECFP and RDKFP similarities with respect to the distance between MolCLR representations. (b)
+Distribution of ECFP and EDKFP similarities with the query molecule. (c) The query molecule and 9 closest molecules in
+MolCLR representation domain with RDKFP and ECFP similarities labeled.
+Methods
+Graph Neural Networks
+In our work, a molecule graph G is deﬁned as G = (V,E), where V and E are nodes (atoms) and edges (chemical bonds),
+respectively56. Modern Graph Neural Networks (GNNs) utilize a neighborhood aggregation operation, which updates the node
+representation iteratively17. The aggregation update rule for a node feature on the k-th layer of a GNN is given in Equation 1:
+a(k)
+v
+= AGGREGATE(k)({h(k−1)
+u
+: u ∈N (v)}), h(k)
+v
+= COMBINE(k)(h(k−1)
+v
+,a(k)
+v ),
+(1)
+where h(k)
+v
+is the feature of node v at the k-th layer and h(0)
+v
+is initialized by node feature xv. N (v) denotes the set of all the
+neighbors of node v. To further extract a graph-level feature hG, readout operation integrates all the node features among the
+graph G as given in Equation 2:
+hG = READOUT({h(k)
+u
+: v ∈G}).
+(2)
+In our work, we build GNN encoders based on GCN17 and GIN18. GCN integrates the aggregation and combination operations
+by introducing a mean-pooling over the node itself and its adjacencies before the linear transformation. While GIN utilizes an
+MLP and weighted summation of node features in the aggregation. Both are simple yet generic graph convolutional operations.
+Additionally, we implement widely-used mean pooling as the readout.
+8/19
+
+Contrastive Learning
+Contrastive learning57 aims at learning representation through contrasting positive data pairs against negative pairs. SimCLR48
+demonstrates that contrastive learning for images can greatly beneﬁts from the composition of data augmentations and large
+batch sizes. Based on InfoNCE loss47, SimCLR proposes the NT-Xent loss as given in Equation 3:
+Li,j = −log
+exp(sim(zi,z j)/τ)
+∑2N
+k=1 1{k̸ = i}exp(sim(zi,zk)/τ),
+(3)
+where zi and z j are latent vectors extracted from a positive data pair, N is the batch size, sim(·) measures the similarity between
+the two vectors, and τ is the temperature parameter. In our MolCLR, we follow the NT-Xent loss to conduct pre-training on
+GNN encoders and implement cosine similarity as sim(zi,z j) =
+zT
+i zj
+∥zi∥2∥zj∥2 . Further investigation of τ on MolCLR pre-training
+is included in Supplementary Table 5. Though contrastive learning frameworks have been implemented to various domains,
+including unstructured graphs46, sentence embeddings58, and robotics planning59. Contrastive learning has not yet been
+investigated comprehensively and elaborately for molecule graphs.
+Datasets
+Pre-training Dataset.
+For MolCLR pre-training, we use ∼10 million unique unlabeled molecule SMILES collected by
+ChemBERTa42 from PubChem40. RDKit60 is then utilized to build the molecule graphs and extract chemical features from the
+SMILES strings. Within the molecule graph, each node represents an atom and each edge represents a chemical bond. We
+randomly split the pre-training dataset into training and validation set with a ratio of 95/5.
+Downstream Datasets.
+To benchmark the performance of our MolCLR framework, we use 13 datasets from MoleculeNet24,
+containing 44 binary classiﬁcation tasks and 24 regression tasks in total. These tasks cover molecule properties of multiple
+domains. For all datasets except QM9, we use the scaffold split to create an 80/10/10 train/valid/test split as suggested in45.
+Unlike the common random split, the scaffold split, which is based on molecular substructures, makes the prediction task
+more challenging yet realistic. QM9 follows the random splitting setting as implementations of most related works19,44,52 for
+comparison.
+Training Details
+Each atom on the molecule graph is embedded by its atomic number and chirality type, while each bond is embedded by its
+type and direction. We implement a 5-layer graph convolutions17,18 with ReLU activation as the GNN backbone, and follow
+the modiﬁcation in Hu et al.45 to make aggregations compatible with edge features. An average pooling is applied on each
+graph as the readout operation to extract the 512-dimension molecular representation. An MLP with one hidden layer maps the
+representation into a 256-dimension latent space. Adam61 optimizer with weight decay 10−5 is used to optimize the NT-Xent
+loss. After the initial 10 epochs with a learning rate, 5×10−4, a cosine learning decay is implemented. The model is trained
+with batch size 512 for the total 50 epochs.
+For the downstream task ﬁne-tuning, we add a randomly initialized MLP on top of the base GNN feature extractor. Softmax
+cross-entropy loss and ℓ1 loss are implemented for classiﬁcation and regression tasks, respectively. On each task, we conduct
+100-epoch ﬁne-tuning of the pre-trained model three times to get the average and standard deviation of performance on the test
+set. We train the model on training set only and perform search of hyper-parameters on the validation set for the best results.
+The whole framework is implemented based on Pytorch Geometric62. More ﬁne-tuning details are included in Supplementary
+Table 6.
+Baselines
+Supervised learning models.
+We comprehensively evaluate the performance of our MolCLR model in comparison with
+supervised learning methods. For shallow machine learning models, Random Forest (RF)63 and Support Vector Machine
+(SVM)64 are implemented, which take molecular FPs as the input. Multiple GNNs are also included. GCN17 and GIN18,45 with
+edge feature involved in aggregation are considered. Besides, several GNN models which achieve SOTA on several molecular
+benchmarks are implemented as baselines, i.e., SchNet19, MGCN52, and D-MPNN20. These GNNs are designed speciﬁcally
+for molecular. For example, SchNet and MGCN explicitly model quantum interactions within molecules.
+Self-supervised learning models.
+To better demonstrate the effectiveness of MolCLR framework, we further include other
+pre-training or self-supervised learning models as baselines. Hu et al.45 proposes both node-level and graph-level pre-training
+for molecule graphs. It should be pointed out that though node-level pre-training is based on self-supervision, while the
+graph-level pre-training is supervised on some molecule property labels45. N-Gram graph44 is also implemented, which
+computes a compact representation directly through the molecule graph.
+9/19
+
+Data availability
+The pre-training data and molecular prooerty prediction benchmarks used in this work are available in the both the CodeOcean
+capsule: https://doi.org/10.24433/CO.8582800.v165 and the Github repository: https://github.com/yuyangw/MolCLR.
+Code availability
+The code accompanying this work are available in both the CodeOcean capsule: https://doi.org/10.24433/CO.8582800.v165 and
+the Github repository: https://github.com/yuyangw/MolCLR.
+References
+1. Bartók, A. P., Kondor, R. & Csányi, G. On representing chemical environments. Phys. Rev. B 87, 184115 (2013).
+2. Huang, B. & Von Lilienfeld, O. A. Communication: Understanding molecular representations in machine learning: The
+role of uniqueness and target similarity (2016).
+3. David, L., Thakkar, A., Mercado, R. & Engkvist, O. Molecular representations in ai-driven drug discovery: a review and
+practical guide. J. Cheminformatics 12, 1–22 (2020).
+4. Oprea, T. I. & Gottfries, J. Chemography: the art of navigating in chemical space. J. combinatorial chemistry 3, 157–166
+(2001).
+5. Rogers, D. & Hahn, M. Extended-connectivity ﬁngerprints. J. chemical information modeling 50, 742–754 (2010).
+6. Duvenaud, D. et al. Convolutional networks on graphs for learning molecular ﬁngerprints. In Proceedings of the 28th
+International Conference on Neural Information Processing Systems, NIPS’15, 2224–2232 (MIT Press, Cambridge, MA,
+USA, 2015).
+7. Gilmer, J., Schoenholz, S. S., Riley, P. F., Vinyals, O. & Dahl, G. E. Neural message passing for quantum chemistry. In
+International Conference on Machine Learning, 1263–1272 (PMLR, 2017).
+8. Karamad, M. et al. Orbital graph convolutional neural network for material property prediction. Phys. Rev. Mater. 4,
+093801 (2020).
+9. Chmiela, S., Sauceda, H. E., Müller, K.-R. & Tkatchenko, A. Towards exact molecular dynamics simulations with
+machine-learned force ﬁelds. Nat. communications 9, 1–10 (2018).
+10. Deringer, V. L. et al. Realistic atomistic structure of amorphous silicon from machine-learning-driven molecular dynamics.
+The journal physical chemistry letters 9, 2879–2885 (2018).
+11. Wang, W. & Gómez-Bombarelli, R. Coarse-graining auto-encoders for molecular dynamics. npj Comput. Mater. 5, 1–9
+(2019).
+12. Altae-Tran, H., Ramsundar, B., Pappu, A. S. & Pande, V. Low data drug discovery with one-shot learning. ACS central
+science 3, 283–293 (2017).
+13. Magar, R., Yadav, P. & Farimani, A. B. Potential neutralizing antibodies discovered for novel corona virus using machine
+learning. Sci. reports 11, 1–11 (2021).
+14. Wang, Y., Cao, Z. & Farimani, A. B. Efﬁcient water desalination with graphene nanopores obtained using artiﬁcial
+intelligence. npj 2D Mater. Appl. 5, 1–9 (2021).
+15. Weininger, D. Smiles, a chemical language and information system. 1. introduction to methodology and encoding rules. J.
+chemical information computer sciences 28, 31–36 (1988).
+16. Krenn, M., Häse, F., Nigam, A., Friederich, P. & Aspuru-Guzik, A. Self-referencing embedded strings (selﬁes): A 100%
+robust molecular string representation. Mach. Learn. Sci. Technol. 1, 045024 (2020).
+17. Kipf, T. N. & Welling, M.
+Semi-supervised classiﬁcation with graph convolutional networks.
+arXiv preprint
+arXiv:1609.02907 (2016).
+18. Xu, K., Hu, W., Leskovec, J. & Jegelka, S. How powerful are graph neural networks? In International Conference on
+Learning Representations (2019).
+19. Schütt, K. T., Sauceda, H. E., Kindermans, P.-J., Tkatchenko, A. & Müller, K.-R. Schnet–a deep learning architecture for
+molecules and materials. The J. Chem. Phys. 148, 241722 (2018).
+20. Yang, K. et al. Analyzing learned molecular representations for property prediction. J. chemical information modeling 59,
+3370–3388 (2019).
+10/19
+
+21. Kirkpatrick, P. & Ellis, C. Chemical space (2004).
+22. Bohacek, R. S., McMartin, C. & Guida, W. C. The art and practice of structure-based drug design: a molecular modeling
+perspective. Medicinal research reviews 16, 3–50 (1996).
+23. Brown, N., Fiscato, M., Segler, M. H. & Vaucher, A. C. Guacamol: benchmarking models for de novo molecular design. J.
+chemical information modeling 59, 1096–1108 (2019).
+24. Wu, Z. et al. Moleculenet: a benchmark for molecular machine learning. Chem. science 9, 513–530 (2018).
+25. LeCun, Y., Bengio, Y. & Hinton, G. Deep learning. nature 521, 436–444 (2015).
+26. Vamathevan, J. et al. Applications of machine learning in drug discovery and development. Nat. Rev. Drug Discov. 18,
+463–477 (2019).
+27. Unterthiner, T. et al. Deep learning as an opportunity in virtual screening. In Proceedings of the deep learning workshop at
+NIPS, vol. 27, 1–9 (2014).
+28. Ma, J., Sheridan, R. P., Liaw, A., Dahl, G. E. & Svetnik, V. Deep neural nets as a method for quantitative structure–activity
+relationships. J. chemical information modeling 55, 263–274 (2015).
+29. Ramsundar, B. et al. Massively multitask networks for drug discovery. arXiv preprint arXiv:1502.02072 (2015).
+30. Kusner, M. J., Paige, B. & Hernández-Lobato, J. M. Grammar variational autoencoder. In International Conference on
+Machine Learning, 1945–1954 (PMLR, 2017).
+31. Gupta, A. et al. Generative recurrent networks for de novo drug design. Mol. informatics 37, 1700111 (2018).
+32. Xu, Z., Wang, S., Zhu, F. & Huang, J. Seq2seq ﬁngerprint: An unsupervised deep molecular embedding for drug discovery.
+In Proceedings of the 8th ACM international conference on bioinformatics, computational biology, and health informatics,
+285–294 (2017).
+33. Gómez-Bombarelli, R. et al. Automatic chemical design using a data-driven continuous representation of molecules. ACS
+central science 4, 268–276 (2018).
+34. Schwaller, P. et al. Molecular transformer: a model for uncertainty-calibrated chemical reaction prediction. ACS central
+science 5, 1572–1583 (2019).
+35. Maziarka, Ł. et al. Molecule attention transformer. arXiv preprint arXiv:2002.08264 (2020).
+36. Feinberg, E. N. et al. Potentialnet for molecular property prediction. ACS Cent. Sci. 4, 1520–1530, 10.1021/acscentsci.
+8b00507 (2018).
+37. Klicpera, J., Groß, J. & Günnemann, S. Directional message passing for molecular graphs. arXiv preprint arXiv:2003.03123
+(2020).
+38. Gaulton, A. et al. Chembl: a large-scale bioactivity database for drug discovery. Nucleic acids research 40, D1100–D1107
+(2012).
+39. Sterling, T. & Irwin, J. J. Zinc 15–ligand discovery for everyone. J. chemical information modeling 55, 2324–2337 (2015).
+40. Kim, S. et al. Pubchem 2019 update: improved access to chemical data. Nucleic acids research 47, D1102–D1109 (2019).
+41. Devlin, J., Chang, M.-W., Lee, K. & Toutanova, K. Bert: Pre-training of deep bidirectional transformers for language
+understanding. arXiv preprint arXiv:1810.04805 (2018).
+42. Chithrananda, S., Grand, G. & Ramsundar, B. Chemberta: Large-scale self-supervised pretraining for molecular property
+prediction. arXiv preprint arXiv:2010.09885 (2020).
+43. Wang, S., Guo, Y., Wang, Y., Sun, H. & Huang, J. Smiles-bert: large scale unsupervised pre-training for molecular property
+prediction. In Proceedings of the 10th ACM international conference on bioinformatics, computational biology and health
+informatics, 429–436 (2019).
+44. Liu, S., Demirel, M. F. & Liang, Y. N-gram graph: Simple unsupervised representation for graphs, with applications to
+molecules. In NeurIPS (2019).
+45. Hu, W. et al. Strategies for pre-training graph neural networks. In International Conference on Learning Representations
+(2020).
+46. You, Y. et al. Graph contrastive learning with augmentations. Adv. Neural Inf. Process. Syst. 33, 5812–5823 (2020).
+47. Oord, A. v. d., Li, Y. & Vinyals, O.
+Representation learning with contrastive predictive coding.
+arXiv preprint
+arXiv:1807.03748 (2018).
+11/19
+
+48. Chen, T., Kornblith, S., Norouzi, M. & Hinton, G. A simple framework for contrastive learning of visual representations.
+In International conference on machine learning, 1597–1607 (PMLR, 2020).
+49. Chen, T., Kornblith, S., Swersky, K., Norouzi, M. & Hinton, G. Big self-supervised models are strong semi-supervised
+learners. arXiv preprint arXiv:2006.10029 (2020).
+50. Do, K., Tran, T. & Venkatesh, S. Graph transformation policy network for chemical reaction prediction. In Proceedings of
+the 25th ACM SIGKDD International Conference on Knowledge Discovery & Data Mining, 750–760 (2019).
+51. Jin, W., Barzilay, R. & Jaakkola, T. Hierarchical generation of molecular graphs using structural motifs. In International
+Conference on Machine Learning, 4839–4848 (PMLR, 2020).
+52. Lu, C. et al. Molecular property prediction: A multilevel quantum interactions modeling perspective. In Proceedings of the
+AAAI Conference on Artiﬁcial Intelligence, vol. 33, 1052–1060 (2019).
+53. Van der Maaten, L. & Hinton, G. Visualizing data using t-sne. J. machine learning research 9 (2008).
+54. Yun, S., Jeong, M., Kim, R., Kang, J. & Kim, H. J. Graph transformer networks. In Wallach, H. et al. (eds.) Advances in
+Neural Information Processing Systems, vol. 32 (Curran Associates, Inc., 2019).
+55. Pope, P. E., Kolouri, S., Rostami, M., Martin, C. E. & Hoffmann, H. Explainability methods for graph convolutional
+neural networks. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition, 10772–10781
+(2019).
+56. Bronstein, M. M., Bruna, J., LeCun, Y., Szlam, A. & Vandergheynst, P. Geometric deep learning: going beyond euclidean
+data. IEEE Signal Process. Mag. 34, 18–42 (2017).
+57. He, K., Fan, H., Wu, Y., Xie, S. & Girshick, R. Momentum contrast for unsupervised visual representation learning. In
+Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition, 9729–9738 (2020).
+58. Gao, T., Yao, X. & Chen, D. Simcse: Simple contrastive learning of sentence embeddings. arXiv preprint arXiv:2104.08821
+(2021).
+59. Wang, J., Lu, Y. & Zhao, H. Cloud: Contrastive learning of unsupervised dynamics. arXiv preprint arXiv:2010.12488
+(2020).
+60. Landrum, G. Rdkit: Open-source cheminformatics. https://www.rdkit.org/ (2006).
+61. Kingma, D. P. & Ba, J. Adam: A method for stochastic optimization. arXiv preprint arXiv:1412.6980 (2014).
+62. Fey, M. & Lenssen, J. E. Fast graph representation learning with PyTorch Geometric. In ICLR Workshop on Representation
+Learning on Graphs and Manifolds (2019).
+63. Ho, T. K. Random decision forests. In Proceedings of 3rd international conference on document analysis and recognition,
+vol. 1, 278–282 (IEEE, 1995).
+64. Cortes, C. & Vapnik, V. Support-vector networks. Mach. learning 20, 273–297 (1995).
+65. Wang, Y., Wang, J., Cao, Z. & Farimani, A. B. Molclr: Molecular contrastive learning of representations via graph neural
+networks. https://www.codeocean.com/, 10.24433/CO.8582800.v1 (2021).
+66. Kuhn, M., Letunic, I., Jensen, L. J. & Bork, P. The sider database of drugs and side effects. Nucleic acids research 44,
+D1075–D1079 (2016).
+67. Mobley, D. L. & Guthrie, J. P. Freesolv: a database of experimental and calculated hydration free energies, with input ﬁles.
+J. computer-aided molecular design 28, 711–720 (2014).
+68. Ruddigkeit, L., Van Deursen, R., Blum, L. C. & Reymond, J.-L. Enumeration of 166 billion organic small molecules in the
+chemical universe database gdb-17. J. chemical information modeling 52, 2864–2875 (2012).
+69. Ramakrishnan, R., Hartmann, M., Tapavicza, E. & Von Lilienfeld, O. A. Electronic spectra from tddft and machine
+learning in chemical space. The J. chemical physics 143, 084111 (2015).
+70. Ramakrishnan, R., Dral, P. O., Rupp, M. & Von Lilienfeld, O. A. Quantum chemistry structures and properties of 134 kilo
+molecules. Sci. data 1, 1–7 (2014).
+71. Loshchilov, I. & Hutter, F. Sgdr: Stochastic gradient descent with warm restarts. arXiv preprint arXiv:1608.03983 (2016).
+72. Maas, A. L., Hannun, A. Y. & Ng, A. Y. Rectiﬁer nonlinearities improve neural network acoustic models. In Proc. icml,
+vol. 30, 3 (Citeseer, 2013).
+73. Glorot, X., Bordes, A. & Bengio, Y. Deep sparse rectiﬁer neural networks. In Proceedings of the fourteenth international
+conference on artiﬁcial intelligence and statistics, 315–323 (JMLR Workshop and Conference Proceedings, 2011).
+12/19
+
+Supplementary Information
+1 Details of Molecular Datasets
+Table 1 summarizes all the benchmarks used in our work. These benchmarks from MoleculeNet24 cover a wide variety
+of molecular properties, including physiology (i.e., BBBP, Tox21, SIDER, ClinTox), biophysics (i.e., BACE, MUV, HIV),
+physical chemistry (i.e., FreeSolv, Lipo, ESOL), and quantum mechanics (i.e., QM7, QM8, QM9). Also, numbers of data vary
+signiﬁcantly among the benchmarks, ranging from less than 1K to more than 130K. All benchmarks except QM9 are scaffold
+split to train/validation/test sets by the ratio of 8/1/1, which provides a more challenging yet realistic setting. Random splitting
+is implemented on QM9 following the settings in most related works19,44,52 for comparison. ROC-AUC is used as the metric
+for classiﬁcation tasks while RMSE and MAE are used for regression tasks.
+Dataset
+# Molecules
+# Tasks
+Task type
+Metric
+Split
+BBBP
+2039
+1
+Classiﬁcation
+ROC-AUC
+Scaffold
+Tox21
+7831
+12
+Classiﬁcation
+ROC-AUC
+Scaffold
+ClinTox
+1478
+2
+Classiﬁcation
+ROC-AUC
+Scaffold
+HIV
+41127
+1
+Classiﬁcation
+ROC-AUC
+Scaffold
+BACE
+1513
+1
+Classiﬁcation
+ROC-AUC
+Scaffold
+SIDER
+1427
+27
+Classiﬁcation
+ROC-AUC
+Scaffold
+MUV
+93087
+17
+Classiﬁcation
+ROC-AUC
+Scaffold
+FreeSolv
+642
+1
+Regression
+RMSE
+Scaffold
+ESOL
+1128
+1
+Regression
+RMSE
+Scaffold
+Lipo
+4200
+1
+Regression
+RMSE
+Scaffold
+QM7
+6830
+1
+Regression
+MAE
+Scaffold
+QM8
+21786
+12
+Regression
+MAE
+Scaffold
+QM9
+130829
+8
+Regression
+MAE
+Random
+Table 1. Summary of all the benchmarks for molecular property predictions used in this work.
+We follow Hu et al.45 to build a simple yet unambiguous set of node and bond features to embed the two-dimensional
+(2D) molecular graph. RDKit is used to convert SMILES to a 2D graph and extract the features. The details of node and edge
+features can be found in Table 1. When a node is masked, the atomic number is set to 119 and chirality to unspeciﬁed.
+Feature type
+Feature name
+Range
+Node feature
+Atomic number
+[1, 119]
+Chirality
+{unspeciﬁed, tetrahedral CW, tetrahedral CCW, other}
+Edge feature
+Bond type
+{single, double, triple, aromatic}
+Bond direction
+{none, end-upright, end-downright}
+Table 1. Node and edge features used in MolCLR.
+13/19
+
+2 Detailed Results of QM9
+Table 2 reports detailed results on QM9 database. The property name, unit, mean and std of test MAE for all the models
+are included. Not surprisingly, SchNet19 and MGCN52 outperform the other models greatly. These two models successfully
+develop interaction layers, which elaborately take quantum interactions into consideration as titles of both works indicate.
+Besides, both models include 3D positional information as the input, which beneﬁts quantum mechanics property predictions.
+However, MolCLR pre-training is still demonstrated to be effective on this challenging benchmark. MolCLR shows better
+prediction accuracy in 7 out 8 tasks among all the pre-training/self-supervised models. MolCLRGIN surpasses Hu et al.45 in all
+the tasks, which also utilizes GIN as the encoder. Besides, in comparison to GCN and GIN trained via supervised learning,
+MolCLRGCN and MolCLRGIN improve the performance on all the tasks within QM9. MolCLR also obtains lower test MAE
+when set side-by-side with another supervised baseline, D-MPNN20.
+Property
+εHOMO
+εLUMO
+∆ε
+ZPVE
+µ
+α
+⟨R2⟩
+Cv
+Unit
+eV
+eV
+eV
+eV
+D
+bohr3
+bohr2
+cal/mol K
+RF
+0.186±0.001
+0.276±0.002
+0.269±0.001
+0.276±0.000
+0.658±0.004
+3.245±0.015
+121.837±0.124
+1.738±0.003
+SVM
+0.148±0.000
+0.234±0.002
+0.248±0.004
+0.157±0.000
+0.750±0.004
+4.065±0.057
+189.510±1.078
+1.795±0.010
+GCN17
+0.115±0.010
+0.133±0.007
+0.174±0.013
+0.075±0.018
+0.532±0.015
+1.495±0.338
+43.325±15.140
+0.514±0.209
+GIN18
+0.097±0.005
+0.103±0.010
+0.138±0.004
+0.055±0.021
+0.483±0.004
+1.315±0.405
+35.278±6.779
+0.457±0.073
+SchNet19
+0.041±0.001
+0.034±0.003
+0.063±0.002
+0.002±0.000
+0.033±0.001
+0.235±0.061
+0.073±0.002
+0.033±0.000
+MGCN52
+0.042±0.001
+0.057±0.002
+0.064±0.001
+0.001±0.000
+0.056±0.002
+0.030±0.007
+0.113±0.001
+0.038±0.001
+D-MPNN20
+0.093±0.005
+0.106±0.002
+0.148±0.003
+0.037±0.004
+0.450±0.006
+0.493±0.008
+24.371±0.922
+0.244±0.005
+HU. et.al45
+0.116±0.000
+0.118±0.000
+0.161±0.001
+0.083±0.001
+0.543±0.001
+1.725±0.008
+55.418±0.291
+0.705±0.012
+N-Gram44
+0.142±0.001
+0.138±0.001
+0.193±0.001
+0.009±0.000
+0.540±0.002
+0.611±0.022
+59.137±0.178
+0.334±0.007
+MolCLRGCN
+0.104±0.000
+0.110±0.001
+0.149±0.001
+0.045±0.004
+0.507±0.002
+0.644±0.053
+26.600±0.257
+0.259±0.011
+MolCLRGIN
+0.087±0.000
+0.092±0.000
+0.127±0.000
+0.033±0.004
+0.464±0.001
+0.463±0.017
+17.425±0.919
+0.164±0.002
+Table 2. Test MAE of different models for each property in QM9.
+14/19
+
+3 Investigation of Pre-training Datasets for MolCLR
+MolCLR pre-training makes use of the large unlabeled molecular data. We also investigate whether pre-training on certain
+dataset beneﬁts molecular property predictions of its own. To this end, we conduct MolCLR pre-training on MUV and QM9
+as shown in Table 3, since these are the two largest datasets in MoleculeNet24. Within the table, MolCLRPubChem denotes
+MolCLR framework pre-trained on the ∼10M unlabeled molecules from PubChem40. MolCLRMUV and MolCLRQM9 indicates
+pre-training on MUV and QM9, respectively. The training and ﬁne-tuning follow the same setting reported in the main
+manuscript. To avoid data leakage, we split the MUV and QM9 into train/validation/test by the ratio of 8:1:1 and only pre-train
+the models on the training splits. When conducting ﬁne-tuning on MUV, MolCLR pre-training on MUV improves the test
+ROC-AUC by 15.4% and MolCLR pre-trained on QM9 also obtains a great improvement by 14.9% in comparison with no
+pre-training. Not surprisingly, MolCLR pre-trained on the 10M dataset performs the best better as it beneﬁts from larger
+unlabeled molecular data. Similarly, on QM9, pre-training on MUV and QM9 decreases the test MAE by 1.553 and 2.010,
+respectively. As expected, MolCLRPubChem achieves the larges improvement by 2.384 on QM9. Therefore, pre-training on the
+dataset itself via MolCLR boosts the performance signiﬁcantly. Also, the pre-trained model on one dataset can be directly
+transferred to another and outperforms training from scratch.
+Metric
+Supervised
+MolCLRMUV
+MolCLRQM9
+MolCLRPubChem
+MUV
+ROC-AUC (%)
+71.8±2.5
+87.2±2.1
+86.7±2.8
+88.6±2.2
+QM9
+MAE
+4.741±0.912
+3.188±0.441
+2.731±0.019
+2.357±0.118
+Table 3. Comparison of MolCLR pre-training on different datasets. Test ROC-AUC (%) are reported for MUV and MAE for
+QM9. Supervised indicates supervised learning with no pre-training. MolCLRMUV MolCLRQM9, and MolCLRPubChem denote
+MolCLR pre-training on the MUV, QM9, and ∼10M PubChem, respectively.
+We further probe the inﬂuence of the magnitude of pre-training datasets on MolCLR. Subsets of size 10K, 100K, and 1M
+are randomly sampled from the whole ∼10M PubChem pre-training dataset. Figure 3(a) and Figure 3(b) report the test results
+of different pre-training data size on HIV and ESOL databases. Pre-training dataset size 0 indicates supervised learning is
+directly conducted without pre-training. As the number of data increases, the averaged test HIV ROC-AUC increases from 75.3
+to 80.6. Similarly, the larger the dataset, the lower test RMSE on ESOL is observed. Also, even pre-training on a small dataset,
+i.e., 10K molecules, GNN models gain obvious improvements in comparison to supervised learning. For example, pre-training
+on 10K data improves ROC-AUC by 2.5% on HIV and decreases RMSE by 0.12 on ESOL. It is demonstrated that MolCLR
+beneﬁts from the large dataset, and therefore can be widely used for the huge unlabeled molecule data. On the other hand,
+MolCLR pre-training on a small dataset still boosts the performance compared to supervised learning, which demonstrates the
+effectiveness of the contrastive learning framework on molecule graphs.
+(a)
+(b)
+Figure 3. Results of MolCLR pre-training on different dataset sizes. (a) Test ROC-AUC (%) on HIV. (b) Test RMSE on
+ESOL.
+15/19
+
+4 Visualization of MolCLR Representations
+Besides, to illustrate the representations from the pre-trained MolCLR, we visualize the molecule features via t-SNE, where
+molecules are from various databases and colored by corresponding property labels (Figure 4). Notice that all the features are
+extracted directly from pre-trained MolCLR without ﬁne-tuning. Namely, the model has no access to the molecular property
+labels during training. Figure 4 shows molecules from SIDER66, FreeSolv67, QM868,69, QM970. Features from pre-trained
+MolCLR show clustering based on the labels, even without accessing labels during training. For instance, in Figure 4(d),
+molecules are colored by the dipole moment µ. Molecules with relatively high µ (green and blue) are clustered on the bottom
+right, whereas molecules with low µ (dark red) are clustered in the center of the plot. Similar clustering trends can also be
+observed in other t-SNE visualizations in Figure 4.
+Hepatobiliary disorders
+: False
+: True
+(a)
+Hydration free energy (unit: kcal mol–1)
+(b)
+Electronic spectrum (unit: eV)
+≥0.35
+(c)
+≥8
+Dipole moment (unit: D)
+(d)
+Figure 4. Two-dimensional t-SNE embedding of the molecular representations learned by our MolCLR pre-training. (a)
+Molecules from SIDER database and color indicates whether the molecule causes hepatobiliary disorder side effect. (b)
+Molecules from FreeSolv database and color indicates hydration free energy of each molecule. (c) Molecules from QM8
+database and color indicates the electronic spectrum calculated from CC2 of each molecule. (d) Molecules from QM9 database
+and color indicates the averaged electronic spectrum µ of each molecule.
+16/19
+
+5 More Results of Molecule Retrieval via MolCLR
+In this section, more examples of molecule retrieval based on MolCLR-learned representations are shown in Figure 5. Nine
+molecules that are closest to the query molecule in the MolCLR representation domain are listed with RDKFP and ECFP
+similarities labeled. Notably, molecules with close MolCLR representations also have high FP similarities. Also, the selected
+molecules share similar structures and functional groups. For instance, in Figure 5(a), all listed molecules share functional
+groups like sulfonyl groups and nitrogen heterocycles. Also, in Figure 5(b), the ﬁrst molecule at the second row is exactly the
+same as the query molecule except for few carbon-carbon bonds. These examples further demonstrate that through contrastive
+learning, MolCLR automatically learns chemically meaningful representations.
+RDKFP: 0.875
+ECFP: 0.764
+Query 
+molecule
+RDKFP: 0.807
+ECFP: 0.567
+RDKFP: 0.846
+ECFP: 0.595
+RDKFP: 0.878
+ECFP: 0.804
+RDKFP: 0.772
+ECFP: 0.597
+RDKFP: 0.790
+ECFP: 0.576
+RDKFP: 0.870
+ECFP: 0.542
+RDKFP: 0.835
+ECFP: 0.636
+RDKFP: 0.837
+ECFP: 0.688
+(a)
+RDKFP: 0.922
+ECFP: 0.817
+Query 
+molecule
+RDKFP: 0.917
+ECFP: 0.839
+RDKFP: 0.918
+ECFP: 0.906
+RDKFP: 0.844
+ECFP: 0.713
+RDKFP: 0.957
+ECFP: 0.934
+RDKFP: 0.908
+ECFP: 0.881
+RDKFP: 0.852
+ECFP: 0.781
+RDKFP: 0.918
+ECFP: 0.842
+RDKFP: 0.888
+ECFP: 0.909
+(b)
+RDKFP: 0.865
+ECFP: 0.726
+Query 
+molecule
+RDKFP: 0.846
+ECFP: 0.638
+RDKFP: 0.846
+ECFP: 0.651
+RDKFP: 0.864
+ECFP: 0.720
+RDKFP: 0.882
+ECFP: 0.736
+RDKFP: 0.853
+ECFP: 0.635
+RDKFP: 0.855
+ECFP: 0.712
+RDKFP: 0.863
+ECFP: 0.693
+RDKFP: 0.866
+ECFP: 0.729
+(c)
+Figure 5. Three Query molecules (PubChem ID (a) 130187714 (b) 132175476 (c) 4862714) and 9 closest molecules for each
+query molecule in MolCLR representation domain with RDKFP and ECFP similarities labeled.
+17/19
+
+6 Temperature in Contrastive Loss
+The choice of the temperature parameter τ in NT-Xent loss48 impacts the performance of contrastive learning48. An appropriate
+τ beneﬁts the model to learn from hard negative samples. To investigate τ for molecule representation learning, we train
+MolCLR with three different temperatures: 0.05, 0.1, and 0.5 as shown in Table 6. We report the averaged ROC-AUC (%)
+over all the seven classiﬁcation benchmarks using 25% subgraph removal as the augmentation strategy. It is demonstrated that
+τ = 0.1 performs the best in the downstream molecular tasks. Therefore, we use τ = 0.1 as the temperature in the following
+experiments.
+Temperature (τ)
+0.05
+0.1
+0.5
+ROC-AUC (%)
+76.8±1.2
+80.2±1.3
+78.4±1.7
+Table 6. Inﬂuence of temperature τ in NT-Xent loss for MolCLR. Mean and standard deviation of all the seven classiﬁcation
+benchmarks are reported.
+18/19
+
+7 Fine-tuning Details
+During ﬁne-tuning for each downstream task, we randomly search the hyper-parameters to ﬁnd the best performing setting on
+the validation set and report the results on the test set. Table 7 lists the combinations of different hyper-parameters. Besides, we
+also consider if cosine annealing learning rate decay71 improves the ﬁne-tuning performance. In addition, we randomly pick
+MolCLR-trained GNNs at different epoch as the initialization for ﬁne-tuning.
+Name
+Description
+Range
+batch_size
+Input batch size
+{32, 128, 256}
+lr
+Initial learning rate for MLP head
+{5×10−4, 10−3}
+lr_base
+Initial learning rate for the pre-trained GNN base
+{5×10−5, 10−4, 2×10−4, 5×10−4}
+dropout
+Dropout ratio for the GNN
+{0, 0.1, 0.3, 0.5}
+n_layer
+Number of hidden layers in MLP
+{1, 2}
+hidden_size
+Size of hidden layers in MLP
+{256}
+activation
+Nonlinear activation function in MLP
+{ReLU72, Softplus73}
+Table 7. Fine-tuning hyper-parameters for pre-trained MolCLR model.
+19/19

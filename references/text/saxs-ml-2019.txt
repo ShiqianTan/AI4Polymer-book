@@ -1,0 +1,1171 @@
+Accelerating small-angle scattering experiments
+with simulation-based machine learning
+Takuya Kanazawa, Akinori Asahara and Hidekazu Morita
+Hitachi, Ltd., Tokyo 100-8280, Japan
+E-mail: takuya.kanazawa.cz@hitachi.com
+Abstract.
+Making material experiments more eﬃcient is a high priority for materials
+scientists who seek to discover new materials with desirable properties. In this paper,
+we investigate how to optimize the laborious sequential measurements of materials
+properties with data-driven methods, taking the small-angle neutron scattering (SANS)
+experiment as a test case. We propose two methods for optimizing sequential data
+sampling. These methods iteratively suggest the best target for the next measurement
+by performing a statistical analysis of the already acquired data, so that maximal
+information is gained at each step of an experiment.
+We conducted numerical
+simulations of SANS experiments for virtual materials and conﬁrmed that the proposed
+methods signiﬁcantly outperform baselines.
+Submitted to: J. Phys.: Mater.
+arXiv:1908.09102v1  [cond-mat.mtrl-sci]  24 Aug 2019
+
+Accelerating small-angle scattering experiments with machine learning
+2
+1. Introduction
+In recent years, Materials Informatics (MI) has gained popularity as a data-driven
+approach to materials discovery and design [1, 2, 3, 4, 5, 6, 7]. While the success of MI
+hinges on materials datasets with wide coverage and high accuracy, such datasets are not
+yet suﬃciently available in many ﬁelds of physics and chemistry. Thus the demand for
+high-cost manual experiments to garner new data remains high. Precise determination
+of material properties often requires a sequence of elaborate measurements, and it is
+highly desired to expedite such experiments in order to reduce the time, money, and
+eﬀort involved. Thus far, the application of machine learning techniques in MI to the
+optimization problem of such serial measurements has been rather limited. Even though
+the use of Bayesian optimization to design sequential material experiments is common
+[8, 9, 10, 11], the typical goal of such studies is to discover a material with the best
+property as quickly as possible, in contrast to sequential measurements on a single
+material sample, where the challenge is to accurately determine material properties by
+optimally integrating multiple measurement outcomes.
+In this paper, we explore optimization strategies for sequential experiments in
+materials science, taking the small-angle neutron scattering (SANS) experiment [12, 13]
+as a representative example.
+SANS is widely used to study the microstructures of
+various materials including alloys, ceramics, and polymers, but the design of an optimal
+SANS experiment has been left to manual adjustment by experienced researchers. To
+alleviate this burden, we formulate the design of a SANS experiment as a multi-step
+decision making problem and introduce two methods that enable adaptive measurement
+planning. The core idea is to create a database of virtual experiments by means of
+simulation and then use it adaptively during the real experiment. In the ﬁrst method,
+we use simulation to ﬁx the best sampling procedure for each of many virtual samples
+and record the procedures in a database. During the actual experiment, we send the
+acquired data into a similarity search over the database and retrieve the best sampling
+protocol for the most similar sample. In the second method, the outcomes of future
+measurements during an experiment are predicted in two distinct ways: one uses the
+database of simulated measurements, while the other does not. The target of the next
+measurement is then determined through comparison of the two predictions.
+To benchmark the proposed methods, we prepared 100 virtual sample materials
+and simulated SANS experiments on them. The results showed that the experimental
+duration required to achieve satisfactory accuracy was reduced by 50–65% with these
+methods, as compared to random sampling with no prior planning. We thus conclude
+that SANS experiments can be accelerated by a factor of 2–3 with our method. Since
+the small-angle X-ray scattering (SAXS) [12, 13] also shares the same principles with
+SANS, we believe our methods will work for SAXS experiments as well.
+In section 2 of this paper, we summarize the setup of the problem and provide a
+pedagogical toy example to highlight the methods we propose. In section 3, an overview
+of a SANS experiment is given and relevant terminology is introduced. In section 4,
+
+Accelerating small-angle scattering experiments with machine learning
+3
+new methods for planning an optimal SANS experiment are deﬁned and discussed in
+detail. In section 5, these methods are tested in numerical simulations and compared
+with baseline methods. We conclude in section 6 with a brief summary and mention of
+future work.
+2. Problem Setup
+Let us consider a class of problems characterized by a relation of the form
+y = F(x) + n,
+(1)
+where y is an observed signal, x is a hidden property that we want to uncover, n is
+noise, and F(·) is a function of known form. The task is to reconstruct x from a partial
+observation of y. This class of problems includes a number of interesting applications
+such as image denoising, where x is a clean image and y is a corrupted image, and
+compressed sensing, where F is a linear map and x is assumed to be sparse. SANS
+experiments belong to this class, as explained in section 3.
+The question we examine is how to ﬁnd a policy for sequentially measuring the
+components of y so as to maximize the eﬃciency of recovering x. To illustrate key issues
+clearly, let us consider a toy problem. Suppose we wish to infer a periodic function f(x)
+deﬁned on the interval x ∈[−π, π]. The allowed operation is to query the value of the
+integral,
+αk(f) := 1
+2π
+Z π
+−π
+dx f(x) e−ikx
+for k ∈Z ,
+(2)
+which we call a measurement of f. After a set of measurements Kn = {k1, k2, · · · , kn},
+we may guess f as bfn(x) = P
+k∈Kn αk(f)eikx. The discrepancy from true f may be
+quantiﬁed by the mean squared error:
+δn := 1
+2π
+Z π
+−π
+dx |f(x) −bfn(x)|2 =
+X
+k̸∈Kn
+|αk(f)|2 .
+(3)
+When a measurement is either costly or time-consuming, we want δn to decrease with
+n as fast as possible so that the measurement can be truncated early. As is evident
+from (3), the best strategy is then to sequentially measure αk in descending order of
+magnitude, but this is impossible without knowing f in advance. The challenge is to
+judge which αkn+1 to measure next on the basis of previous measurements {αk1, · · · , αkn}.
+This is a nontrivial multi-step decision making problem. It is crucial to take into account
+correlations of {αk} properly.
+We may conceive of two qualitatively diﬀerent ways to tackle this problem: one
+is a deductive approach and the other is an inductive approach. They are outlined as
+follows.
+• Method 1 (deductive).
+To begin with, we assume that f is generated from
+the probability distribution p(g) ∝exp
+
+−λ
+R π
+−π dx |∇g(x)|2
+over smooth periodic
+functions on [−π, π], with λ > 0 a parameter to control the smoothness. This is a
+
+Accelerating small-angle scattering experiments with machine learning
+4
+working hypothesis posed to model the correlations among {αk}. In the Bayesian
+sense, p(g) represents the prior distribution of f, i.e., the belief we have for f before
+any measurement. After the measurements Kn, the posterior probability p(g|Kn)
+can be factored as p(Kn|g)p(g) up to an irrelevant constant, based on the Bayes
+rule [14]. We proceed further to modeling p(Kn|g) by a Gaussian distribution as
+p(Kn|g) ∝exp
+ 
+−1
+σ2
+X
+k∈Kn
+αk(f) −1
+2π
+Z π
+−π
+dx g(x) e−ikx
+
+2!
+.
+(4)
+Combining this with the prior distribution, we ﬁnd that the maximum a posteriori
+(MAP) estimation [14] of f is given by
+bfn
+MAP = arg min
+g
+ 
+1
+σ2
+X
+k∈Kn
+αk(f) −1
+2π
+Z π
+−π
+dx g(x) e−ikx
+
+2
++ λ
+Z π
+−π
+dx |∇g(x)|2
+!
+.(5)
+In practice, this can be solved with numerical optimization algorithms. It is then
+straightforward to expand bfn
+MAP into a Fourier series.
+The target of the next
+measurement is given by
+kn+1 = arg max
+k̸∈Kn
+αk
+
+bfn
+MAP .
+(6)
+The essence of this method lies in guessing the outcome of future measurements
+(αk(f) for k̸ ∈Kn) from previous measurements (αk(f) for k ∈Kn) by using an
+analytical Ansatz for the distribution of f.
+• Method 2 (inductive). We start by creating a database of periodic functions on
+[−π, π] and their Fourier coeﬃcients,
+D =
+n
+gℓ, {αk(gℓ)}k∈Z
+oN
+ℓ=1 .
+(7)
+The data-generating process behind {gℓ}ℓis supposed to be the same or
+approximately the same as the one that generated f. After the ﬁrst n measurements
+Kn, we compare the results {αk(f)|k ∈Kn} with those stored in the database
+{αk(gℓ)|k ∈Kn} and pick out the gℓthat most resembles f. Formally stated, we
+choose
+gℓ= arg min
+g∈D
+X
+k∈Kn
+|αk(f) −αk(g)| ,
+(8)
+where the similarity is measured by the L1 norm, but other choices are also possible.
+Then we decide on the target of the next measurement as
+kn+1 = arg max
+k̸∈Kn
+|αk(gℓ)| .
+(9)
+Just like method 1, method 2 also guesses the outcome of future measurements
+(αk(f) for k̸ ∈Kn) from previous measurements (αk(f) for k ∈Kn), but this
+time, instead of making a parametric Ansatz for the distribution of f, we rely on a
+database and make a purely empirical guess, in a manner analogous to the nearest
+neighbor algorithm in machine learning [14].
+
+Accelerating small-angle scattering experiments with machine learning
+5
+In the above, we outlined two contrasting methods for measurement planning for
+the simple toy problem. As described in the following sections, the SANS experiment
+in materials science is technically much more involved than this example, but the basic
+ideas underlying methods 1 and 2 above can be carried over. Speciﬁcally, method 1 for
+SANS (section 4.1) is purely empirical and is akin to method 2 for the toy problem,
+whereas method 2 for SANS (section 4.2) is a hybrid of inductive and deductive methods.
+Why is a hybrid approach useful? To answer this, we modify the setup of the toy problem
+slightly as follows. Below (2) the estimate of f based on the measurements Kn was given
+by bfn(x) = P
+k∈Kn αk(f)eikx. It amounts to simply dropping the contributions from all
+the unmeasured Fourier coeﬃcients (αk(f) for k̸ ∈Kn). Actually, we can make a better
+guess of f by making use of the MAP estimate (5) to infer unmeasured coeﬃcients,
+which results in the estimate
+bfn(x) =
+X
+k∈Kn
+αk(f)eikx +
+X
+k̸∈Kn
+αk
+
+bfn
+MAP
+eikx .
+(10)
+This yields the discrepancy
+δn = 1
+2π
+Z π
+−π
+dx |f(x) −bfn(x)|2 =
+X
+k̸∈Kn
+αk(f) −αk
+
+bfn
+MAP
+2
+,
+(11)
+where the right-hand side has been modiﬁed from (3). An ideal choice for kn+1 would
+be the k for which
+αk(f) −αk
+
+bfn
+MAP is largest, or in other words, the k for which
+the MAP estimate of αk is most inaccurate. However, such selection of kn+1 is not
+feasible when αk(f) for k̸ ∈Kn are unknown. To bypass this diﬃculty we return to
+method 2 above. Namely, we create a catalogue of periodic functions and their Fourier
+coeﬃcients, and pick out a function gℓthat best matches the measured coeﬃcients, as
+in (8). The next target of the measurement is decided following
+kn+1 = arg max
+k̸∈Kn
+αk(gℓ) −αk
+
+bfn
+MAP .
+(12)
+This method, combining the MAP estimate and the empirical database method, can be
+adapted to a SANS experiment very eﬀectively, as described later in section 4.2.
+3. Background and deﬁnitions
+In this section we provide a minimal overview of a SANS experiment and related
+data analysis steps, referring the reader to [12, 13] for further details.
+SANS is an
+experimental technique to investigate the structures of various substances at a scale of
+about 1–100 nm. The setup of a typical SANS experiment is depicted in Figure 1. A
+beam of neutrons is directed at a sample, and neutrons scattered at small angles are
+captured at a detector. The obtained signal is called the neutron scattering intensity
+and is denoted by I(q), where q is the magnitude of the scattering vector. It is related
+to the scattering angle θ as q = 4π
+λ sin(θ/2), with λ the wavelength of the neutrons. I(q)
+is proportional to the absolute square of a form factor reﬂecting the geometry of the
+
+Accelerating small-angle scattering experiments with machine learning
+6
+
+Detector
+Sample
+Incident beam
+Scattered beam
+Figure 1. Small-angle neutron scattering experiment.
+scatterers in the sample. If a scatterer is a homogeneous sphere of radius r, the form
+factor is given by [13]
+F(q, r) = sin(qr) −qr cos(qr)
+(qr)3
+.
+(13)
+If the ensemble of scatterers consists of spheres of various sizes following a probability
+distribution p(r), then we have
+I(q) =
+Z ∞
+0
+dr p(r)F(q, r)2
+(14)
+where the overall multiplicative factor on the right hand side has been set to unity for
+simplicity of exposition (see [13] for full details). After performing an experiment, we
+acquire the SANS data {I(qn)}N
+n=1. The purpose of the experiment is to estimate the
+distribution p(r) from this data. Unfortunately, this is an ill-posed inverse problem,
+for it is impossible to uniquely specify a continuous function from a ﬁnite number of
+data points. A traditional approach to obtain a reasonable p(r) is the indirect Fourier
+transform (IFT) [15, 16, 17, 18]. In the IFT approach, p(r) is expanded by a set of basis
+functions as
+p(r) =
+X
+k
+akBk(r) .
+(15)
+This expansion is plugged into (14) to obtain the scattering intensity bI(q).
+The
+coeﬃcients {ak} are then ﬁxed in such a way that bI(q) closely approximates the observed
+data:
+{ak} = arg min
+a
+h
+N
+X
+n=1
+{I(qn) −bI(qn)}2 + λΩ(a)
+i
+.
+(16)
+Here, Ω(a) is a penalty term controlling the smoothness of the solution, and λ is a
+coeﬃcient for tuning the relative importance of the penalty.
+We note the parallel
+between (5) and (16).
+The obtained {ak} are plugged into (15) to give the estimated size distribution bpN(r)
+based on the N observed data points. As N grows, bpN(r) is anticipated to converge to
+
+Accelerating small-angle scattering experiments with machine learning
+7
+the true distribution p(r). To monitor the convergence, we measure the discrepancy of
+the two functions by the L1 distance
+DL1(p, bpN) =
+Z ∞
+0
+dr |p(r) −bpN(r)|,
+(17)
+and the Kullback–Leibler divergence
+DKL(p, bpN) =
+Z ∞
+0
+dr p(r) ln p(r)
+bpN(r) .
+(18)
+These are the analogs of (3) in the toy problem.
+The goal of this work is to ﬁgure out how to ﬁnd a sequence of measurements
+{q1, q2, · · · , qN} that is optimal in the sense that the discrepancies (17) and (18)
+decrease as fast as possible.
+In the next section we propose two methods that
+adaptively suggest the next measurement qn+1 according to the previous measurement
+results {I(q1), · · · , I(qn)}. Throughout this work, for simplicity, we neglect the noise
+associated with measurements. In practice the noise can be suppressed by extending
+the measurement duration to reduce the statistical ﬂuctuation of neutron counts at the
+detector.
+4. Proposed Methods
+4.1. Method 1: Measurement Protocol Retrieval Based on Real-Time Similarity Search
+This method is a special kind of case-based planning [19].
+The main idea of case-
+based planning is to reuse past successful plans in order to solve new planning problems
+[19]. We adapt this idea to the problem of SANS experiments as follows: we generate
+many virtual materials and create an optimal measurement plan for each of them via
+simulation. These plans are saved in a database, together with the proﬁles of respective
+materials. In a real SANS experiment, we match the current situation with those in
+the database and select the plan that best matches the current situation. The next
+measurement is carried out according to this plan. This procedure is repeated after
+every measurement until the experiment is terminated. Notably, this method requires
+preparation of a suﬃciently large database before an actual experiment begins. How
+large it should be depends on the diversity of materials on which SANS experiments are
+performed.
+Let us describe the details. This method starts by stochastically creating many
+virtual sample materials with a variety of size distributions {pk(r)}K
+k=1, where K denotes
+the number of virtual samples. Let N denote the maximum number of measurements per
+sample. For each sample, an “optimal” measurement plan Q = {q1, · · · , qN} is generated
+(we shortly describe how to do this), and the scattering intensities {I(q1), · · · , I(qN)}
+are computed via (14). Next, we create a database
+D =
+nh
+{Ik(qn)}N
+n=1, Qk
+ioK
+k=1
+(19)
+
+Accelerating small-angle scattering experiments with machine learning
+8
+
+
+
+
+
+ = 
+	
+
+	
+	
+
+	
+	
+
+ = 	
+		
+
+		
+		
+
+		
+		
+ = 		
+			
+
+			
+			
+
+			
+			
+ = 
+			
+Figure 2. Greedy optimization of the measurement plan.
+where the pair of the scattering intensity and the best plan is stored for every sample.
+This completes the ﬁrst step of Method 1.
+An optimal plan Qk for a sample k can be generated incrementally as depicted in
+Figure 2. Let 1 ≤n ≤N −1. Given q1, · · · , qn, we randomly create many q as candidates
+for qn+1. ‡ For each candidate qn+1, we compute bpn+1 via the IFT [recall (15) and (16)]
+and estimate the discrepancy D(pk, bpn+1). We then choose the q giving the smallest
+value of D(pk, bpn+1) as qn+1. This process is iteratively repeated for n = 1, 2, · · · , N −1
+until the entire plan (q1, · · · , qN) is obtained.
+When we have a new sample and want to conduct new measurements on it, the
+“best” plans stored in D cannot be used immediately, because the plan Qk for a speciﬁc
+sample k is not necessarily suitable for a new sample. The second step of Method 1
+ﬁlls this gap. Suppose that the data {I(q1), · · · , I(qn)} is obtained from measurements
+on a new sample. We then conduct a similarity search on D to ﬁnd M samples whose
+scattering intensities most resemble the observed data. This allows us to retrieve the
+M best plans {Q1, · · · , QM} accordingly. Next, we randomly select one plan, say bQ =
+(ˆq1, · · · , ˆqN) ∈{Q1, · · · , QM}, and construct a subset bQ′ = {ˆqi ∈bQ | min
+1≤j≤n|ˆqi −qj| > δ},
+where δ is a small positive constant. This means that all ˆqi that are too close to the
+already measured q are left out to avoid nearly duplicate measurements. Finally, we
+select the ˆqi ∈bQ′ with the smallest index i as the next measurement point, qn+1. This
+process is iterated until N measurements (q1, · · · , qN) have been performed. The set of
+M samples is updated after every new measurement. This completes the second step of
+Method 1. Figure 3 schematically illustrates the overall procedure.
+It is intuitively rather clear that {Q1, · · · , QM} should serve as good plans for the
+new sample, as the observed data indicates that the new sample is similar to those M
+samples in D. More nontrivial is the fact that letting M > 1 helps to avoid overﬁtting.
+This is analogous to the situation in the multi-armed bandit problem [20], which requires
+balancing exploration and exploitation. Setting M = 1 is akin to pure exploitation,
+whereas M > 1 allows for exploration. Empirically, we found that M = 3 was most
+eﬀective, and increasing M further did not bring improvement.
+‡ We have generated a candidate qn+1 randomly from a log-uniform distribution over a range
+[qmin, qmax]. Hence the N · K values of qn that appear in D are likely all distinct. The precise values of
+qmin and qmax used in our numerical experiment will be speciﬁed in section 5.1.
+
+Accelerating small-angle scattering experiments with machine learning
+9
+Experimental 
+device
+ records of 
+best sampling
+, , , ⋯
+
+	, 
+	 , 
+	 , ⋯
+
+		, 
+		, 
+		, ⋯
+Next 
+Signal
+ similar 
+samples 
+( > 1)
+Library
+matching
+, , , ⋯
+Select one record
+randomly
+Figure 3. Summary of Method 1.
+In Method 1 it is essential that the similarity search over D works accurately.
+This hinges on how the similarity of two scattering data, I1(q) and I2(q), is deﬁned. A
+naive deﬁnition such as P
+i |I1(qi)−I2(qi)| fails severely, because the scattering intensity
+grows exponentially toward small q, and thus, contributions from the smallest q easily
+dominate the above sum. We found it most useful to ﬁx an arbitrary reference intensity
+I0(q) and then measure the similarity of I1 and I2 by the normalized sum
+X
+i
+|I1(qi) −I2(qi)|
+I0(qi)
+.
+(20)
+Note that the performance of Method 1 can be bolstered by making the number
+of virtual samples K as large as possible, because a new sample would have a higher
+chance of ﬁnding a very similar counterpart within the database.
+The workload of
+determining the best plan for all these samples, however, would signiﬁcantly increase
+the computational cost. Therefore, K should be carefully decided by considering the
+available computational resources and time.
+4.2. Method 2: Surmise of Future Measurements Through Adaptive Database Search
+This method is based on a comparison of two independent guesses for future
+measurement outcomes and is conceptually very similar to the approach discussed at
+the end of section 2. Let Qall denote the set of all values of q that can be measured.
+§ As in Method 1, we again start by creating a database, but it is structurally much
+simpler than that of (19): it only stores the scattering intensity of K′ samples, without
+measurement plans, as
+D′ =
+n
+{Ik(q) | q ∈Qall}
+oK′
+k=1 .
+(21)
+§ At this stage the continuous variable q has to be discretized. In our numerical experiment in section 5,
+we ﬁrst ﬁxed the allowed range of q to [10−2.5, 100.5] and then made a log-uniform grid on it; namely
+Qall = {10−2.5+ 3
+99 m | m = 0, 1, 2, · · · , 99}.
+
+Accelerating small-angle scattering experiments with machine learning
+10
+During an experiment on a new sample, we proceed as follows. Suppose that we obtained
+data I = {I(q) | q ∈Qobs} as a result of prior measurements. Qobs (with |Qobs| = n)
+denotes the set of q that have been measured. Then, the set of scattering intensities
+that are currently unknown and will be obtained in future measurements is given by
+I′ = {I(q) | q ∈Qall \ Qobs} .
+(22)
+The core idea of Method 2 is to decide qn+1 by inferring I′ in two independent ways.
+(A) The ﬁrst approach infers I′ in a manner analogous to k-nearest-neighbor regression.
+Speciﬁcally, we draw a comparison between D′ and I to determine which Ik is most
+similar to the data I.
+Suppose that Ia, Ib, Ic are the samples in D′ that most
+resemble I. Then, we can obtain a guess for I′ by simply taking their average as
+{[Ia(q) + Ib(q) + Ic(q)]/3 | q ∈Qall \ Qobs}.
+(23)
+While we take the average of three samples here, we could vary the number of
+samples for ﬂexible extraction from D′. It is also possible to use a more sophisticated
+machine-learning method in place of a simple mean.
+(B) The second approach, which does not use the database D′, proceeds as follows. We
+ﬁrst apply the IFT to the data I and estimate the size distribution function p(r).
+It is then straightforward to guess I(q) at an arbitrary q by plugging p(r) into (14).
+This enables easy estimation of I′.
+The reader might ask why we do not apply simple interpolation techniques to I to
+estimate I′. This is an essential question. The key point is that the relation (14) imposes
+quite strong constraints on the allowed form of I(q). Blindly applying techniques such
+as cubic splines or Gaussian process (GP) regression to I turns out to yield an I(q)
+showing scattering intensity with quite unrealistic behavior. To make a sensible guess
+at I′, it is mandatory to appropriately incorporate such constraints on I(q). The two
+methods detailed above address this requirement properly.
+Now, assume that we have obtained two guesses for I′ as I(1) and I(2). Then, we
+choose the next measurement as
+qn+1 = arg max
+q∈Qall\Qobs
+I(1)(q) −I(2)(q)
+
+I0(q)
+,
+(24)
+where I0 is a reference scattering intensity that is set before starting the measurements
+and held ﬁxed throughout the experiment. After measuring I(qn+1), we update Qobs
+and redo the process of deriving I(1) and I(2). This is iterated until N measurements
+have been performed. Figure 4 schematically summarizes Method 2. (See also Figure 8
+in section 5.2 for a supplementary illustration of Method 2.)
+Because the validity of Method 2 is less obvious as compared to Method 1, we
+say a few words about its validity here. Step (B) above obtains a p(r) consistent with
+the observed data I. In principle, however, there will also be some other distribution
+functions pα(r), pβ(r), · · · that are equally consistent with I. This occurs because the
+data I is insuﬃcient to uniquely ﬁx the underlying size distribution. What, then, is
+
+Accelerating small-angle scattering experiments with machine learning
+11
+Experimental 
+device
+Next 
+Signal
+Interpolation by IFT
+Library
+matching
+Similar samples
+Comparison
+・・・
+Create a hypothetical 
+intensity
+Choose the point of 
+maximal discrepancy 
+Figure 4. Summary of Method 2.
+the best way to discriminate among pα(r), pβ(r), · · · and p(r)?
+As the distributions
+themselves are not observable, we have to compare their scattering intensities.
+In
+practice, it is diﬃcult if not impossible to construct pα(r), pβ(r), · · · out of I, so we
+instead prepare a database of diverse scattering intensities in advance and search for
+those that resemble I. This is the strategy of Method 2. In evaluating the similarity,
+we again apply the technique of using normalized intensities rather than raw intensities,
+as in Method 1 (see (20)).
+5. Experiments
+5.1. Experimental Settings
+We tested the eﬀectiveness of Methods 1 and 2 through numerical simulation of SANS
+experiments on 100 virtual sample materials. We assumed that all size distributions
+were supported on the range r ∈[0, 50] and generated 100 random distributions by the
+formula
+p(r) = N[f(r)2 + β1R + β2R2] ,
+(25)
+f(r) = α1 sin R + α2 sin 2R + α3 sin 3R + α4 sin 4R
++ α5 sin 6R + α6 sin 8R + α7 sin 10R ,
+(26)
+R
+= 1 −r/50 .
+(27)
+Here, N is a normalization factor ensuring that
+R 50
+0 dr p(r) = 1, α1,···,7 are random
+variables taken from a uniform distribution over [−1, 1], and β1,2 are random variables
+taken from a uniform distribution over [0, 2]. By deﬁnition, p(r) as generated above is
+positive deﬁnite and vanishes at r = 50. Figure 5 shows the diversity of 10 examples of
+p(r) and their normalized scattering intensities.
+We set the range of q to [10−2.5, 100.5], so that all measurements occur within this
+range. The maximal number of measurements N was ﬁxed at 50. We set K = 102 for
+Method 1 and K′ = 104 for Method 2. We found that K > 102 was computationally
+
+Accelerating small-angle scattering experiments with machine learning
+12
+
+ 
+
+  /
+Figure 5.
+Ten examples of randomly generated size distributions (left) and their
+scattering intensities normalized by a reference intensity (right).
+too expensive for our available resources, ∥whereas increasing K′ further was feasible
+but did not bring any performance improvement.
+As a benchmarking test, we compared Methods 1 and 2 with the following three
+measurement planning methods.
+(i) Random sampling. We take 50 points 10−2.5+ 3
+49 s (s = 0, · · · , 49) that uniformly
+cover the allowed range of q, [10−2.5, 100.5], on a log scale. During an experiment
+the points are measured in random order without duplication.
+(ii) Sampling based on a Gaussian process (GP). First, we generate 500 random p(r)
+according to (25) and compute their respective scattering intensities via (14). The
+resulting dataset,
+n
+({pk(ri)}i, {Ik(qj)}j)
+o500
+k=1,
+(28)
+is then used to train a GP regression algorithm with an anisotropic Gaussian kernel
+(we use the scikit-learn library for Python [21]). After training, the algorithm learns
+the mapping {Ik(qj)}j →{pk(ri)}i (see Appendix A for details) and yields the
+kernel k(x, y) = exp(−P
+j |xj −yj|2/ℓ2
+j), whose parameters are adjusted through
+automatic relevance determination [22]. We set ∀ℓj = 1 for their initial values.
+Recalling that the inverse radius 1/ℓj can be interpreted as the importance of
+I(qj) for predicting the size distribution, we align the qj in order of increasing ℓj
+and perform measurements in this sequence (i.e., the qj with the smallest ℓj is
+measured ﬁrst, and the qj with the largest ℓj is measured last). As important q are
+given higher priority, this strategy is expected to rapidly decrease the discrepancy
+∥In the greedy search stage of Method 1 (see Figure 2), 100 diﬀerent q were randomly generated as a
+candidate of qn+1 for each n. This was repeated for a total of 50 steps until the end of measurement
+for a given sample. Repeating this procedure for K = 100 samples amounts to performing the IFT for
+100×50×100 = 5×105 times in total. Since a single IFT calculation took about 3 seconds on our CPU
+(Intel Xeon E5-2650 v3 @ 2.30GHz), the total time required was roughly 400 hours. By parallelizing
+the calculation on 20 cores we could reduce the time to 20 hours, which was still quite demanding.
+
+Accelerating small-angle scattering experiments with machine learning
+13
+of p(r), even though the order of measurements is entirely ﬁxed and the same for
+all samples.
+(iii) Sampling based on maximal variance (MV). This method partly resembles Method
+2.
+First, we prepare a database D′ through simulation.
+After every single
+measurement during an experiment, we obtain the measured data I and run a
+similarity search over D′ to select the K′′ scattering intensities that most resemble
+I, where K′′ is a predeﬁned number. The diversity of these intensities represents
+the degree of remaining uncertainty under the constraint from I. For the next
+measurement, we choose the q at which the variance of the K′′ scattering intensities
+is greatest, namely,
+qn+1 = arg max
+q∈Qall\Qobs
+Var
+h
+{Ik(q)/I0(q)}K′′
+k=1
+i
+,
+(29)
+where I0 is a reference intensity. By this strategy we can eﬃciently reduce the
+uncertainty of the scattering intensity. Because we tested K′′ = 3, 6, 12, 24 and
+found that K′′ = 12 performed the best, we use K′′ = 12 here.
+During a numerical experiment on a virtual sample, we monitor the performance of
+the ﬁve methods as follows. Let 1 ≤n ≤50. When the measurement data {I(qj)}n
+j=1 is
+garnered with any of the ﬁve methods, we apply the IFT and obtain the estimated size
+distribution bp(r). We then use both (17) and (18) to calculate the discrepancy between
+the estimate and the true distribution and record it. These steps are repeated after
+every measurement, until n = 50 is reached. We assume that all methods conduct the
+ﬁrst two measurements at q = 10−2.5 and q = 100.5, i.e., at both ends of the allowed
+range of q, meaning that the discrepancy at n = 2 is exactly the same for all methods.
+We repeat the entire experimental process for 100 virtual samples and average their
+performance.
+Note that the IFT setup is common to all ﬁve methods to enable comparison of
+their discrepancies on equal footing. Speciﬁcally, for the expansion in (15), we used 80
+base functions deﬁned by
+Bk(r) =
+(
+1
+if
+5
+8k ≤r ≤5
+8(k + 1)
+0
+otherwise
+(30)
+for k = 0, · · · , 79, which uniformly covers [0, 50]. We adopted the regularization function
+Ω(a) =
+78
+X
+k=0
+
+ln ak+1
+ak
+2
+and the coeﬃcient λ = 10−3. We made the latter small to avoid
+bias due to overly strong regularization.
+5.2. Results
+We now discuss the results of the benchmarking test. Figure 6 shows the decrease in the
+size distribution discrepancy during an experiment, averaged over 100 virtual samples.
+(Note that the vertical axis of Figure 6 is on a log scale). Method 2 clearly performed the
+best. Method 1 was slightly inferior to Method 2 but still outperformed the comparison
+
+Accelerating small-angle scattering experiments with machine learning
+14
+0
+10
+20
+30
+40
+50
+Number of measurements
+2
+5
+2
+4
+2
+3
+2
+2
+L1 distance
+Random
+GP
+MV
+Method 1
+Method 2
+0
+10
+20
+30
+40
+50
+Number of measurements
+2
+9
+2
+8
+2
+7
+2
+6
+2
+5
+2
+4
+KL divergence
+Random
+GP
+MV
+Method 1
+Method 2
+(a)
+(b)
+Figure 6.
+Discrepancy as measured by (a) L1 distance and (b) Kullback–Leibler
+divergence for the ﬁve methods, averaged over 100 virtual samples.
+“GP” and
+“MV” indicate the methods based on the Gaussian process and maximal variance,
+respectively. Each color band represents one standard deviation.
+Table 1. Average number of measurements required for each method to reach the
+same discrepancy as that of random sampling with 40 measurements. The discrepancy
+is measured by either L1 distance or KL divergence. The errors represent one standard
+deviation. The results in bold are the lowest values.
+Random
+GP
+MV
+Method 1
+Method 2
+# of measurements
+(L1 distance)
+40
+31.26 ± 1.71
+27.68 ± 2.34
+20.14 ± 1.37
+13.41 ± 0.96
+# of measurements
+(KL divergence)
+40
+34.37 ± 1.66
+29.48 ± 2.25
+22.92 ± 1.38
+15.23 ± 1.12
+methods.
+By contrast, although the GP and MV methods exhibited a rapid initial
+decrease in the discrepancy, they soon reached a plateau and stagnated.
+Figure 7 and Table 1 give results for another metric: the number of measurements
+required for each method to achieve the same discrepancy as random sampling with 40
+measurements. Once again Method 2 outperformed the rest, showing roughly 60 ∼65%
+reduction as compared to random sampling, while Method 1 had roughly 50% reduction.
+These results emphasize that adaptive sampling can solve the measurement optimization
+problem far more eﬃciently than non-adaptive sampling can. Finally, note that the
+performance of Method 1 could be improved further by increasing the value of K,
+although this would entail a higher computational cost.
+Why does Method 2 perform better than Method 1 and all other methods? The
+reason is probably because Method 2 tries to correct the current estimate and push
+it towards the ground truth far more directly than all the other methods do.
+For
+illustration, we display the gist of Method 2 in Figure 8. We start oﬀwith measurements
+of the scattering intensity, collect data and then apply the IFT (cf. section 3) to infer
+the size distribution p?(r).
+Ideally the next measurement should be designed so as
+to maximally decrease the discrepancy between the true distribution ptrue(r) and our
+
+Accelerating small-angle scattering experiments with machine learning
+15
+Random
+GP
+MV
+Method 1
+Method 2
+0
+10
+20
+30
+40
+Random
+GP
+MV
+Method 1
+Method 2
+0
+10
+20
+30
+40
+(a)
+Number of
+measurements
+(b)
+Number of
+measurements
+Figure 7. Average number of measurements required for each method to reach the
+same discrepancy as that of random sampling with 40 measurements. The discrepancy
+was measured by (a) L1 distance and (b) Kullback–Leibler divergence. Each error bar
+represents one standard deviation. The scores are given in Table 1.
+()
+?()
+discrepancy
+
+()
+
+ 
+
+(2) IFT
+(3) conversion
+
+?()
+(1) measurement
+comparison
+impossible
+DB
+(4) similarity search
+ 
+ ()
+Ground truth
+(5) extract
+(6) comparison
+Hopefully close to 
+each other
+Figure 8.
+Dissection of Method 2.
+One cycle of the procedure starts from (1)
+measurement and ends by (6) comparison. See the main text for more details.
+estimate p?(r), but the discrepancy cannot be calculated without knowing ptrue. So
+we next turn our focus to comparing scattering intensities.
+It is straightforward to
+convert p?(r) to the scattering intensity I?(q) via (14). However, we again stumble on
+the diﬃculty that I?(q) and the true intensity Itrue(q) cannot be directly compared since
+the latter is known only after suﬃciently many measurements have been performed.
+Thus we construct a surrogate of Itrue(q) by utilizing a database of intensities, which
+is denoted as eI(q) in Figure 8 (recall (23)). The next measurement is designed so as
+to maximally decrease the discrepancy between I?(q) and eI(q). One can envisage that
+
+Accelerating small-angle scattering experiments with machine learning
+16
+it would naturally lead to large reduction of discrepancy between p?(r) and ptrue(r) as
+well. The fact that Method 2 empirically performs best underscores the eﬀectiveness
+of this surrogate-building idea. The success of Method 2 hinges on the close proximity
+of eI(q) to Itrue(q), which was warranted through two ingredients. First, the database
+of size K′ = 104 was large enough for this method to work. Second, the similarity of
+intensities was measured through the normalized distance as in (20), which proved far
+more eﬀective than just comparing raw intensities. We think these were keys to the
+success of Method 2.
+In Figure 9 we show the process of data sampling with Method 2 for one sample
+material. It is observed that the accuracy of the IFT prediction for the size distribution
+improves rapidly as the number of measured points increases.
+As seen above, both Method 1 and 2 make the measurement process more eﬃcient
+than random sampling, but one may ask how much time was saved overall if one took
+into account both the time needed to prepare the databases D and D′, and the time
+for similarity search during the adaptive sampling process. As already remarked in the
+footnote in section 5.1, the preparation of D can take O(10) hours, which is indeed quite
+huge time investment. However it should be underlined that, once D is prepared, one can
+repeatedly make use of it for measurements of various sample materials for arbitrarily
+many times; it will eventually pay oﬀif D was used to expedite suﬃciently many
+experiments. By contrast the preparation of D′ is computationally much less expensive;
+it took us less than 1 hour to prepare D′ of size K′ = 104, so it is not worrisome. On
+the other hand, the time for similarity search during sampling is essentially negligible
+compared to the time for preparation of the databases. In our numerical experiment, it
+only took a few seconds to ﬁnish a search per measurement. (Method 2 needs slightly
+more time than Method 1 due to the IFT calculation.) Of course this may change in
+other situations, where for some reason a huge database of size ≫104 is needed; then
+the time for searching may not be negligible and a separate consideration is required.
+6. Conclusions
+To design a new useful material generally requires a repetition of laborious experiments
+to accurately measure materials properties, and there is high demand for developing
+tools to minimize the time, cost, and eﬀort involved in sequential high-precision
+experiments.
+In this work, we have proposed a new approach to implementing an
+adaptive policy for multi-step decision making, taking a small-angle neutron scattering
+(SANS) experiment in materials science as a proving ground.
+Through numerical
+experiments we demonstrated that the two methods proposed in this paper can speed
+up a SANS experiment by a factor of 2–3 as compared to random sampling without
+prior planning. We expect that our methods can be used to speed up a small-angle X-
+ray scattering (SAXS) experiment as well. Extending our scheme to SANS experiments
+for non-spherical scatterers is an important future direction of research. Future work
+will also include addressing general sequential optimization problems beyond SANS
+
+Accelerating small-angle scattering experiments with machine learning
+17
+10
+2
+10
+1
+100
+q
+101
+103
+105
+107
+109
+I(q)
+True scattering intensity
+Measured points
+0
+10
+20
+30
+40
+50
+r
+0.00
+0.01
+0.02
+0.03
+0.04
+p(r)
+True distribution
+Prediction by IFT
+10
+2
+10
+1
+100
+q
+101
+103
+105
+107
+109
+I(q)
+True scattering intensity
+Measured points
+0
+10
+20
+30
+40
+50
+r
+0.00
+0.01
+0.02
+0.03
+0.04
+p(r)
+True distribution
+Prediction by IFT
+10
+2
+10
+1
+100
+q
+101
+103
+105
+107
+109
+I(q)
+True scattering intensity
+Measured points
+0
+10
+20
+30
+40
+50
+r
+0.00
+0.01
+0.02
+0.03
+0.04
+p(r)
+True distribution
+Prediction by IFT
+Figure 9. Example of a measurement process with Method 2. The left column is the
+scattering intensity and the right column is the associated size distribution (both the
+ground truth and the predicted one). The number of sampled points is 4 (top row), 6
+(middle row) and 12 (bottom row), respectively.
+experiments, as well as investigating the eﬀect of noisy observation on the proposed
+methods.
+In this paper we exclusively relied on numerical simulations to assess the proposed
+methods; however, testing them in real SANS/SAXS experiments is probably of utmost
+importance for experimental physicists. We defer this task to future work.
+Acknowledgments
+We thank the anonymous referees for valuable comments which contributed to the
+signiﬁcant improvement of the paper.
+
+Accelerating small-angle scattering experiments with machine learning
+18
+Appendix A. Training stage of the Gaussian process regression
+This appendix includes some supplementary remarks on the sampling method based on
+the Gaussian process (GP) regression introduced in section 5.1.
+Assume that a training dataset {x(i), y(i)}N
+i=1 is given, where x(i) is a p-dimensional
+input vector and y(i) a q-dimensional output vector. In general, the goal of regression
+is to construct a model that can predict the output y at a new input point x. In the
+GP regression [22], the result of model training is given in terms of a kernel function
+k(·, ·) : Rp × Rp →R as y = PN
+i=1 α(i)k(x(i), x), where α(i) ∈Rq are coeﬃcients that
+are learned through training and k(x(i), x) essentially represents the proximity of x(i) to
+x. This way a smooth multi-dimensional mapping Rp →Rq is learned. Not only that,
+the GP regression can also predict the range of uncertainty of a prediction, but it is not
+our focus here.
+Let us return to the problem in section 5.1. The input of regression {x(i)}N
+i=1 is now
+given by {I(i)}500
+i=1 where
+I(i) =
+
+ln Ii(q1), ln Ii(q2), · · · , ln Ii(q100)
+
+∈R100
+(A.1)
+is the logarithm of the scattering intensity of the i-th sample material evaluated at
+qk ≡10−2.5+ 3
+99 (k−1), which uniformly covers the range 10−2.5 ≤q ≤100.5 on a log scale.
+We took the log of the intensity to numerically stabilize the learning algorithm. On the
+other hand, the output of regression {y(i)}N
+i=1 is given by {p(i)}500
+i=1 where
+p(i) =
+
+pi(r1), pi(r2), · · · , pi(r80)
+
+∈R80
+(A.2)
+is the size distribution function of the i-th sample evaluated at rk ≡50 × k−1/2
+80 , which
+uniformly covers the range 0 ≤r ≤50. Through a training process the GP algorithm
+constructs a model that learns a highly nonlinear mapping from R100 to R80. During
+training the algorithm judges which components of I(i) are more important than others
+for accurate prediction of p(i).
+It eventually allows us to learn which part of the
+scattering intensity controls most of the size distribution.
+This information is used
+to assign appropriate priority of measurement to each qk.
+References
+[1] K. Rajan. Materials informatics. Materials Today, 8:38, 2005.
+[2] T. Lookman, F. J. Alexander, and K. Rajan, editors. Information Science for Materials Discovery
+and Design, volume 225 of Springer Series in Materials Science. Springer, Switzerland, 2016.
+[3] R. Ramprasad, R. Batra, G. Pilania, A. Mannodi-Kanakkithodi, and C. Kim. Machine learning
+in materials informatics: recent applications and prospects. npj Computational Materials, 3:54,
+2017.
+[4] Y. Liu, T. Zhao, W. Ju, and S. Shi.
+Materials discovery and design using machine learning.
+Journal of Materiomics, 3:159, 2017.
+[5] K. T. Butler, D. W. Davies, H. Cartwright, O. Isayev, and A. Walsh.
+Machine learning for
+molecular and materials science. Nature, 559:547, 2018.
+[6] J. E. Gubernatis and T. Lookman. Machine learning in materials design and discovery: Examples
+from the present and suggestions for the future. Phys. Rev. Materials, 2:120301, 2018.
+
+Accelerating small-angle scattering experiments with machine learning
+19
+[7] G. R. Schleder, A. C. M. Padilha, C. M. Acosta, M. Costa, and A. Fazzio. From DFT to machine
+learning: recent approaches to materials science–a review. J. Phys.: Mater., 2:032001, 2019.
+[8] A. Seko, A. Togo, H. Hayashi, K. Tsuda, L. Chaput, and I. Tanaka. Prediction of Low-Thermal-
+Conductivity Compounds with First-Principles Anharmonic Lattice-Dynamics Calculations and
+Bayesian Optimization. Physical Review Letters, 115:205901, 2015.
+[9] P. I. Frazier and J. Wang. Bayesian Optimization for Materials Design. arXiv:1506.01349, 2015.
+[10] T. Ueno, T. D. Rhone, Z. Hou, T. Mizoguchi, and K. Tsuda.
+COMBO: An eﬃcient Bayesian
+optimization library for materials science. Materials Discovery, 4:18, 2016.
+[11] T. Lookman, P. V. Balachandran, D. Xue, J. Hogden, and J. Theiler. Statistical inference and
+adaptive design for materials discovery. Current Opinion in Solid State and Materials Science,
+21(3):121, 2017.
+[12] L. A. Feigin and D. I. Svergun. Structure Analysis by Small-Angle X-Ray and Neutron Scattering.
+Springer, New York, 1987.
+[13] S. Jaksch. Small-Angle Scattering. arXiv:1901.07353, 2019.
+[14] C. M. Bishop. Pattern Recognition and Machine Learning. Springer, 2006.
+[15] O. Glatter. A New Method for the Evaluation of Small-Angle Scattering Data. Journal of Applied
+Crystallography, 10:415, 1977.
+[16] P. B. Moore. Small-angle scattering. Information content and error analysis. Journal of Applied
+Crystallography, 13:168, 1980.
+[17] S. Hansen and J. S. Pedersen. A Comparison of Three Diﬀerent Methods for Analysing Small-
+Angle Scattering Data. Journal of Applied Crystallography, 24:541, 1991.
+[18] M. Muthig, S. Prevost, R. Orglmeister, and M. Gradzielski.
+Indirect Fourier transform in the
+context of statistical inference. Acta Crystallographica, A72:557, 2016.
+[19] L. Spalzzi. A Survey on Case-Based Planning. Artiﬁcial Intelligence Review, 2001.
+[20] R. S. Sutton and A. G. Barto.
+Reinforcement Learning: An Introduction.
+The MIT Press,
+Cambridge, Second edition, 2018.
+[21] F. Pedregosa, G. Varoquaux, A. Gramfort, V. Michel, B. Thirion, O. Grisel, M. Blondel,
+P. Prettenhofer, R. Weiss, V. Dubourg, J. Vanderplas, A. Passos, D. Cournapeau, M. Brucher,
+M. Perrot, and E. Duchesnay. Scikit-learn: Machine learning in Python. Journal of Machine
+Learning Research, 12:2825–2830, 2011.
+[22] C. E. Rasmussen and C. K. Williams.
+Gaussian Process for Machine Learning.
+MIT Press,
+Cambridge, 2006.

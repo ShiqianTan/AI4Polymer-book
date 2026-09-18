@@ -1,0 +1,2101 @@
+QMCPACK: Advances in the development, eﬃciency, and application of auxiliary
+ﬁeld and real-space variational and diﬀusion Quantum Monte Carlo
+P. R. C. Kent,1, a) Abdulgani Annaberdiyev,2 Anouar Benali,3 M. Chandler Bennett,4
+Edgar Josu´e Landinez Borda,5 Peter Doak,6 Hongxia Hao,7 Kenneth D. Jordan,8
+Jaron T. Krogel,9 Ilkka Kyl¨anp¨a¨a,10 Joonho Lee,11 Ye Luo,3 Fionn D. Malone,5 Cody
+A. Melton,12 Lubos Mitas,2 Miguel A. Morales,5 Eric Neuscamman,7, 13 Fernando A.
+Reboredo,9 Brenda Rubenstein,14 Kayahan Saritas,15 Shiv Upadhyay,8 Guangming
+Wang,2 Shuai Zhang,16 and Luning Zhao17
+1)Center for Nanophase Materials Sciences Division and Computational
+Sciences and Engineering Division, Oak Ridge National Laboratory, Oak Ridge,
+Tennessee 37831, USAb)
+2)Department of Physics, North Carolina State University, Raleigh,
+North Carolina 27695-8202, USA
+3)Computational Science Division, Argonne National Laboratory,
+9700 S. Cass Avenue, Lemont, IL 60439, USA
+4)Materials Science and Technology Division, Oak Ridge National Laboratory,
+Oak Ridge, Tennessee, 37831, USA
+5)Quantum Simulations Group, Lawrence Livermore National Laboratory,
+7000 East Avenue, Livermore, CA 94551, USA
+6)Center for Nanophase Materials Sciences Division and Computational
+Sciences and Engineering Division, Oak Ridge National Laboratory, Oak Ridge,
+Tennessee 37831, USA
+7)Department of Chemistry, University of California, Berkeley, California 94720,
+USA
+8)Department of Chemistry, University of Pittsburgh, Pennsylvania 15260,
+USA
+9)Materials Science and Technology Division, Oak Ridge National Laboratory,
+b) Notice:
+This manuscript has been authored by UT-Battelle,
+LLC, under Contract No.
+DE-
+AC0500OR22725 with the U.S. Department of Energy. The United States Government retains and the
+publisher, by accepting the article for publication, acknowledges that the United States Government re-
+tains a non-exclusive, paid-up, irrevocable, world-wide license to publish or reproduce the published form
+of this manuscript, or allow others to do so, for the United States Government purposes. The Department
+of Energy will provide public access to these results of federally sponsored research in accordance with
+the DOE Public Access Plan (http://energy.gov/downloads/doe-public-access-plan)
+1
+arXiv:2003.01831v2  [physics.comp-ph]  6 May 2020
+
+Oak Ridge, Tennessee 37831, USA
+10)Computational Physics Laboratory, Tampere University, P.O. Box 692,
+33014 Tampere, Finland
+11)Department of Chemistry, Columbia University, New York, NY 10027,
+USA
+12)Sandia National Laboratories, Albuquerque, New Mexico 87123,
+USA
+13)Chemical Sciences Division, Lawrence Berkeley National Laboratory, Berkeley,
+CA, 94720, USA
+14)Department of Chemistry, Brown University, Providence, RI 02912,
+USA
+15)Department of Applied Physics, Yale University, New Haven, CT 06520,
+USA
+16)Laboratory for Laser Energetics, University of Rochester, 250 E River Rd,
+Rochester, NY 14623, USA
+17)Department of Chemistry, University of Washington, Seattle, Washington, 98195,
+USA
+(Dated: 7 May 2020)
+2
+
+We review recent advances in the capabilities of the open source ab initio Quan-
+tum Monte Carlo (QMC) package QMCPACK and the workﬂow tool Nexus used
+for greater eﬃciency and reproducibility. The auxiliary ﬁeld QMC (AFQMC) im-
+plementation has been greatly expanded to include k-point symmetries, tensor-
+hypercontraction, and accelerated graphical processing unit (GPU) support. These
+scaling and memory reductions greatly increase the number of orbitals that can prac-
+tically be included in AFQMC calculations, increasing accuracy. Advances in real
+space methods include techniques for accurate computation of band gaps and for
+systematically improving the nodal surface of ground state wavefunctions. Results
+of these calculations can be used to validate application of more approximate elec-
+tronic structure methods including GW and density functional based techniques.
+To provide an improved foundation for these calculations we utilize a new set of
+correlation-consistent eﬀective core potentials (pseudopotentials) that are more ac-
+curate than previous sets; these can also be applied in quantum-chemical and other
+many-body applications, not only QMC. These advances increase the eﬃciency, ac-
+curacy, and range of properties that can be studied in both molecules and materials
+with QMC and QMCPACK.
+a)kentpr@ornl.gov
+3
+
+I.
+INTRODUCTION
+Quantum Monte Carlo (QMC) methods are an attractive approach for accurately com-
+puting and analyzing solutions of the Schr¨odinger equation.1–3 The methods form a general
+ab initio methodology able to solve the quantum many-body problem, applicable to idealized
+models such as chains or lattices of atoms through to complex and low-symmetry molec-
+ular and condensed matter systems, whether ﬁnite or periodic, metallic or insulating, and
+with weak to strong electronic correlations. Signiﬁcantly, the methods can naturally treat
+systems with signiﬁcant multi-reference character, and are without electron self-interaction
+error, which challenges many quantum chemical approaches and density functional theory
+approximations, respectively. The methods continue to be able to take advantage of im-
+provements in computational power, giving reduced time to solution with new generations
+of computing. Due to these features, usage of QMC methods for ﬁrst principles and ab initio
+calculations is growing.
+Compared to traditional deterministic approaches, QMC methods are generally distin-
+guished by: (1) use of statistical methodologies to solve the Schr¨odinger equation. This
+allows the methods to not only treat problems of high-dimensionality eﬃciently, but also
+potentially use basis, wave function, and integral forms that are not amenable to numerical
+integration. (2) Use of few and well-identiﬁed approximations that can potentially be quan-
+tiﬁed or made systematically convergeable. (3) A low power scaling with system-size, but
+large computational cost prefactor. (4) High suitability to large scale parallel computing ow-
+ing to lower communications requirements than conventional electronic structure methods.
+Scaling has been demonstrated to millions of compute cores.4
+Modern applications of QMC have expanded to cover many of the same systems studied
+by density functional theory (DFT) and quantum chemical approaches, and in many cases
+also at a similar atom and electron count, although at far greater computational cost. Besides
+those described in below, recent molecular applications of QMC include studies of the nature
+of the quadruple bond in C25, acenes6, physisorption of water on graphene7, binding of
+transition metal diatomics8, and DNA stacking energies9. Materials applications include
+nitrogen defects in ZnO10, excitations in Mn doped phosphors11, and the singlet-triplet
+excitation in MgTi2O412. Methodological improvements include: reducing the sensitivity
+of pseudopotential evaluation13, extensions to include linear response14, density functional
+4
+
+embedding15, excited states including geometry optimization16, improved twist averaging17,
+and accurate trial wavefunctions via accurate densities18. Importantly, for model systems
+such as the hydrogen chain, the methods can be used to benchmark themselves as well as
+other many-body approaches19. This partial list of developments and applications from the
+last two years alone indicates that the ﬁeld is growing and maturing.
+In this article we describe recent updates to the QMCPACK code and its ecosystem
+of wavefunction converters and workﬂow tools. These updates have aimed to expand the
+range of systems, properties, and accuracies that can be achieved both with QMCPACK
+and with QMC techniques in general. For a description of the underlying methodology we
+refer the reader to Refs. 1–4, and 20. In particular, a thorough description of real space
+QMC methods is given in Section 5 of Ref. 4. For an extensive introduction to AFQMC we
+refer the reader to Ref.20.
+QMCPACK is a fully open source and openly developed QMC package, with 48 coauthors
+on the primary citation paper4 published in 2018 and an additional 5 contributors since then.
+The main website for QMCPACK is https://qmcpack.org and the source code is currently
+available through https://github.com/QMCPACK/qmcpack. QMCPACK aims to implement
+state of the art QMC methods, be generally applicable, easy to use, and high-performing on
+all modern computers. Since the publication of Ref.4, the range of QMC calculations that
+are possible has been expanded by signiﬁcant enhancements to the Auxiliary-Field QMC
+(AFQMC) solver. This orbitally based method is distinct from and complementary to the
+longer-implemented real space methods of variational and diﬀusion QMC (VMC and DMC,
+respectively). The AFQMC implementation can fully take advantage of graphics processing
+units (GPUs) for a considerable speedup and, unlike the real-space methods, can also exploit
+k-point symmetries. It shares the same workﬂow tool, Nexus, which helps simplify and ease
+application of all the QMC methods by new users as well as aid in improving reproducibility
+of complex multi-step research investigations. To our knowledge this is currently the only
+AFQMC code designed for large scale research calculations that is open source. To help
+guarantee the future of the code, it is undergoing rapid development and refactoring to target
+the upcoming Exascale architectures as part of the U.S. Exascale Computing Project21,
+which also entails major updates to the testing, validation and maintainability.
+The electronic structure and quantum chemical codes that QMCPACK is interfaced to for
+trial wavefunctions has been expanded to include Qbox22, PySCF23, Quantum Espresso24,
+5
+
+Quantum Package25, and GAMESS26. Additional codes such as NWCHEM27 can be inter-
+faced straightforwardly.
+In the following, we ﬁrst review in Section II the open development principles of QMC-
+PACK. In Section III we discuss updates to the Nexus workﬂow package. This integrates
+entire research electronic structure workﬂows for greater productivity and reproducibility
+than by-hand invocation of individual calculations. Due to the infeasibility of performing
+QMC calculations for general systems using an all electron approach, use of eﬀective core
+potentials (ECPs), or pseudopotentials, is essential. To improve the accuracy obtainable
+we have developed a new approach and set of “correlation consistent” ECPs. These can
+be used in all ab initio calculations, not only QMC, and are described in Section IV. Ad-
+vances in the AFQMC implementation are described in Section V. Turning to real-space
+QMC methods in Section VI, algorithms and multiple determinant trial wavefunctions can
+now be used to obtain improved ground state energies as well as band gaps in solid-state
+materials. As a result, it is now possible to begin to test the accuracy of the nodal surfaces
+that have long been used in these calculations. Finally, in Section VII, we give three ap-
+plications: ﬁrst, application to non-valence anions, which challenge all electronic structure
+and quantum chemical techniques. Second, application to excitations of localized defects
+in solids VII B. Third, the ability to obtain the momentum distribution has recently been
+improved, motivated by recent experiments on VO2. A summary is given in Section VIII.
+II.
+OPEN DEVELOPMENT AND TESTING
+Fully open source development is an important core value of the QMCPACK develop-
+ment team. Besides improving the quality of the software, anecdotally it also improves the
+on-boarding experience for new users. While the developers of many electronic structure
+packages now practice some degree of open development, QMCPACK has seen very signif-
+icant beneﬁts from this in the last few years. We expect other packages would also beneﬁt
+from full adoption and therefore give details here.
+QMCPACK is an open source package, with releases and the latest development source
+code available through https://github.com/QMCPACK/qmcpack. QMCPACK is written in
+C++14, with MPI parallelization between compute nodes, OpenMP threading used for
+multicore parallelism. CUDA is used for NVIDIA accelerators. Options to support CUDA,
+6
+
+complex valued wavefunctions, and to adjust the numerical precision used internally are
+currently compile time options.
+Besides adoption of a distributed source code control system, we have found that devel-
+opment productivity can be further increased by adoption of code reviews and continuous
+integration (testing). To maximize the eﬃciency of both contributors and reviewers and
+shorten the development cycle of new features, work-in-progress pull requests are encour-
+aged for early engagement in the process. The early review allows guidance to be given,
+e.g. are the algorithms clear enough to other developers and are the coding guidelines being
+followed. At the same time, continuous integration is applied to the proposed code change.
+This process routinely catches cases that developers may not have considered or tested
+against, e.g. the complex-valued build of QMCPACK or accelerated GPU support, that are
+compile time options. This period of comment while the work is being completed also helps
+advertise the work to other developers and minimizes risk of duplicated work. Our experi-
+ence strongly suggests that this process reduces bugs, reduces potential developer’s eﬀort,
+and saves reviewer’s time compared to a late engagement with an unexpected pull request.
+All the discussions around the code change become archived searchable documentation and
+potential learning materials.
+Testing of QMCPACK has been signiﬁcantly expanded. Two years ago, QMCPACK had
+limited unit, integration and performance testing categories: unit tests that run quickly on
+individual components; integration tests that exercise entire runs; performance tests for mon-
+itoring relative performance between code changes. However, due to the stochastic nature
+of QMC, as the number of tests and build combinations increased it became impractical to
+run the integration tests long enough to obtain a statistically reliable pass/fail: the smallest
+(shortest) integration test set currently takes around one hour to execute on a 16 core ma-
+chine, and must necessarily suﬀer from occasional statistical failures. Thus, a new category
+of tests was needed for quickly examining full QMC execution with a reproducible Monte
+Carlo trajectory. The new deterministic integration tests are modiﬁed QMC runs with only
+a few steps, very few Monte Carlo walkers, and ﬁxed random seeds for absolute reproducibil-
+ity. All the major features of QMCPACK are covered by this new of category tests. Running
+all the unit and deterministic integration tests takes approximately one minute which is fast
+enough for iterative development and fast enough to be used in continuous integration. This
+fast to run set of tests facilitates signiﬁcant changes and refactoring of the application which
+7
+
+otherwise would be far more diﬃcult to test and unlikely to be attempted by non-experts
+without long experience with the codebase. All the deterministic tests are accompanied
+by longer running statistical tests that can be used to verify a new implementation when
+changes alter a previous deterministic result. Combinations of these tests are run automat-
+ically on a nightly basis and report to a public dashboard https://cdash.qmcpack.org.
+At the time of writing, around 25 diﬀerent machine and build combinations are used to run
+around 1000 labeled tests each, and most of these cover multiple features.
+Improving source code readability is critical for both new and experienced developers. In
+the past, misleading variable or class names and confusing function names have confused
+developers and resulted in subtle bugs, e.g. due to similarly named functions, only one of
+which updates internal state in the Monte Carlo algorithm. For this reason, coding standards
+including naming conventions have been added in the manual and are enforced on newly
+contributed codes. Existing codes are updated to follow the standards as they need other
+modiﬁcations. Automatic source formatting is also applied with the help of the clang-format
+tool. Concomitantly, both developer sections in the manual and source code documentation
+are signiﬁcantly expanded.
+As a result of the above changes, new contributors with a basic theoretical background
+can connect source code with textbook equations with much less diﬃculty than in the past.
+These eﬀorts are clearly bringing long term beneﬁt to QMCPACK and hopefully can be
+transferred to other scientiﬁc applications as well.
+III.
+IMPROVING QMC WORKFLOWS WITH NEXUS
+QMC techniques are progressing from methods under research towards more routine
+application. In this transition, usability of QMC becomes an important factor. A mature,
+usable computational method transfers responsibility for correct execution from users to
+the code. Major factors determining overall usability include: ease of requesting a desired
+result (in the form of input), robustness of the code in obtaining the desired result, and
+complexity of the overall calculation process. All of these contribute to the eﬀort required
+by the user to obtain desired results. In essence, higher required eﬀort translates directly
+into lower productivity of the user base. Lower productivity in turn risks a lower overall
+adoption rate and thus blunts overall impact of the method. It is therefore important to
+8
+
+seek to understand and minimize barriers to the practical use of QMC.
+To illustrate the complexity of the QMC calculation process, we describe below a basic
+but realistic sequence of calculations (a scientiﬁc workﬂow) that is required to obtain a ﬁnal
+ﬁxed node DMC total energy per formula unit for a single crystalline solid with QMCPACK.
+In this workﬂow, we suppose that self-consistent (SCF) and non-self-consistent (NSCF)
+calculations are performed with Quantum Espresso24 and wavefunction optimization (OPT),
+variational Monte Carlo (VMC), and diﬀusion Monte Carlo calculations are performed with
+QMCPACK. SCF/NSCF calculations might be performed on a workstation or a few nodes
+of a cluster, VMC/OPT calculations on a research-group sized cluster (∼30 nodes), and
+DMC on high performance computing resources (∼1000 nodes).
+1. Converge DFT orbitals with respect to plane-wave energy cutoﬀ(4–6 SCF calculations
+ranging from 300 to 800 Ry for the energy cutoﬀ).
+2. Converge B-spline orbital representation with respect to B-spline mesh spacing (1
+NSCF, ∼5 VMC calculations in a small supercell over a series of ﬁner mesh spacings).
+3. Converge twist grid density (∼5 VMC calculations in a small supercell for a series of
+increasingly dense supercell Monkhorst-Pack twist grids).
+4. Determine best optimization process (∼6 optimization (OPT) calculations in a small
+supercell over varying input parameters and e.g. Jastrow forms).
+5. Obtain ﬁxed node DMC total energy (∼3 NSCF, ∼3 OPT and ∼9 DMC calcula-
+tions, 3 successively smaller timesteps for timestep extrapolation, 3 successively larger
+supercells for ﬁnite size extrapolation).
+This basic workﬂow process is to be compared with the much reduced complexity for
+obtaining a single converged total energy for DFT, which typically requires only a single
+input ﬁle and single program execution to perform a single SCF calculation for the ﬁnal
+energy.
+The complexity intrinsic to the basic workﬂow translates into a large degree of
+eﬀort on the part of the user and limits the accessibility of the method for new users or
+for experienced users pursuing ambitious projects comprised of a large number of DMC
+calculations.
+9
+
+Scientiﬁc workﬂow tools make the QMC process more accessible in multiple ways: (1)
+bringing the constellation of electronic structure codes needed to produce a single QMC
+result under a single framework, (2) reducing the number of inputs required to request a
+desired result to a single user-facing input ﬁle, (3) reducing overall complexity by abstracting
+the execution process, (4) minimizing the direct eﬀort required to execute the workﬂow
+process by assuming the management of simulation execution and monitoring from the user.
+Workﬂow tools have been applied with signiﬁcant beneﬁt to related electronic structure
+methods such as DFT28–31 and also to QMC32,33.
+The Nexus workﬂow automation system34 was created to realize these advantages for users
+of QMCPACK. Nexus is a Python-based, object oriented workﬂow system that can be run on
+a range of target architectures. Nexus has been used successfully on simple workstations and
+laptops, small group or institutional computing clusters, university level high performance
+computing centers in the U.S. and internationally, and Leadership Computing Facilities
+supported by the U.S. Department of Energy. Nexus has been used in a growing number of
+QMC studies involving QMCPACK and its uptake by new users is high.
+Nexus abstracts user’s interactions with each target simulation code that are components
+of a desired simulation workﬂow. Access to each respective code is enabled through single
+function calls that only require the user to specify a reduced set of important input param-
+eters. Each function call resembles a small input block from a standard input ﬁle for an
+electronic structure code. Taken together, a sequence of these blocks comprises a new meta-
+input ﬁle that represents the data ﬂow and execution pattern of the underlying simulation
+codes as a combined workﬂow.
+Nexus assumes the responsibility of initiating and monitoring the progress of each sim-
+ulation job in the workﬂow. Nexus generates expanded input ﬁles to each code based on
+the reduced inputs provided by the user. It also generates job submission ﬁles and monitors
+job execution progress via a lightweight polling mechanism. Apart from direct execution of
+each workﬂow step, Nexus also automates some tasks that previously fell to users. One ex-
+ample is that Nexus selects the best wavefunction produced during the non-linear statistical
+optimization process employed by QMCPACK and automatically passes this wavefunction
+to other calculations (such as diﬀusion Monte Carlo), which require it.
+In the future, additional productivity gains might be realized with Nexus by further ab-
+stracting common workﬂow patterns. For example, convergence studies for orbital param-
+10
+
+eters (k-points, mesh-factors, source DFT functional) often follow similar patterns which
+could be encapsulated as simple components for users. Additionally, more of the responsi-
+bility for obtaining desired results, e.g. total energies to a statistically requested tolerance,
+could be handled by Nexus through algorithms that create and monitor dynamic workﬂows.
+IV.
+EFFECTIVE CORE POTENTIALS
+A.
+Introduction
+All-electron (AE) QMC calculations become ineﬃcient and eventually infeasible with in-
+creasing atomic number Z since the computational cost grows roughly as35,36 Z6. Since our
+primary interest is in valence properties, pseudopotentials and/or eﬀective core potentials
+(ECP) are commonly employed to eliminate the atomic cores leading to valence-only eﬀec-
+tive Hamiltonians. Unfortunately, the existing tables and ECP generating tools have proved
+to exhibit somewhat mixed ﬁdelity to the true all-electron calculations, especially in high
+accuracy QMC studies. In order to overcome this limitation, we have proposed and con-
+structed a new generation of valence-only Hamiltonians called correlation consistent ECPs
+(ccECP)37–40. The key feature of this new set is the many-body construction of ccECPs
+from the outset, in particular: (i) we have emphasized and put upfront the accuracy of
+many-body valence spectra (eigenvalues and eigenstates) as a guiding principle in addition
+to the well-known norm conservation/shape consistency principles; (ii) we have opted for
+simplicity, transparency and eventual wide use, in addition to oﬀering several choices of
+core sizes or even smoothed-out all-electron nuclear Coulomb potentials; (iii) we have used
+a set of tests and benchmarks such as molecular bonds over a range of distances in order to
+extensively probe for the quality and transferability of the ccECPs; (iv) we have established
+reference data sets for the exact/nearly-exact atomic total energies, kinetic energies, as well
+as single-reference and multi-reference ﬁxed-node DMC energies. At present, this covers
+elements H-Kr with subsequent plans to ﬁll the periodic table.
+B.
+ccECP atomic and molecular properties.
+The construction of ccECPs builds in electron correlations obtained from the accurate
+coupled-cluster singles doubles with perturbative triples (CCSD(T)) method. By doing so,
+11
+
+ccECPs achieve very high accuracy and enjoy spectral properties on the valence subspace
+that are in close agreement with the scalar relativistic all-electron (AE) Hamiltonian. The
+agreement is often within chemical accuracy over a large range of atomic excitations and
+ionizations that often spans hundreds of eV energy windows. Molecular properties such
+as binding energies in multiple geometries, equilibrium bond lengths, and vibrational fre-
+quencies were also considered in the development, mostly examining oxides, hydrides, and
+homonuclear dimers. Especially, compressed bond length properties were given priority as
+this corresponds to high-pressure applications and probes for the proper behavior of the
+valence charge in the core region. These atomic and molecular tests provide a direct and
+comprehensive comparison of ccECP and other core approximations such as BFD41, STU42,
+eCEPP43, CRENBL44, SBKJC45, UC (uncorrelated, self-consistent, all-electron core), and
+ccECP.S (optimization including only atomic spectrum). Here we illustrate some of these
+results for selected cases.
+Figure 1 shows the molecular binding energy discrepancies for FeH, FeO, VH, and VO
+molecules relative to all-electron CCSD(T) where we observe that some previous ECPs
+display signiﬁcant errors. In addition, Table I, lists a more comprehensive comparison by
+tabulating the average of mean absolute deviations (MAD) of molecular binding properties
+relative to all-electron CCSD(T) for all 3d transition metal (TM) molecules.
+Similarly,
+Figure 2a presents the MAD of a large valence spectrum for all 3d TM atoms. In both atomic
+and molecular tests, we see that ccECP achieves smaller or on par average errors with regard
+to the other ECPs. In addition, Fig. 1 shows these improvements to be consistent for diﬀerent
+elements and varying geometries.
+Hence, we believe that ccECP accomplishes the best
+accuracy compromise for atomic spectral and molecular properties. Furthermore, ccECPs
+are provided with smaller cores than conventionally used ones in some cases where large
+errors were observed. This includes Na-Ar with [He] core and H-Be with softened/canceled
+Coulomb singularity at the origin (ccECP(reg)). Selected molecular test results for these
+are shown in Figure 3.
+For reference, we also provide accurate total and kinetic energies for all ccECPs46 using
+methods such as CCSDT(Q)/FCI (FCI, full conﬁguration interaction) with DZ-6Z extrap-
+olations to estimate the complete basis set limit. This data, for instance, is useful in the
+assessment of ﬁxed-node DMC biases. Figure 2b shows the summary of single-reference
+(HF) ﬁxed-node DMC errors for ccECP pseudo atoms.
+12
+
+1.2
+1.4
+1.6
+1.8
+Bond Length (˚A)
+−0.05
+0.00
+0.05
+0.10
+Discrepancy (eV)
+UC
+BFD
+STU
+eCEPP
+ccECP.S
+ccECP
+(a) FeH binding curve discrepancies.
+1.2
+1.4
+1.6
+1.8
+Bond Length (˚A)
+−0.15
+−0.10
+−0.05
+0.00
+0.05
+Discrepancy (eV)
+UC
+BFD
+STU
+eCEPP
+ccECP.S
+ccECP
+(b) FeO binding curve discrepancies
+1.2
+1.4
+1.6
+1.8
+2.0
+Bond Length (˚A)
+−0.050
+−0.025
+0.000
+0.025
+0.050
+0.075
+0.100
+Discrepancy (eV)
+UC
+BFD
+STU
+eCEPP
+ccECP.S
+ccECP
+(c) VH binding curve discrepancies
+1.2
+1.3
+1.4
+1.5
+1.6
+1.7
+Bond Length (˚A)
+0.0
+0.1
+0.2
+0.3
+Discrepancy (eV)
+UC
+BFD
+STU
+eCEPP
+ccECP.S
+ccECP
+(d) VO binding curve discrepancies
+FIG. 1: Binding energy discrepancies for (a) FeH, (b) FeO, (c) VH, and (d) VO molecules.
+The binding curves are relative to scalar relativistic AE CCSD(T) binding curve. The
+shaded region indicates a discrepancy of chemical accuracy in either direction. The
+ccECPs are the only valence Hamiltonians that are consistently within the shaded region
+of chemical accuracy including short bond lengths which are relevant for high pressures.
+Reproduced from Ref. 39, with the permission of AIP Publishing.
+C.
+ccECP Database and Website
+In order to facilitate the use ccECPs, we have provided basis sets and a variety of ECP
+formats available at https://pseudopotentiallibrary.org, shown in Figure 4.
+Each
+ccECP is presented in a quantum chemistry format for direct use in various codes, including
+13
+
+UC
+BFD
+STU
+eCEPP
+ccECP.S
+ccECP
+De(eV)
+0.0063(40) 0.0590(41) 0.0380(41) 0.0163(45) 0.0240(40) 0.0104(40)
+re(˚A)
+0.0012(13) 0.0064(13) 0.0026(13) 0.0019(15) 0.0027(13) 0.0010(13)
+ωe(cm−1)
+2.2(5.8)
+10.4(5.9)
+4.6(5.9)
+3.9(6.9)
+6.4(5.8)
+2.9(5.8)
+Ddiss(eV) 0.021(41)
+0.145(41)
+0.036(41)
+0.032(46)
+0.054(40)
+0.016(41)
+TABLE I: Average MADs of binding parameters for various core approximations with
+respect to AE data for 3d TM hydride and oxide molecules. All parameters were obtained
+using Morse potential ﬁt. The parameters shown are dissociation energy De, equilibrium
+bond length re, vibrational frequency ωe and binding energy discrepancy at dissociation
+bond length Ddiss. Reproduced from Ref. 39, with the permission of AIP Publishing.
+Sc
+Ti
+V
+Cr
+Mn
+Fe
+Co
+Ni
+Cu
+Zn
+0.0
+0.5
+1.0
+1.5
+2.0
+Mean Absolute Deviation (eV)
+UC
+BFD
+STU
+eCEPP
+ccECP.S
+ccECP
+(a)
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+Number of valence electrons
+0
+2
+4
+6
+8
+10
+12
+Percentage
+Be-Ne[He]
+Mg-Ar[Ne]
+Na-Ar[He]
+Ga-Kr[[Ar]3d10]
+K-Zn[Ne]
+(b)
+FIG. 2: (a) MADs for 3d TM benchmark states from bare [Ne] core up to low-lying neutral
+excitations and the anionic state. (b) Fixed-node DMC biases (ϵ) as a percentage of the
+correlation energy for ccECP pseudo atoms: 100ϵ/|Ecorr|. T-moves47 and single-reference
+trial functions were used in calculations with the exception of Be, B, and C with
+two-reference form to account for the signiﬁcant 2s −2p near-degeneracy. Fig. 2a
+reproduced from Ref. 39, with the permission of AIP Publishing. Fig. 2b is adapted with
+permission from Ref. 46. Copyright 2020 American Chemical Society.
+14
+
+1.2
+1.4
+1.6
+1.8
+Bond Length (˚A)
+−0.8
+−0.6
+−0.4
+−0.2
+0.0
+0.2
+Discrepancy (eV)
+UC
+BFD
+SDFSTU
+eCEPP
+SBKJC
+CRENBL
+ccECP
+ccECP(reg)
+(a) LiO binding curve discrepancies
+1.2
+1.3
+1.4
+1.5
+1.6
+Bond Length (˚A)
+−1.0
+−0.8
+−0.6
+−0.4
+−0.2
+0.0
+0.2
+Discrepancy (eV)
+UC
+SBKJC
+BFD
+TN-DF
+STU
+ccECP[Ne]
+ccECP[He]
+(b) SiO binding curve discrepancies
+FIG. 3: Binding energy discrepancies for (a) LiO and (b) SiO molecules. The uncorrelated
+core (UC) results, plus those for many diﬀerent eﬀective core potentials are given relative
+to scalar relativistic all electron (AE) CCSD(T) binding curve. The shaded region indicates
+a discrepancy of chemical accuracy in either direction. Details are given in Refs. 38 and 40.
+Reproduced from Ref. 40 and Ref. 38, with the permission of AIP Publishing.
+Molpro, GAMESS, NWChem, and PySCF which uses the NWChem format. We also
+provide an XML format which can directly be used in QMCPACK.
+In addition to the ccECPs themselves, we have also provided basis sets appropriate for
+correlated calculations in each code format. Speciﬁcally, we have provided Dunning style48
+correlation consistent basis sets from the DZ to 6Z, and in most cases have also provided
+an augmented version. For use in solid state applications using a plane wave basis, we have
+also transformed the semi-local potentials into fully nonlocal Kleinman-Bylander potentials49
+using the Uniﬁed Pseudopotential Format. This allows the ccECPs to be directly used in
+codes such as Quantum Espresso. A report ﬁle is included giving detailed information
+about the quality of the Kleinman-Bylander version of the potential and recommended plane
+wave energy cutoﬀenergies.
+D.
+Status and future developments
+The ccECP table and construction principles aim at improved account of systematic errors
+built into eﬀective valence Hamiltonians in a wide variety of correlated calculations (see
+15
+
+FIG. 4: Pseudopotential Library, https://pseudopotentiallibrary.org.
+encouraging feedback so far50,51). Further eﬀort is focused on adapting ccECPs for eﬃcient
+calculations with plane wave basis set (ccECPpw versions). This requires modifying the deep
+potentials of the late 3d elements Fe-Zn in particular. The goal is to enable calculations with
+plane wave cutoﬀs not exceeding ∼600-800 Ry. Plans for the near future involve ccECPs
+for selected 4d and 5d elements that include a number of technologically important elements
+and require explicit treatment of the spin-orbit interactions. Additional improvements such
+as core polarization and relaxation corrections can be added per speciﬁc, application driven
+needs.
+Further plans include seeking feedback from the electronic structure community,
+collecting the data for reference and validation as well as adjustments per need for use in a
+broad variety of ab initio approaches.
+V.
+AUXILIARY FIELD QUANTUM MONTE CARLO
+The latest version of QMCPACK oﬀers a now mature implementation of the phase-
+less auxiliary-ﬁeld quantum Monte Carlo (AFQMC) method20,52 capable of simulating both
+molecular53,54 and solid state systems55–57. AFQMC is usually formulated as an orbital-space
+approach in which the Hamiltonian is represented in second-quantized form as
+ˆH =
+X
+ij
+hijˆc†
+iˆcj + 1
+2
+X
+ijkl
+vijklˆc†
+iˆc†
+jˆclˆck + EII,
+(1)
+= ˆH1 + ˆH2 + EII,
+(2)
+16
+
+where ˆc†
+i and ˆci are the fermionic creation and annihilation operators, hij and vijkl are the one-
+and two-electron matrix elements and EII is the ion-ion repulsion energy. Key to an eﬃcient
+implementation of AFQMC is the factorization of the 4-index electron-repulsion integral
+(ERI) tensor vijkl, which is essential for the Hubbard-Stratonovich (HS) transformation58,59.
+QMCPACK oﬀers three factorization approaches which are appropriate in diﬀerent
+settings.
+The most generic approach implemented is based on the modiﬁed-Cholesky
+factorization60–64 of the ERI tensor:
+vijkl = V(ik),(lj) ≈
+Nchol
+X
+n
+Ln
+ikL∗n
+lj ,
+(3)
+where the sum is truncated at Nchol = xcM, xc is typically between 5 and 10, M is the
+number of basis functions and we have assumed that the single-particle orbitals are in general
+complex. The storage requirement is thus naively O(M 3) although sparsity can often be
+exploited to keep the storage overhead manageable (see Table II). Note that QMCPACK
+can accept any 3-index tensor of the form of Ln
+ik so that alternative density-ﬁtting based
+approaches can be used.
+Although the above approach is eﬃcient for moderately sized
+molecular and solid-state systems, it is typically best suited to simulating systems with
+fewer than 2000 basis functions.
+To reduce the memory overhead of storing the three-index tensor we recently adapted
+the tensor-hypercontraction65–67 (THC) approach for use in AFQMC56. Within the THC
+approach we can approximate the orbital products entering the ERIs as
+ϕ∗
+i (r)ϕk(r) ≈
+Nµ
+X
+µ
+ζµ(r)ϕ∗
+i (rµ)ϕk(rµ),
+(4)
+where ϕi(r) are the one-electron orbitals and rµ are a set of specially selected interpolating
+points, ζµ(r) are a set of interpolating vectors and Nµ = xµM. We can then write the ERI
+tensor as a product of rank-2 tensors
+vijkl ≈
+X
+µν
+ϕ∗
+i (rµ)ϕk(rµ)Mµνϕ∗
+j(rν)ϕl(rν),
+(5)
+where
+Mµν =
+Z
+drdr′ζµ(r)
+1
+|r −r′|ζ∗
+ν(r′).
+(6)
+To determine the interpolating points and vectors we use the interpolative separable density
+ﬁtting (ISDF) approach68–70. Note that the storage requirement has been reduced to O(M 2).
+17
+
+For smaller system sizes the three-index approach is preferred due to the typically larger
+THC prefactors determined by xµ ≈15 for propagation and xµ ≈10 for the local energy
+evaluation. The THC approach is best suited to simulating large supercells, and is also
+easily ported to GPU architectures due to its smaller memory footprint and use of dense
+linear algebra. Although the THC-AFQMC approach has so far only been used to simulate
+periodic systems, it is also readily capable of simulating large molecular systems using the
+advances from Ref. 71.
+Finally, we have implemented an explicitly k-point dependent factorization for periodic
+systems72
+V(ikk+Qkkk),(lkljkl−Q) ≈
+nQ
+chol
+X
+n
+LQkk
+ik,n LQkl∗
+lj,n ,
+(7)
+where now i runs over the number of basis functions (m) for k-point ki in the primitive cell,
+Q = ki −kk + G = kl −kj + G′ is the momentum transfer vector (arising from the conser-
+vation of crystal momentum) and G, G′ are reciprocal lattice vectors. Although explicitly
+incorporating k-point symmetry reduces the scaling of many operations and the storage
+requirement by a factor of 1/Nk (see Table. II), perhaps the most signiﬁcant advantage is
+that it permits the use of batched dense linear algebra and is thus highly eﬃcient on GPU
+architectures. Note that the THC and k-point symmetric factorization can be combined to
+simulate larger unit cells and exploit k-point symmetry, however this has not been used to
+date. We compare the three approaches in Table II and provide guidance for their best use.
+In addition to state-of-the-art integral factorization techniques, QMCPACK also permits
+the use of multi-determinant trial wavefunction expansions of the form
+|ψT⟩=
+ND
+X
+I
+cI|DI⟩.
+(8)
+We allow for either orthogonal conﬁguration interaction expansions where ⟨DI|DJ⟩= δIJ and
+also for non-orthogonal multi Slater determinant expansions (NOMSD) where ⟨DI|DJ⟩=
+SIJ. Orthogonal expansions from complete active space self-consistent ﬁeld (CASSCF) or
+selected CI methods allow for fast overlap and energy evaluation through Sherman-Morrison
+based techniques, and thus do not typically incur a signiﬁcant slowdown. However, they often
+require a large number of determinants to converge the phaseless error. NOMSD expansions
+do not beneﬁt from fast update techniques, but often require orders of magnitude fewer
+18
+
+Method
+Memory Propagation
+Energy
+Setting
+GPU
+Dense 3-index
+xcM3
+O(NM2)
+O(xcN2M2)
+M ≤1000
+Yes
+Sparse 3-index sxcM3
+O(NM2)
+O(N2M2)
+M ≤2000
+No
+THC
+x2
+µM2
+O(NM2)
+O(x2
+µNM2)
+M ≤4000
+No
+k-point
+xcm3N2
+k
+O(NM2)
+O(xcm2n2N3
+k) Nkm ≤6000 Yes
+TABLE II: Comparison in the dominant scaling behavior of diﬀerent factorization
+approaches implemented in QMCPACK. We have included a sparsity factor s which can
+reduce the computational cost of the three-index approach signiﬁcantly. For example, in
+molecular systems the memory requirement is asymptotically O(M 2) in the atomic orbital
+basis, whilst for systems with translational symmetry the scaling is in principle identical to
+that of the explicitly k-point dependent factorization (i.e. s ≤1/Nk) although currently
+less computationally eﬃcient. We also indicate the current state of GPU support for the
+diﬀerent factorizations available in QMCPACK. The THC factorization will be ported to
+GPUs in the near future. Note that by using plane waves the scaling of the energy
+evaluation and propagation can be brought down to O(N 2M log M) and O(NM log M)
+respectively. This approach essentially removes the memory overhead associated with
+storing the ERIs at the cost of using a potentially very large plane-wave basis set73,74. This
+plane wave approach is not yet available in QMCPACK.
+determinants than their orthogonal counterparts to achieve convergence in the AFQMC
+total energy53 (see Fig. 5).
+QMCPACK also permits the evaluation of expectation values of operators which do not
+commute with the Hamiltonian using the back propagation method59,81,82. In particular,
+the back-propagated one-particle reduced density matrix (1RDM) as well components or
+contracted forms of the two-particle reduced density matrix are available. As an example
+we plot in Fig. 6 the natural orbital occupation numbers computed from the back-propagated
+phaseless AFQMC 1RDM.
+Tools to generate the one- and two-electron integrals and trial wavefunctions for molecular
+and solid state systems are also provided through the afqmctools package distributed with
+QMCPACK. To date these tools are mostly dependent on the PySCF software package23,
+however we provide conversion scripts for FCIDUMP formatted integrals, as well as simple
+19
+
+10−3
+σE (Ha)
+SHCI
+NOMSD
+100
+101
+102
+103
+104
+Number of Determinants
+-621.595
+-621.593
+-621.591
+-621.589
+Energy (Ha)
+CCSDTQ
+SHCI
+NOMSD
+FIG. 5: Comparison in the performance of selected heath-bath conﬁguration interaction
+(SHCI) and NOMSD as trial wavefunctions in AFQMC calculations of NaCl in the
+cc-pVDZ basis set at its equilibrium bond length. The top panel demonstrates that smaller
+NOMSD expansions are necessary to reduce the standard deviation in the energy
+estimator (σE) compared to SHCI trial wavefunctions. The bottom panel shows that the
+total energy converges more rapidly with determinant number when using a NOMSD trial
+wavefunction, where the horizontal dashed line is the coupled cluster singles, doubles,
+triples and quadruples (CCSDTQ) result. The SHCI and NOMSD wavefunctions were
+generated using the DICE75,76 and PHFMOL77–79 packages respectively. The CCSDTQ
+result was computed using the Aquarius package80. Reproduced from Ref.53
+Python routines to convert factorized integrals or trial wavefunctions provided from any
+source to our internal HDF5 based ﬁle format. Detailed tutorials on how to run AFQMC in
+QMCPACK are also provided. Nexus (Sec.III) can be used to drive the process of mean-ﬁeld
+20
+
+0
+10
+20
+30
+40
+50
+60
+70
+Orbital Index
+0.00
+0.25
+0.50
+0.75
+1.00
+1.25
+1.50
+1.75
+2.00
+Natural Orbital Occupation Number
+n = 2
+n = 3
+n = 4
+n = 5
+n = 6
+FIG. 6: Phaseless AFQMC natural orbital occupation numbers computed from the
+back-propagated 1RDM for the n-acenes (C2H4C4nH2n) in the STO-3G basis set.
+Geometries are taken from Ref. 83. Error bars are plotted but are smaller than the symbol
+size.
+calculation, wavefunction conversion, and AFQMC calculation. We are using this integration
+to perform a study of the relative strengths of AFQMC and real space QMC methods.
+Over the next year we plan to extend the list of observables available as well as complete
+GPU ports for all factorization and wavefunction combinations.
+In addition we plan to
+implement the ﬁnite temperature AFQMC algorithm84–88, and spin-orbit Hamiltonians with
+non-collinear wavefunctions. We will also release our ISDF-THC factorization tools and our
+interface to Quantum Espresso24. We hope our open-source eﬀort will enable the wider use
+of AFQMC in a variety of challenging settings.
+VI.
+TOWARDS SYSTEMATIC CONVERGENCE OF REAL-SPACE QMC
+CALCULATIONS
+The key factor in reaching high accuracy using QMC is the choice of trial wave function
+ΨT. For all-electron DMC calculations the nodes of the wavefunction are the only factor
+21
+
+in determining the error in the computed energy, while the bulk of the wavefunction aﬀects
+the statistical eﬃciency and timestep error of the calculation. For calculations involving
+pseudopotentials, high accuracy of the trial wavefunction is also needed around the atomic
+cores to minimize the approximations in evaluating the non-local energy. Single Slater de-
+terminant (SD) wavefunctions built with Hartree-Fock or Kohn-Sham orbitals supplemented
+by a Jastrow correlation factor generally give good results, e.g. Ref. 89, and are used almost
+exclusively today in solid-state calculations.
+Reaching systematic convergence of the trial wavefunction and its nodal surface for gen-
+eral systems has been a key challenge for real space QMC methods since their invention.
+Besides increasing accuracy in calculated properties, this is also required to remove the start-
+ing point dependence and allow use of QMC where all potential sources of trial wavefunction
+are unreliable. In 2008 this was performed for ﬁrst row atoms and diatomic molecules Ref.90,
+and improved algorithms are aiding calculations on larger systems91. For general systems
+with many electrons, the overall challenge remains. Furthermore, if the wavefunction is to
+be used in DMC, commonly used optimization techniques only optimize the nodal surface
+indirectly by improving the VMC energy and/or variance. Minimization of the objective
+function is therefore not guaranteed to minimize the ﬁxed-node energy. Consistently high
+accuracy wavefunctions are also needed around atomic cores to minimize the locality error
+in pseudopotential evaluation, posing a challenge for trial wavefunction optimization with a
+large number of coeﬃcients.
+One possible step along the way would be to optimize all the orbital coeﬃcients in a
+single determinant wavefunction, but due to the limited ﬂexibility in describing the (3N −1)
+dimensional nodal surface this protocol can not give exact nodes for general systems. This
+approach could represent a useful starting point independent step, while keeping a simple
+form for the trial wavefunction. Other possibilities for improving the trial wavefunction
+while retaining simplicity include techniques such as backﬂow and iterative backﬂow92,93,
+and antisymmetrized geminal product wavefunctions (e.g. Ref. 94). However, more ﬂexible
+and complex trial wavefunctions are required to achieve systematic convergence of the nodal
+surface and to approach exact results for general systems.
+The most straightforward method to improve the quality of the trial wavefunction nodes
+in a convergeable manner is to increase its complexity via a multi-Slater determinant (MSD)
+or conﬁguration-interaction (CI) expansion:
+22
+
+ΨT =
+M
+X
+i=1
+ciD↑
+i D↓
+i eJ
+(9)
+where ΨT is expanded in a weighted (ci) sum of products of up and down spin deter-
+minants Di, and J is the Jastrow correlation factor. In the limit of a full conﬁguration
+interaction calculation in a suﬃciently large and complete basis set, this wavefunction is
+able to represent the exact wavefunction. However, direct application of conﬁguration inter-
+action is prohibitively costly for all but the smallest systems, because very large numbers of
+determinants are usually required. To speed application, an eﬃcient selection procedure for
+the determinants is needed. This can be combined with eﬃcient algorithms for evaluating
+the wavefunction in QMC.95–97
+A.
+Ground state calculations
+Multiple variants of selected Conﬁguration Interaction (sCI) methods have recently
+demonstrated signiﬁcant success at reaching high accuracy for ground state and excited
+states of molecular systems with tractable computational cost.
+Within the class of sCI
+methods, the CIPSI98 method has proven to be practical in providing high accuracy wave-
+functions for QMC for both molecular systems and for solids99–105. sCI methods enable
+unbiased construction of the trial wavefunction using only a single threshold parameter and
+therefore avoid the complexities of, for example, CASSCF techniques which require expert
+selection of the active space. CIPSI algorithms are implemented in the Quantum Package
+2.0 code25 and fully interfaced with QMCPACK and Nexus.
+For systems where CIPSI can be fully converged to the FCI limit and reliably extrapolated
+to the basis set limit, QMC is not required, but for any reasonable number of electrons,
+QMC can be used to further improve the convergence. The wavefunctions produced from
+CIPSI can be used either directly, in which case the nodal error is determined by the CIPSI
+procedure, or used to provide an initial selection of determinants whose coeﬃcients are
+subsequently reoptimized in presence of a Jastrow function, or used within DMC where the
+projection procedure will improve on the CIPSI wavefunction. This procedure is equally
+applicable to solids as well as molecules, provided k-points and their symmetries are fully
+implemented.
+23
+
+In the following, we illustrate these techniques by application to molecular and solid-state
+lithium ﬂuoride. In both cases, we use Linear Combination of Atomic Orbitals (LCAO) and
+diﬀerent Gaussian basis set sizes to generate the trial wavefunctions. CIPSI energies refer
+to the variational energy corrected with the sum of energies from second order perturbation
+theory (PT2) of each determinant, i.e. E+PT2 , at convergence in energy with the number of
+determinants. Since the sizes of both systems are small enough to reach CIPSI convergence
+with, for the largest case, less than 5M determinants, for the DMC calculations, the coeﬃ-
+cients of the determinants are not reoptimized in presence of a Jastrow function. The cost of
+DMC with a CIPSI trial wavefunction scales as
+p
+(N)∗(V arRatio)2 where N is the number of
+determinants in the expansion and V arRatio is the ratio between the variance of a system at
+1 determinant and the same system at N determinants (V arRatio = V arNdets
+V ar1det ). In the case of
+the molecular systems, V arRatio varies between 0.7 (for cc-pcVDZ and N = 1.6M) and 0.8
+(cc-pcVQZ and N = 5.2M) or an increase of cost ranging from 620 and 1500 times the cost
+of a single determinant DMC run. In the case of the solid, V arRatio varies between 0.83 (for
+cc-pVDZ and N = 700k) and 0.56 (cc-pcVQZ and N = 9M) or an increase of cost ranging
+from 570 and 940 times the cost of a single determinant DMC run. The main diﬀerence
+in the change of cost between the molecular system and solid system is the use of ECPs,
+reducing signiﬁcantly the variance of the calculations for both DMC(SD) and DMC(CIPSI)
+B.
+Molecular Lithium Fluoride
+Lithium Fluoride is a small molecule for which the multi-determinant expansion and
+therefore trial wavefunction can be fully converged to the FCI limit using the CIPSI method.
+Moreover, CCSD(T) calculations of the Vertical Ionization Potential (VIP) are feasible and
+it’s experimental value is known106, providing reliable reference data. Care has to be taken
+in the comparison to experimental values, as experimental measurements include intrinsic
+uncertainties and environmental parameters such as temperature. These eﬀects, including
+zero-point motion, are not included in our study and might explain the remaining dis-
+crepancies between our calculations and the experimental ionization energy value given by
+Berkowitz et al. Berkowitz, Tasman, and Chupka 106
+While the total energies at each basis set of ground state calculations and cation calcula-
+tions are diﬀerent, their trends are identical and we therefore only show ﬁgures representing
+24
+
+the ground state. Figure-7 shows the ground state DMC total energies of LiF, computed
+using various trial wavefunctions; single-determinant such as Hartree-Fock (HF), DFT’s
+PBE0 and B3LYP hybrid functionals and multi-determinant using the converged CIPSI
+trial wavefunction. CCSD(T) and CIPSI energies are added to the ﬁgure for reference and
+all calculations are performed for 3 basis-sets increasing in size (cc-pCVNZ, N=D,T,Q) and
+extrapolated to the complete basis-set limit (CBS). The trends of CCSD(T) and CIPSI total
+energies are in agreement with each other to the CBS limit. CIPSI calculations recover more
+correlation energy ∼0.24eV for the ground state and ∼0.13 eV for the cation. This is to be
+expected as CCSD(T) includes singles, doubles and perturbative triples excitations while
+CIPSI wavefunction includes up to 9th order excitations with more than 70% describing
+quadruple excitations (10% describing higher order excitations) for both ground and cation
+states. Interestingly, at the CBS limit, CIPSI total energy converges to the same limit as
+the DMC(CIPSI) energy while the CCSD(T) converges to the same energy as the SD-DMC
+energies.
+FIG. 7: Ground state total energies (eV) of molecular LiF for DMC(HF), DMC(B3LYP),
+DMC(PBE0), DMC(CIPSI) CCSD(T) and converged CIPSI using cc-pCVNZ basis sets
+where N=D,T,Q and extrapolate to the CBS limit. All single-determinant DMC curves are
+on top of each other.
+25
+
+At the DMC level of theory, the dependence on basis-set is rather weak; less than ∼10 meV
+in the worst case. In the LiF molecular case, the nodal surface of all tested single-determinant
+trial wavefunction are within error bars of each other, meaning they are essentially the
+same. Such weak dependence on the starting method and on the basis set are a a signiﬁcant
+advantage and strength of the method when compared to other methods such as sCI or
+even AFQMC. The use of CIPSI-based trial wavefunctions in DMC allows the recovery
+of 0.24eV for the ground state and 0.5eV for the cation. This diﬀerence underlines the
+diﬀerent sensitivity of the nodal surface to excited and charged states. The vertical ionization
+potential (VIP), EV IP = Ecation−Eground, DMC performed using CIPSI wavefunctions shows
+almost no dependency to the basis set size, Fig. 8 while DMC(CIPSI), CIPSI and CCSD(T)
+are in perfect agreement at the CBS limit, demonstrating good error compensation for the
+latter method.
+FIG. 8: Vertical ionization potential of LiF using diﬀerent methods and trial
+wavefunctions. The dashed line corresponds experiment.106
+26
+
+C.
+Solid-state Lithium Fluoride
+Solid LiF is a face centered cubic material with a large gap, used mainly in electrolysis for
+his role in facilitating the formation of an Li-C-F interface on the carbon electrodes107. The
+purpose of this example is to demonstrate basis set eﬀect and the systematic convergence of
+DMC energy with the number of determinants (a paper demonstrating convergence to the
+thermodynamic limit is in preparation). We simulated a cell of (LiF)2 (4 atoms per cell)
+at the Gamma point using correlation consistent electron-core potentials (ccECP)Bennett
+et al. 37, Wang et al. 40 described in Sec-IV and the cc-pVDZ, cc-pVTZ and cc-pVQZ basis
+set associated with the ccECPs. PySCF, Quantum Package and QMCPACK are able to
+simulate all shapes of cells with both real and complex wavefunctions, corresponding to any
+possible k-point. In this case, running at Gamma point is simply for convenience.
+For such a small simulation cell, it is possible to convergence the sCI wavefunction to the
+FCI limit with a reasonable number of determinants, as can be seen in Fig-9. The number
+of determinants needed to reach approximate convergence remains important: around 700K
+in cc-pVDZ, 6M in cc-pVTZ and 9M in cc-pVQZ. Similarly to the molecular case, in the
+converged energies for the cc-pVTZ and cc-pVQZ basis sets are in agreement, indicating
+that the basis set is suﬃciently convergence. Interestingly, in the cc-pVTZ case the DMC
+energy converges signiﬁcantly faster with the number of determinants (700K instead of
+6M). The slower convergence of the cc-pVQZ curve indicates that important determinants
+describing relevant static correlations are introduced late in the selection process. Using
+natural orbitals or in general, an improved choice of orbitals or selection scheme could
+accelerate the convergence.
+D.
+Solid-state band gap calculations
+The band gap of a solid is a critical and fundamental property of a material to predict
+accurately. QMC calculations for solids have traditionally used completely independent cal-
+culations for ground and excited states and single determinant calculations. This approach
+can be accurate but it relies on good error cancelation between the calculated total energy
+for each state, making the selection of consistently accurate trial wavefunctions critical. Im-
+proved methods are needed to enforce good error cancelation including approaches that can
+27
+
+-868.00
+-867.95
+-867.90
+-867.85
+-867.80
+-867.75
+-867.70
+1e+04
+1e+05
+1e+06
+1e+07
+DMC Energy (eV)
+Number of Determinants
+cc-pVDZ
+cc-pVTZ
+cc-pVQZ
+FIG. 9: Convergence of DMC energies of solid LiF using for diﬀerent basis sets with
+respect to the number of determinants.
+be systematically converged to give in-principle exact results.
+As discussed above, convergent wavefunctions and energies can be constructed using sCI
+techniques. However, even for small primitive cells with relatively uncorrelated electronic
+structures, this approach quickly requires millions of determinants making it expensive to
+apply today.
+We have developed theories, methods and implementations to obtain the
+band-edge wavefunctions around the fundamental gap and their relative energies eﬃciently
+and to a high accuracy. Error cancelation is built into the methodology so that simpler
+trial wavefunctions are eﬀective and the scheme is substantially more eﬃcient to apply.
+Surprisingly, for the systems examined so far, only single and double excitations need be
+considered to obtain accurate band gaps, even using the simple VMC method. This makes
+the technique comparatively cheap to apply.
+To compute the optical band gaps of insulators and semi-conductors we use the energy
+diﬀerence of optimized wave functions that describe the valence band maximum (VBM) and
+the conduction band minimum (CBM). Optimizations use the recently developed excited
+28
+
+state variational principle,108–110
+Ω(ω, Ψ) =
+⟨Ψ|ω −H|Ψ⟩
+
+Ψ|(ω −H)2|Ψ
+ =
+ω −E
+(ω −E)2 + σ2
+(10)
+whose global minimum is not the ground state but the eigenstate with energy immediately
+above the chosen value ω, which could be placed within the band gap to target the ﬁrst
+excited state and thus predict the optical gap.
+QMCPACK evaluates Ωvia variational
+Monte Carlo (VMC) method to avoid explicit dealing with the H2 term, and minimizes it
+using the linear method. For ground state, we include the closed-shell determinant built
+from Kohn-Sham (KS) orbitals, plus all single-particle-hole excitations, which represents
+the leading-order terms of orbital rotation that transforms KS orbitals to the ones that
+minimizes Ωin the presence of the Jastrow factor. For the excited state, we include all
+the single-particle-hole excitations as in Bethe-Salpeter equation (BSE)111 methods as well
+as selected double excitations to capture the re-polarization of the electron cloud in the
+vicinity of the exciton. We use the variance of the wavefunctions as a proxy for accuracy,
+and by varying the number of determinants choose ground and excited states with consistent
+variance.
+We have used this approach in Ref. 112 to study optical gaps of a variety of solids
+ranging from small-gap semi-conductors to large gap insulators and compare our results to
+the commonly used GW approach based on many-body perturbation theory (MBPT). As
+detailed in the supplemental information of Ref. 112 the band gaps were extrapolated using
+calculations on 8, 16 and 24 atom supercells. Figure 10 shows that the predicted optical
+gaps are in excellent agreements with experimental values and the mean absolute deviation
+(MAD) is just 3.5%, compared to MADs more than twice this large for the optical gaps
+obtained by subtracting the known exciton binding energy from G0W0 and self-consistent
+GW gaps. These calculations were able to run of departmental level computing and did
+not require supercomputers due to the use of VMC and moderate sized supercells utilized.
+Remaining errors that have yet to be investigated include the size of the CI expansion and
+the limited correlation energy obtained with VMC, the pseudopotentials, and residual ﬁnite
+size error. DMC may further improve the VMC results.
+In order to further show the method’s advantage, we performed a thorough analysis of
+zinc oxide, a material that is particularly challenging for MBPT.115 As shown in Figure 10,
+the perturbative nature of G0W0 makes its prediction highly sensitive to the amount of
+29
+
+FIG. 10: Left: VMC optical gap predictions plotted against experimental results. The
+VMC wavefunctions are constructed via a conﬁguration interaction singles doubles
+expansion (VMC-CISD) or with single determinants (VMC-SD). Right: Comparison of
+optical gap of ZnO between G0W0 using one-particle starting points that employ diﬀerent
+fractions of exact exchange with VMC results based on the same starting points. VMC
+data from Zhao,112 G0W0 results are from Fuchs113 and experimental data is from Lauck.114
+exact exchange included in the DFT reference. As G0W0 assumes a zeroth-order picture,
+in which electronic excitations are simple particle-hole transitions between the one-particle
+eigenstates of DFT, such a sensitivity indicates the break down of this assumption and
+then G0W0 becomes unreliable. On the other hand, our VMC approach is designed to be
+insensitive to the DFT choice for two reasons: (1) its ability to include approximate orbital
+relaxation counteracts the shortcomings of the DFT orbitals. (2) unlike G0W0 it does not
+require orbital energies as input. From Figure 10 we do ﬁnd that its prediction to optical
+gap is both accurate and independent to the choice of DFT functionals.
+30
+
+E.
+Summary
+Using DMC as a post-sCI method is very promising to systematically improve molecular
+and solid-state calculations beyond the single-determinant picture. It converges faster the
+sCI methods used on their own. From a practical perspective, PySCF, Quantum Package
+and QMCPACK are fully interfaced with each other through the Nexus workﬂow automation
+system. The necessary multi-step workﬂow to run the above examples is fully implemented.
+In the case of solids, Nexus can automatically manage ﬁnite-size scaling calculations by
+setting the size of the super-cells, the number of twists angles, and drive PySCF, Quantum
+Package, and QMCPACK appropriately and automatically.
+VII.
+APPLICATIONS
+To illustrate the application of recent developments in QMCPACK, in Section VII A we
+give an example of using real space QMC to study non-valence anions, which are particularly
+challenging systems. Section VII B gives an example of computing the excited states of
+localized defects, which is a challenge for all electronic structure methods. In Section VII C
+we give an example of computing the momentum-distribution and Compton proﬁle from
+real space methods. The necessary estimators have recently been speciﬁcally optimized for
+these tasks.
+A.
+Applications of DMC to Non-valence Anions
+In addition to valence anions, molecules and clusters can posses non-valence anions in
+which the binding of the excess electron is dominated by a combination of long-range elec-
+trostatics and long-range dispersion-type correlation eﬀects. The best known class of non-
+valence anions are dipole-bound anions, in which the binding of the excess electron is driven
+by the dipole ﬁeld of the neutral.116–121 Non-valence anions, regardless of the nature of the
+long-range interaction responsible for the electron binding, are challenging to treat using
+traditional electronic structure methods due to the large, highly diﬀuse basis sets required.
+Both DMC and AFQMC methods have been demonstrated to be useful in characterizing
+dipole-bound anions.122,123 Non-valence anions in which electron correlation eﬀects domi-
+nate the binding of the excess electron pose an additional challenge, namely, by deﬁnition,
+31
+
+they do not bind the excess electron in the Hartree-Fock (HF) approximation. In fact, HF
+calculations on such excess electron systems collapse on to the neutral molecule leaving the
+excess electron in a discretized continuum orbital.124 Hence, methods that start from the
+HF wave function, e.g., MP2 and CCSD(T),125 also fail to bind the excess electron. Many-
+body methods such as equation-of-motion coupled cluster (EOM-CC),126–129 have proven
+successful in treating these species, but still face the problem of requiring very large basis
+sets.
+This raises the question of whether DMC calculations using a single Slater determi-
+nant trial wave function to deﬁne the nodal surface can accurately describe non-valence
+correlation-bound (NVCB) anions. To investigate this, we have undertaken DMC calcula-
+tions on a (H2O)4 model with the monomers arranged so that the net dipole is zero.124 This
+model has been studied previously using EOM-CC methods. In the present work, we focus
+on a geometry at which the excess electron does not bind in the HF approximation, but for
+which EOM-EA-CCSDT129 calculations using the aug-cc-pVDZ basis set130,131 augmented
+with a 7s7p set of diﬀuse functions located at the center of the molecular cluster give an
+electron binding energy (EBE) of 174 meV.124
+For the QMC calculations, Slater-Jastrow trial wave functions that are products of a single
+Slater determinant comprised of HF or DFT orbitals and a Jastrow factor were employed.
+All calculations were carried out using the ccECP pseudopotentials with the corresponding
+aug-cc-pVDZ type basis sets37,39 augmented with the same 7s7p set of diﬀuse functions
+as employed in ref 124. The DMC calculations were carried out at three imaginary time
+steps (0.001 Ha−1, 0.003 Ha−1, 0.005 Ha−1), and a linear extrapolation was performed to
+obtain the zero time step limit. HF calculations with this basis set fail to bind the excess
+electron, and a plot (see Fig. 11) of the singly occupied orbital of the excess electron system
+reveals that it is very diﬀuse because it has collapsed onto the lowest “continuum” solution
+as described by the discrete basis set. The QMC calculations were carried out with the
+QMCPACK code.
+The Jastrow factors used in the trial wave functions included electron-electron, electron-
+nuclei, and electron-electron-nuclei terms. Normally, one would optimize the parameters in
+the Jastrow factors separately for the neutral and for the anion. However, this approach
+would not give meaningful results for an unbound anion, and, as a result, we adopted
+the strategy of using the Jastrow factor optimized for the neutral in the subsequent DMC
+32
+
+FIG. 11: The singly occupied orbital from (left) HF and (right) B3LYP calculations on
+the anion of the (H2O)4 cluster model. These were carried out using the ccECP and the
+corresponding aug-cc-pVDZ basis set, augmented with a set of 7s7p diﬀuse functions
+centered at the origin. The bounding box is 100 a.u. on each side, and the isosurface value
+is set to 0.0005 to enable comparison between the images. The highly diﬀuse orbital from
+the HF calculation is actually describing an approximation to a continuum function in the
+ﬁnite Gaussian basis rather than the orbital appropriate for the anion.
+calculations of the anion. The DMC calculations using trial wave functions determined in
+this manner give an EBE of 183±10 meV, in good agreement with the previous EOM-EA-
+CCSDT result (174 meV).124 This demonstrates that DMC calculations can recover from
+the use of a trial wave function for the anion that has collapsed onto a discretized continuum
+solution.
+Even so, there remains the question of whether the EBE obtained from DMC calculations
+that use an unphysical (i.e., collapsed onto the continuum) trial wave function could incur
+an appreciable error due to an inadequate description of the nodal surface of the anion. To
+address this question, we also carried out VMC and DMC calculations on the neutral and
+anion of the (H2O)4 cluster model using orbitals from B3LYP132–134 calculations employing
+the same pseudopotential and basis sets as used for the HF calculations.
+The anion is
+bound by 395 meV in the B3LYP calculations, and the singly occupied orbital of the excess
+33
+
+electron system, while still diﬀuse, is localized much closer to the molecule than in the
+HF calculations. A comparison of the charge distributions of the singly occupied orbitals
+from the HF and DFT calculations (see Fig. 11) shows that the DFT charge distribution is
+much less spatially extended. Moreover, it more closely resembles the charge distribution
+of the relevant natural orbital from the EOM calculation of Ref. 124. (The over-binding
+of the anion in the B3LYP calculations is likely due to the ﬁnite extent of the integration
+grid.) The DMC calculations using trial wave functions derived from B3LYP orbitals give
+an EBE of 212±11 meV, ∼29 meV larger than the DMC result obtained using HF orbitals.
+This increase indicates that employing a trial wave function with a more physical charge
+distribution for the singly occupied orbital of the anion does have an impact on the nodal
+surface for the exchange of the electrons.
+The EOM-EA-CCSDT result obtained using
+the aug-cc-pVDZ+7s7p basis set is 38meV smaller than the DMC EBE obtained using the
+trial wave function employing B3LYP orbitals.
+This suggests that the EBE from EOM
+calculations may not be fully converged in these large basis sets.
+Overall, these results
+demonstrate that DMC is a viable approach for the characterization of NVCB anions.
+B.
+Excitation energies of localized defects
+For defects and interfaces, most ab-initio methods can only achieve qualitative agreement
+on the optical properties. We have recently studied emission energies of Mn4+-doped solids
+using DMC, which is chosen as proof of principle11. We show that our approach is applicable
+to similar systems, provided that the excitation is suﬃciently localized. In support of this
+work, Nexus scripts and new tutorials on excited state calculations were developed that can
+be applied to any gapped system (Lab 5 in the QMCPACK manual).
+Multivalent ionic defects, such as Mn4+, can create multiple localized electronic states
+that are trapped within the band gap of wide gap materials. Thus, luminescent centers
+are created in the dopant sites through radiative recombination. Mn4+ has d3 electronic
+conﬁguration all on the t2g orbitals. The ground state is in t↑↑↑
+2g (4A2g) conﬁguration due to
+Hund’s rules, but the excited state is found to be as t↑↑↓
+2g (2Eg)135. Therefore, the emission
+energy is simply deﬁned as Eem = E(2Eg) −E(4A2g).
+Fig. 12(a) shows that DMC can reproduce experimental emission energies of Mn4+ doped
+insulating host compounds136–138. DFT+U and hybrid-DFT, however, substantially under-
+34
+
+0
+1
+2
+3
+4
+r(˚A)
+0.00
+0.06
+0.12
+0.18
+0.24
+n(r) in (Ne)
+r(Mn-O)1
+r(Mn-O)2
+(b)
+LDA+U
+DMC
+0.0
+0.5
+1.0
+1.5
+2.0
+r(˚A)
+0.0
+0.5
+1.0
+g(r) in (Ne/˚A3)
+Al2O3
+MgO
+Y2O3
+K2SiF6
+1.0
+1.2
+1.4
+1.6
+1.8
+2.0
+2.2
+Emisssion Energy (eV)
+(a)
+DMC
+Exp
+LDA+U
+PBE
+PBE+U
+HSE
+FIG. 12: (a) Emission energies of Mn4+ doped host compounds (on x-axis). (b) Number
+of electrons per radial volume, n(r), around the Mn atom. The inset shows the radial
+distribution function g(r) for the same density. Number of electrons per radial volume and
+the radial distribution functions are related as n(r) = g(r)4πr2dr. Reproduced from Ref.
+11.
+estimate. Relative quantitative success of HSE with respect to PBE (or DFT+U) indicates
+that emission energies might be reproduced with a larger portion of exact exchange. How-
+ever, this would worsen the accuracy of the computed band gaps in the host compounds11.
+In Fig. 12(b), we show the spin ﬂipped electrons per radial volume n(r) = ρ↑
+ground −ρ↑
+excited
+which is spherically integrated around the Mn4+ atom. n(r) approaches to zero with increas-
+ing radius indicating that excited electron density is strongly localized on the impurity atom.
+DMC and LDA+U n(r) densities are almost identical to each other despite the large diﬀer-
+ence in their emission energies which underscore the diﬃculties that needed to be overcome
+for better DFT functionals139.
+C.
+Calculation of the many-body properties: the momentum distribution
+As full-many body methods, QMC can be used to calculate many-body properties that
+can not be readily obtained from single-particle or mean-ﬁeld techniques. We have recently
+updated and optimized calculation of the momentum distribution.
+Experimentally the momentum distribution function (MDF) can be accessed, e.g., via
+angle-resolved photoemission spectroscopy and scattering methods such as Compton scat-
+35
+
+tering, positron annihilation, the (e, 2e) process, and high energy electron scattering140–143.
+In general, the diﬀerential cross sections of the scattering can be related to the momentum
+distribution. These experimental techniques are powerful probes for understanding subtle
+details in the ground state properties of materials, which are manifested in the MDF.
+In normal Fermi liquids, the electron MDF has a discontinuity at the Fermi momentum
+pF. In three-dimensional systems this discontinuity deﬁnes the shape of the Fermi surface,
+which is also related to the screening properties of the electrons144. The Fermi surface can
+be extracted from the p-space MDF via back-folding145. This leads to occupation density
+within the ﬁrst Brillouin zone from which the Fermi surface topology can be considered146.
+The magnitude of the discontinuity at the Fermi surface, however, quantiﬁes the strength
+of a quasiparticle excitation and is generally referred to as the renormalization factor147,148.
+For strongly coupled systems the renormalization factor tends to zero as the coupling
+strength increases, and thus, it provides an estimate for the strength of electron correla-
+tions. Interestingly, the discontinuity at the Fermi momentum disappears for superﬂuids or
+superconducting materials. For insulators the discontinuity is absent and the sharp drop is
+noticeably broadened, which also holds true for some semi-metals149,150. Even small scale
+charge density oscillations lead to clear signatures in the MDF151. Therefore, the momentum
+distribution function provides complementary and informative knowledge to other charac-
+terizations of many-body systems.
+The MDF, n(p), is obtained by taking the Fourier transform of the one-body density
+matrix:
+n(p) = Ne
+Ω
+Z
+dRdr′
+1 ei(r1−r′
+1)·pρ(r1, . . . , rNe, r′
+1, . . . , rNe) = Ne
+Ω
+Z
+ds e−ip·sn(s),
+where Ωis the volume containing Ne electrons, R = {r1, . . . , rNe}, s = r′
+1 −r1, and
+n(s) =
+Z
+dR ρ(r1, . . . , rNe, r1 + s, . . . , rNe).
+In variational Monte Carlo this is expressed as
+n(s) =
+Z
+dR Ψ∗(r1, . . . , rNe)Ψ(r1 + s, . . . , rNe) =
+Z
+dR |Ψ(R)|2Ψ(R′)
+Ψ(R) ,
+where R′ = {r1 + s, . . . , rNe}. Thus, we get for the MDF:
+n(p) =
+Z
+dR |Ψ(R)|2Ne
+Ω
+Z
+dsΨ(R′)
+Ψ(R) e−ip·s.
+36
+
+In practice, the Monte Carlo estimate for the MDF with Ns samples is given by
+n(p) =
+*
+1
+ΩNs
+Ns
+X
+i=1
+Ne
+X
+j=1
+Ψ(R + si
+j)
+Ψ(R)
+e−ip·si
+j
++
+|Ψ(R)|2
+,
+(11)
+where R includes the coordinates of all the electrons, and si
+j is a displacement vector acting
+on the jth electron of the ith sample. In diﬀusion Monte Carlo calculations the mixed dis-
+tribution replaces |Ψ(R)|2 , and additional measures must be taken to calculate or estimate
+the density matrix. Notice that the momentum distribution normalizes to the number of
+electrons
+X
+p
+n(p) = Ne =
+Ω
+(2π)d
+Z
+dp n(p),
+(12)
+in which d refers to dimensionality. In Eq. (12) a ﬁnite system and a system at the thermo-
+dynamic limit are described by summation and integration, respectively.
+The MDF estimator is a one-body density matrix based estimator with very high compu-
+tational cost resulting from the large number of wavefunction evaluations required. A naive
+implementation can easily double the cost of a QMC calculation. Thus, eﬃcient algorithm
+and implementations are critical, and similar techniques can be used for related estimators.
+In Eq. (11), the computation of wavefunction ratios
+Ψ(R+si
+j)
+Ψ(R)
+and phase factor e−ip·si
+j are
+both expensive. Direct NeNs times of calculation is easy to implement but has a lot of
+repeated eﬀort. In the
+Ψ(R+si
+j)
+Ψ(R)
+term, the evaluation of single particle orbitals at rj + si
+j
+dominates the cost. In fact, its call count can be reduced from NsNe to Ns by making
+si
+j = r′
+i −rj
+(13)
+where r′
+i is the electron coordinates of sample i. Although the leading cost of
+Ψ(R+si
+j)
+Ψ(R)
+is
+optimized away, its remaining terms still scale as O(NsN 2
+e ) and the computational cost
+should be comparable to the non-local pseudopotential calculation.
+Unlike the wavefunction ratios which needs to be computed only once for all the p, phase
+factors are computed for each p and also take signiﬁcant portion of time. Similarly, for each
+p, the number of evaluations can be reduced to Ns + Ne times by separating indices i and j
+in two terms like Eq. (13). The calculation of e−ip·r′
+i and e−ip·rj can be eﬃciently vectorized
+using the single instruction multiple data (SIMD) unit in modern processors.
+37
+
+FIG. 13: QMCPACK result for the diﬀerence in the momentum distribution of VO2 across
+the metal-insulator phase transition based on Ref. 151. (a) and (b) show two planes of the
+3D diﬀerence proﬁle. In (c) the diﬀerences are given in four diﬀerent directions and also for
+the angular averaged MDF. For more details, see Ref. 151.
+By applying the above techniques and ensuring vectorization of all operations, the over-
+head for evaluating the MDF in a 48 atom cell VO2 was reduced from additional 150% to
+only 50% cost increase compared to a DMC run without any estimators.
+Within the so-called impulse approximation (IA) the Compton proﬁle as well as the
+dynamical structure factor are proportional to the projection of n(p) onto a scattering
+vector149,152. In this case directional Compton proﬁle in z-direction would be expressed as
+J(q) =
+Ω
+(2π)3
+ZZ
+n(px, py, pz = q)dpxdpy.
+The IA is especially appropriate for X-ray Compton scattering from electronic systems142,149,
+and thus, it is capable of providing a unique perspective for understanding the electronic
+structure of materials; bulk properties, in particular.
+In Ref. 151 QMCPACK was used in obtaining the MDFs and Compton proﬁles for VO2
+across its metal insulator transition from metallic rutile (R) phase to insulating monoclinic
+(M1) phase. There the analysis of the MDF shows signatures of the non-Fermi liquid char-
+acter of the metallic phase of vanadium dioxide.
+Moreover, ﬁndings therein provide an
+explanation for the experimentally observed anomalously low electronic thermal conductiv-
+ity153, which manifests as back scattering characteristics within the momentum distribution
+function. Fig. 13 shows some examples of MDF diﬀerences across the phase transition in
+two planes as well as for a few diﬀerent directions151.
+38
+
+VIII.
+SUMMARY
+We have described recent enhancements to the open source QMCPACK package. Be-
+sides increases in capability for both real space and auxiliary ﬁeld Quantum Monte Carlo
+(QMC) methods, the surrounding ecosystem has also been improved. These enhancements
+include the workﬂow system Nexus, which aims to reduce the complexity of performing
+research studies and the tens to hundreds of individual calculations that might be en-
+tailed. A new set and open database of eﬀective core potentials has also been established
+at https://pseudopotentiallibrary.org, and we expect that these will be of interest
+for other quantum chemical and many-body calculations due to their increased accuracy,
+including for stretched bonds and excited states. We have also described how improvements
+in open software development have beneﬁtted the project. Besides the activities described
+in this article, we note that there is substantial ongoing work to enhance the architecture
+of QMCPACK for GPU accelerated machines and to obtain portable performance from a
+single code base. Once the new design is proven on diverse GPUs it will be described in a
+future article.
+Overall the applicability of QMC continues to expand, it is becoming easier to apply, and
+there are many systems and phenomena where the higher accuracy and many-body nature
+of QMC is both warranted and can now be applied. We hope that this article will help
+encourage these new applications.
+DATA AVAILABILITY
+The data that support the ﬁndings of this study are available from the corresponding
+author upon reasonable request.
+ACKNOWLEDGMENTS
+Methodological development and scientiﬁc applications of QMCPACK are currently pri-
+marily supported by the U.S. Department of Energy, Oﬃce of Science, Basic Energy Sci-
+ences, Materials Sciences and Engineering Division, as part of the Computational Materials
+Sciences Program and Center for Predictive Simulation of Functional Materials. Software
+developments focused on future Exascale architectures are supported by the Exascale Com-
+39
+
+puting Project (17-SC-20-SC), a collaborative eﬀort of the U.S. Department of Energy Oﬃce
+of Science and the National Nuclear Security Administration. S.U. and K.D.J. acknowledge
+the support of NSF grant CHE-1762337. B.R. acknowledges previous support for the work
+described from the U.S. Department of Energy by Lawrence Livermore National Labora-
+tory under Contract DEAC52-07NA27344, 15-ERD-013 and NSF grant DMR-1726213. An
+award of computer time was provided by the Innovative and Novel Computational Impact
+on Theory and Experiment (INCITE) program. This research used resources of the Argonne
+Leadership Computing Facility, which is a DOE Oﬃce of Science User Facility supported
+under contract DE-AC02-06CH11357. This research also used resources of the Oak Ridge
+Leadership Computing Facility, which is a DOE Oﬃce of Science User Facility supported
+under Contract DE-AC05-00OR22725. Sandia National Laboratories is a multi-mission lab-
+oratory managed and operated by National Technology and Engineering Solutions of Sandia
+LLC, a wholly owned subsidiary of Honeywell International, Inc. for the U.S. Department of
+Energys National Nuclear Security Administration under Contract No. de-na0003525. This
+paper describes objective technical results and analysis. Any subjective views or opinions
+that might be expressed in the paper do not necessarily represent the views of the U.S.
+Department of Energy or the United States Government.
+REFERENCES
+1F. Becca, Quantum Monte Carlo Approaches for Correlated Systems (Cambridge Univer-
+sity Press, 2017).
+2R. M. Martin, L. Reining, and D. M. Ceperley, Interacting Electrons (Cambridge Uni-
+versity Press, 2016).
+3W. M. C. Foulkes, L. Mitas, R. J. Needs,
+and G. Rajagopal, “Quantum Monte Carlo
+simulations of solids,” Reviews of Modern Physics 73, 33–83 (2001).
+4J. Kim, A. D. Baczewski, T. D. Beaudet, A. Benali, M. C. Bennett, M. A. Berrill, N. S.
+Blunt, E. J. L. Borda, M. Casula, D. M. Ceperley, S. Chiesa, B. K. Clark, R. C. Clay,
+K. T. Delaney, M. Dewing, K. P. Esler, H. Hao, O. Heinonen, P. R. C. Kent, J. T.
+Krogel, I. Kyl¨anp¨a¨a, Y. W. Li, M. G. Lopez, Y. Luo, F. D. Malone, R. M. Martin,
+A. Mathuriya, J. McMinis, C. A. Melton, L. Mitas, M. A. Morales, E. Neuscamman,
+W. D. Parker, S. D. P. Flores, N. A. Romero, B. M. Rubenstein, J. A. R. Shea, H. Shin,
+40
+
+L. Shulenburger, A. F. Tillack, J. P. Townsend, N. M. Tubman, B. V. D. Goetz, J. E.
+Vincent, D. C. Yang, Y. Yang, S. Zhang, and L. Zhao, “QMCPACK: an open source ab
+initio quantum monte carlo package for the electronic structure of atoms, molecules and
+solids,” Journal of Physics: Condensed Matter 30, 195901 (2018).
+5C. Genovese, T. Shirakawa, and S. Sorella, “The nature of the quadruple chemical bond
+in the dicarbon molecule,” (2019), arXiv:http://arxiv.org/abs/1911.09748v1.
+6N. Dupuy and M. Casula, “Fate of the open-shell singlet ground state in the experimen-
+tally accessible acenes: A quantum Monte Carlo study,” The Journal of Chemical Physics
+148, 134112 (2018).
+7J. G. Brandenburg, A. Zen, M. Fitzner, B. Ramberger, G. Kresse, T. Tsatsoulis,
+A. Gr¨uneis, A. Michaelides, and D. Alf`e, “Physisorption of Water on Graphene: Subchem-
+ical Accuracy from Many-Body Electronic Structure Methods,” The Journal of Physical
+Chemistry Letters 10, 358–368 (2019).
+8J. Shee, B. Rudshteyn, E. J. Arthur, S. Zhang, D. R. Reichman,
+and R. A. Fries-
+ner, “On Achieving High Accuracy in Quantum Chemical Calculations of 3d Transition
+Metal-Containing Systems: A Comparison of Auxiliary-Field Quantum Monte Carlo with
+Coupled Cluster, Density Functional Theory, and Experiment for Diatomic Molecules,”
+Journal of Chemical Theory and Computation 15, 2346–2358 (2019).
+9K. S. Qin, T. Ichibha, K. Hongo, and R. Maezono, “Inconsistencies in ab initio evaluations
+of non-additive contributions of DNA stacking energies,” Chemical Physics 529, 110554
+(2020).
+10J. Yu, L. K. Wagner, and E. Ertekin, “Fixed-node diﬀusion Monte Carlo description of
+nitrogen defects in zinc oxide,” Physical Review B 95, 075209 (2017).
+11K. Saritas, W. Ming, M.-H. Du, and F. A. Reboredo, “Excitation Energies of Localized
+Correlated Defects via Quantum Monte Carlo: A Case Study of Mn4+ Doped Phosphors,”
+The Journal of Physical Chemistry Letters 10, 67–74 (2019).
+12B. Busemeyer, G. J. MacDougall, and L. K. Wagner, “Prediction for the singlet-triplet
+excitation energy for the spinel MgTi2O4 using ﬁrst-principles diﬀusion Monte Carlo,”
+Physical Review B 99, 081118 (2019).
+13A. Zen, J. G. Brandenburg, A. Michaelides, and D. Alf`e, “A new scheme for ﬁxed node
+diﬀusion quantum Monte Carlo with pseudopotentials: Improving reproducibility and
+reducing the trial-wave-function bias,” The Journal of Chemical Physics 151, 134105
+41
+
+(2019).
+14B. Mussard, E. Coccia, R. Assaraf, M. Otten, C. J. Umrigar, and J. Toulouse, “Time-
+Dependent Linear-Response Variational Monte Carlo,” in Novel Electronic Structure The-
+ory: General Innovations and Strongly Correlated Systems (Elsevier, 2018) pp. 255–270.
+15K. Doblhoﬀ-Dier, G.-J. Kroes, and F. Libisch, “Density functional embedding for peri-
+odic and nonperiodic diﬀusion Monte Carlo calculations,” Physical Review B 98, 085138
+(2018).
+16M. Dash, J. Feldt, S. Moroni, A. Scemama,
+and C. Filippi, “Excited States with Se-
+lected Conﬁguration Interaction-Quantum Monte Carlo: Chemically Accurate Excitation
+Energies and Geometries,” Journal of Chemical Theory and Computation 15, 4896–4906
+(2019).
+17S. Azadi and W. M. C. Foulkes, “Eﬃcient method for grand-canonical twist averaging in
+quantum Monte Carlo calculations,” Physical Review B 100, 245142 (2019).
+18M. C. Per, E. K. Fletcher, and D. M. Cleland, “Density functional orbitals in quantum
+Monte Carlo: The importance of accurate densities,” The Journal of Chemical Physics
+150, 184101 (2019).
+19M. Motta, D. M. Ceperley, G. K.-L. Chan, J. A. Gomez, E. Gull, S. Guo, C. A. Jim´enez-
+Hoyos, T. N. Lan, J. Li, F. Ma, A. J. Millis, N. V. Prokof’ev, U. Ray, G. E. Scuseria,
+S. Sorella, E. M. Stoudenmire, Q. Sun, I. S. Tupitsyn, S. R. White, D. Zgid, and S. Z.
+and, “Towards the Solution of the Many-Electron Problem in Real Materials: Equation
+of State of the Hydrogen Chain with State-of-the-Art Many-Body Methods,” Physical
+Review X 7, 031059 (2017).
+20M. Motta and S. Zhang, “Ab initio computations of molecular systems by the auxiliary-
+ﬁeld quantum Monte Carlo method,” WIREs Computational Molecular Science 8, e1364
+(2018).
+21F. Alexander, A. Almgren, J. Bell, A. Bhattacharjee, J. Chen, P. Colella, D. Daniel,
+J. DeSlippe, L. Diachin, E. Draeger, A. Dubey, T. Dunning, T. Evans, I. Foster, M. Fran-
+cois, T. Germann, M. Gordon, S. Habib, M. Halappanavar, S. Hamilton, W. Hart, Z. H.
+Huang, A. Hungerford, D. Kasen, P. R. C. Kent, T. Kolev, D. B. Kothe, A. Kronfeld,
+Y. Luo, P. Mackenzie, D. McCallen, B. Messer, S. Mniszewski, C. Oehmen, A. Perazzo,
+D. Perez, D. Richards, W. J. Rider, R. Rieben, K. Roche, A. Siegel, M. Sprague, C. Steefel,
+R. Stevens, M. Syamlal, M. Taylor, J. Turner, J.-L. Vay, A. F. Voter, T. L. Windus, and
+42
+
+K. Yelick, “Exascale applications: skin in the game,” Philosophical Transactions of the
+Royal Society A: Mathematical, Physical and Engineering Sciences 378, 20190056 (2020).
+22F. Gygi, “Architecture of Qbox: A scalable ﬁrst-principles molecular dynamics code,”
+IBM Journal of Research and Development 52, 137–144 (2008).
+23Q. Sun, T. C. Berkelbach, N. S. Blunt, G. H. Booth, S. Guo, Z. Li, J. Liu, J. D. McClain,
+E. R. Sayfutyarova, S. Sharma, S. Wouters, and G. K. L. Chan, “PySCF: the Python-
+based simulations of chemistry framework,” WIREs Computational Molecular Science 8,
+e1340 (2017).
+24P. Giannozzi, S. Baroni, N. Bonini, M. Calandra, R. Car, C. Cavazzoni, D. Ceresoli, G. L.
+Chiarotti, M. Cococcioni, I. Dabo, A. D. Corso, S. de Gironcoli, S. Fabris, G. Fratesi,
+R. Gebauer, U. Gerstmann, C. Gougoussis, A. Kokalj, M. Lazzeri, L. Martin-Samos,
+N. Marzari, F. Mauri, R. Mazzarello, S. Paolini, A. Pasquarello, L. Paulatto, C. Sbraccia,
+S. Scandolo, G. Sclauzero, A. P. Seitsonen, A. Smogunov, P. Umari, and R. M. Wentzcov-
+itch, “QUANTUM ESPRESSO: a modular and open-source software project for quantum
+simulations of materials,” Journal of Physics: Condensed Matter 21, 395502 (2009).
+25Y. Garniron, T. Applencourt, K. Gasperich, A. Benali, A. Fert´e, J. Paquier, B. Pradines,
+R. Assaraf, P. Reinhardt, J. Toulouse, P. Barbaresco, N. Renon, G. David, J.-P. Malrieu,
+M. V´eril, M. Caﬀarel, P.-F. Loos, E. Giner, and A. Scemama, “Quantum Package 2.0:
+An Open-Source Determinant-Driven Suite of Programs,” Journal of Chemical Theory
+and Computation 15, 3591–3609 (2019).
+26M. W. Schmidt, K. K. Baldridge, J. A. Boatz, S. T. Elbert, M. S. Gordon, J. H. Jensen,
+S. Koseki, N. Matsunaga, K. A. Nguyen, S. Su, T. L. Windus, M. Dupuis,
+and J. A.
+Montgomery, “General atomic and molecular electronic structure system,” Journal of
+Computational Chemistry 14, 1347–1363 (1993).
+27M. Valiev, E. Bylaska, N. Govind, K. Kowalski, T. Straatsma, H. V. Dam, D. Wang,
+J. Nieplocha, E. Apra, T. Windus, and W. de Jong, “NWChem: A comprehensive and
+scalable open-source solution for large scale molecular simulations,” Computer Physics
+Communications 181, 1477–1489 (2010).
+28C. Ortiz, O. Eriksson,
+and M. Klintenberg, “Data mining and accelerated electronic
+structure theory as a tool in the search for new functional materials,” Computational
+Materials Science 44, 1042–1049 (2009).
+43
+
+29J. Hachmann, R. Olivares-Amaya, S. Atahan-Evrenk, C. Amador-Bedolla, R. S. S´anchez-
+Carrera, A. Gold-Parker, L. Vogt, A. M. Brockway, and A. Aspuru-Guzik, “The Harvard
+Clean Energy Project: Large-Scale Computational Screening and Design of Organic Pho-
+tovoltaics on the World Community Grid,” The Journal of Physical Chemistry Letters 2,
+2241–2251 (2011), http://dx.doi.org/10.1021/jz200866s.
+30S. Curtarolo, W. Setyawan, G. L. Hart, M. Jahnatek, R. V. Chepulskii, R. H. Taylor,
+S. Wang, J. Xue, K. Yang, O. Levy, M. J. Mehl, H. T. Stokes, D. O. Demchenko, and
+D. Morgan, “AFLOW: An automatic framework for high-throughput materials discovery,”
+Computational Materials Science 58, 218–226 (2012).
+31A. Jain, S. P. Ong, G. Hautier, W. Chen, W. D. Richards, S. Dacek, S. Cholia, D. Gunter,
+D. Skinner, G. Ceder, and K. A. Persson, “Commentary: The Materials Project: A ma-
+terials genome approach to accelerating materials innovation,” APL Materials 1, 011002
+(2013).
+32V. Konkov and R. Peverati, “QMC-SW: A simple workﬂow for quantum monte carlo
+calculations in chemistry,” SoftwareX 9, 7–14 (2019).
+33K. Saritas, T. Mueller, L. Wagner,
+and J. C. Grossman, “Investigation of a Quantum
+Monte Carlo Protocol To Achieve High Accuracy and High-Throughput Materials For-
+mation Energies,” Journal of Chemical Theory and Computation 13, 1943–1951 (2017).
+34J. T. Krogel, “Nexus: A modular workﬂow management system for quantum simulation
+codes,” Computer Physics Communications 198, 154–168 (2016).
+35D. M. Ceperley, “The statistical error of green’s function Monte Carlo,” Journal of Sta-
+tistical Physics 43, 815–826 (1986).
+36B. L. Hammond, P. J. Reynolds,
+and W. A. Lester, “Valence quantum Monte Carlo
+with ab initio eﬀective core potentials,” The Journal of Chemical Physics 87, 1130–1136
+(1987).
+37M. C. Bennett, C. A. Melton, A. Annaberdiyev, G. Wang, L. Shulenburger, and L. Mitas,
+“A new generation of eﬀective core potentials for correlated calculations,” The Journal of
+Chemical Physics 147, 224106 (2017).
+38M. C. Bennett, G. Wang, A. Annaberdiyev, C. A. Melton, L. Shulenburger, and L. Mi-
+tas, “A new generation of eﬀective core potentials from correlated calculations: 2nd row
+elements,” The Journal of Chemical Physics 149, 104108 (2018).
+44
+
+39A. Annaberdiyev, G. Wang, C. A. Melton, M. Chandler Bennett, L. Shulenburger, and
+L. Mitas, “A new generation of eﬀective core potentials from correlated calculations: 3d
+transition metal series,” The Journal of Chemical Physics 149, 134108 (2018).
+40G. Wang, A. Annaberdiyev, C. A. Melton, M. C. Bennett, L. Shulenburger, and L. Mitas,
+“A new generation of eﬀective core potentials from correlated calculations: 4s and 4p main
+group elements and ﬁrst row additions,” The Journal of Chemical Physics 151, 144110
+(2019).
+41M. Burkatzki, C. Filippi, and M. Dolg, “Energy-consistent small-core pseudopotentials
+for 3d-transition metals adapted to quantum Monte Carlo calculations,” The Journal of
+Chemical Physics 129, 164115 (2008).
+42M. Dolg, U. Wedig, H. Stoll, and H. Preuss, “Energy-adjusted ab initio pseudopotentials
+for the ﬁrst row transition elements,” The Journal of Chemical Physics 86, 866–872 (1987).
+43J. R. Trail and R. J. Needs, “Shape and energy consistent pseudopotentials for correlated
+electron systems,” The Journal of Chemical Physics 146, 204107 (2017).
+44L. Fernandez Pacios and P. A. Christiansen, “Ab initio relativistic eﬀective potentials with
+spin-orbit operators. I. Li through Ar,” The Journal of Chemical Physics 82, 2664–2671
+(1985).
+45W. J. Stevens, H. Basch,
+and M. Krauss, “Compact eﬀective potentials and eﬃcient
+shared-exponent basis sets for the ﬁrst- and second-row atoms,” The Journal of Chemical
+Physics 81, 6026–6033 (1984).
+46A. Annaberdiyev, C. A. Melton, M. C. Bennett, G. Wang,
+and L. Mitas, “Accurate
+Atomic Correlation and Total Energies for Correlation Consistent Eﬀective Core Poten-
+tials,” Journal of Chemical Theory and Computation 16, 1482 (2020).
+47M. Casula, “Beyond the locality approximation in the standard diﬀusion monte carlo
+method,” Physical Review B 74 (2006), 10.1103/physrevb.74.161102.
+48T. H. Dunning, K. A. Peterson, and D. E. Woon, “Basis Sets: Correlation Consistent
+Sets,” in Encyclopedia of Computational Chemistry (American Cancer Society, 2002).
+49L. Kleinman and D. M. Bylander, “Eﬃcacious Form for Model Pseudopotentials,” Phys-
+ical Review Letters 48, 1425–1428 (1982).
+50T. Wang, X. Zhou, and F. Wang, “Performance of the Diﬀusion Quantum Monte Carlo
+Method with a Single-Slater-Jastrow Trial Wavefunction Using Natural Orbitals and Den-
+sity Functional Theory Orbitals on Atomization Energies of the Gaussian-2 Set,” The
+45
+
+Journal of Physical Chemistry A 123, 3809–3817 (2019).
+51X. Zhou, H. Zhao, T. Wang, and F. Wang, “Diﬀusion quantum Monte Carlo calculations
+with a recent generation of eﬀective core potentials for ionization potentials and electron
+aﬃnities,” Physical Review A 100, 062502 (2019).
+52S. Zhang and H. Krakauer, “Quantum Monte Carlo Method using Phase-Free Random
+Walks with Slater Determinants,” Physical Review Letters 90, 136401 (2003).
+53E. J. Landinez Borda, J. Gomez,
+and M. A. Morales, “Non-orthogonal multi-Slater
+determinant expansions in auxiliary ﬁeld quantum Monte Carlo,” The Journal of Chemical
+Physics 150, 074105 (2019).
+54J. Lee, F. D. Malone,
+and M. A. Morales, “Utilizing essential symmetry breaking in
+auxiliary-ﬁeld quantum monte carlo: Application to the spin gaps of the c36 fullerene and
+an iron porphyrin model complex,” arXiv preprint arXiv:2001.05109 (2020).
+55S. Zhang, F. D. Malone,
+and M. A. Morales, “Auxiliary-ﬁeld quantum Monte Carlo
+calculations of the structural properties of nickel oxide,” The Journal of Chemical Physics
+149, 164102 (2018).
+56F. D. Malone, S. Zhang,
+and M. A. Morales, “Overcoming the Memory Bottleneck in
+Auxiliary Field Quantum Monte Carlo Simulations with Interpolative Separable Density
+Fitting,” J. Chem. Theory. Comput. 15, 256 (2019).
+57J. Lee, F. D. Malone,
+and M. A. Morales, “An auxiliary-Field quantum Monte Carlo
+perspective on the ground state of the dense uniform electron gas: An investigation with
+Hartree-Fock trial wavefunctions,” The Journal of Chemical Physics 151, 064122 (2019).
+58J. Hubbard, “Calculation of Partition Functions,” Physical Review Letters 3, 77 (1959).
+59S. Zhang, J. Carlson, and J. E. Gubernatis, “Constrained path Monte Carlo method for
+fermion ground states,” Physical Review B 55, 7464 (1997).
+60N. H. F. Beebe and J. Linderberg, “Simpliﬁcations in the generation and transformation of
+two-electron integrals in molecular calculations,” Int. J. Quantum Chem. 12, 683 (1977).
+61H. Koch, A. S. de Mer´as, and T. B. Pedersen, “Reduced scaling in electronic structure
+calculations using Cholesky decompositions,” The Journal of Chemical Physics 118, 9481
+(2003).
+62F. Aquilante, L. De Vico, N. Ferr´e, G. Ghigo, P.-˚a. Malmqvist, P. Neogr´ady, T. B.
+Pedersen, M. Pitoˇn´ak, M. Reiher, B. O. Roos, L. Serrano-Andr´es, M. Urban, V. Veryazov,
+and R. Lindh, “MOLCAS 7: The Next Generation,” J. Comput. Chem. 31, 224 (2009).
+46
+
+63W. Purwanto, H. Krakauer, Y. Virgus, and S. Zhang, “Assessing weak hydrogen binding
+on Ca+ centers: An accurate many-body study with large basis sets,” The Journal of
+Chemical Physics 135, 164105 (2011).
+64W. Purwanto, S. Zhang,
+and H. Krakauer, “Frozen-Orbital and Downfolding Calcu-
+lations with Auxiliary-Field Quantum Monte Carlo,” Journal of Chemical Theory and
+Computation 9, 4825–4833 (2013).
+65E. G. Hohenstein, R. M. Parrish, and T. J. Mart´ınez, “Tensor hypercontraction density
+ﬁtting. I. Quartic scaling second- and third-order Møller-Plesset perturbation theory,”
+The Journal of Chemical Physics 137, 044103 (2012).
+66R. M. Parrish, E. G. Hohenstein, T. J. Mart´ınez,
+and C. D. Sherrill, “Tensor hyper-
+contraction. II. Least-squares renormalization,” The Journal of Chemical Physics 137,
+224106 (2012).
+67E. G. Hohenstein, R. M. Parrish, C. D. Sherrill, and T. J. Mart´ınez, “Communication:
+Tensor hypercontraction. III. Least-squares tensor hypercontraction for the determination
+of correlated wavefunctions,” The Journal of Chemical Physics 137, 221101 (2012).
+68J. Lu and L. Ying, “Compression of the electron repulsion integral tensor in tensor hy-
+percontraction format with cubic scaling cost,” J. Comput. Phys. 302, 329 (2015).
+69W. Hu, L. Lin,
+and C. Yang, “Interpolative Separable Density Fitting Decomposition
+for Accelerating Hybrid Density Functional Calculations with Applications to Defects in
+Silicon,” Journal of Chemical Theory and Computation 13, 5420 (2017).
+70K. Dong, W. Hu,
+and L. Lin, “Interpolative Separable Density Fitting through Cen-
+troidal Voronoi Tessellation with Applications to Hybrid Functional Electronic Structure
+Calculations,” Journal of Chemical Theory and Computation 14, 1311 (2018).
+71J. Lee, L. Lin, and M. Head-Gordon, “Systematically Improvable Tensor Hypercontrac-
+tion: Interpolative Separable Density-Fitting for Molecules Applied to Exact Exchange,
+Second- and Third-Order Møller–Plesset Perturbation Theory,” Journal of Chemical The-
+ory and Computation 16, 243–263 (2019).
+72M. Motta, S. Zhang,
+and G. K.-L. Chan, “Hamiltonian symmetries in auxiliary-ﬁeld
+quantum Monte Carlo calculations for electronic structure,” Physical Review B 100,
+045127 (2019).
+73M. Suewattana, W. Purwanto, S. Zhang, H. Krakauer,
+and E. J. Walter, “Phaseless
+auxiliary-ﬁeld quantum Monte Carlo calculations with plane waves and pseudopotentials:
+47
+
+Applications to atoms and molecules,” Physical Review B 75, 245123 (2007).
+74F. Ma, S. Zhang, and H. Krakauer, “Auxiliary-ﬁeld quantum Monte Carlo calculations
+with multiple-projector pseudopotentials,” Physical Review B 95, 165103 (2017).
+75S. Sharma, A. A. Holmes, G. Jeanmairet, A. Alavi, and C. J. Umrigar, “Semistochastic
+Heat-Bath Conﬁguration Interaction Method: Selected Conﬁguration Interaction with
+Semistochastic Perturbation Theory,” Journal of Chemical Theory and Computation 13,
+1595–1604 (2017).
+76A. A. Holmes, N. M. Tubman,
+and C. J. Umrigar, “Heat-Bath Conﬁguration Interac-
+tion: An Eﬃcient Selected Conﬁguration Interaction Algorithm Inspired by Heat-Bath
+Sampling,” Journal of Chemical Theory and Computation 12, 3674–3680 (2016).
+77C. A. Jim´enez-Hoyos, T. M. Henderson, T. Tsuchimochi, and G. E. Scuseria, “Projected
+Hartree–Fock theory,” The Journal of Chemical Physics 136, 164109 (2012).
+78C. A. Jim´enez-Hoyos, R. Rodr´ıguez-Guzm´an,
+and G. E. Scuseria, “Multi-component
+symmetry-projected approach for molecular ground state correlations,” The Journal of
+Chemical Physics 139, 204102 (2013).
+79R. Schutski, C. A. Jim´enez-Hoyos, and G. E. Scuseria, “Analytic energy gradient for the
+projected Hartree–Fock method,” The Journal of Chemical Physics 140, 204101 (2014).
+80E. Solomonik, D. Matthews, J. R. Hammond, J. F. Stanton, and J. Demmel, “A mas-
+sively parallel tensor contraction framework for coupled-cluster computations,” Journal
+of Parallel and Distributed Computing 74, 3176–3190 (2014).
+81W. Purwanto and S. Zhang, “Quantum Monte Carlo method for the ground state of
+many-boson systems,” Physical Review E 70, 056702 (2004).
+82M. Motta and S. Zhang, “Computation of Ground-State Properties in Molecular Systems:
+Back-Propagation with Auxiliary-Field Quantum Monte Carlo,” Journal of Chemical The-
+ory and Computation 13, 5367 (2017).
+83J. Lee, D. W. Small, E. Epifanovsky, and M. Head-Gordon, “Coupled-Cluster Valence-
+Bond Singles and Doubles for Strongly Correlated Systems: Block-Tensor Based Imple-
+mentation and Application to Oligoacenes,” Journal of Chemical Theory and Computa-
+tion 13, 602–615 (2017).
+84S. Zhang, “Finite-Temperature Monte Carlo Calculations for Systems with Fermions,”
+Physical Review Letters 83, 2777–2780 (1999).
+48
+
+85B. M. Rubenstein, S. Zhang, and D. R. Reichman, “Finite-temperature auxiliary-ﬁeld
+quantum Monte Carlo technique for Bose-Fermi mixtures,” Physical Review A 86, 053606
+(2012).
+86Y.-Y. He, M. Qin, H. Shi, Z.-Y. Lu, and S. Zhang, “Finite-temperature auxiliary-ﬁeld
+quantum Monte Carlo: Self-consistent constraint and systematic approach to low tem-
+peratures,” Physical Review B 99, 045108 (2019).
+87Y. Liu, M. Cho,
+and B. Rubenstein, “Ab Initio Finite Temperature Auxiliary Field
+Quantum Monte Carlo,” Journal of Chemical Theory and Computation 14, 4722–4732
+(2018).
+88Y.-Y. He, H. Shi, and S. Zhang, “Reaching the Continuum Limit in Finite-Temperature
+Ab Initio Field-Theory Computations in Many-Fermion Systems,” Physical Review Let-
+ters 123, 136402 (2019).
+89M. Dubeck´y, “Noncovalent Interactions by Fixed-Node Diﬀusion Monte Carlo: Conver-
+gence of Nodes and Energy Diﬀerences vs Gaussian Basis-Set Size,” Journal of Chemical
+Theory and Computation 13, 3626–3635 (2017).
+90J. Toulouse and C. J. Umrigar, “Full optimization of Jastrow–Slater wave functions with
+application to the ﬁrst-row atoms and homonuclear diatomic molecules,” The Journal of
+Chemical Physics 128, 174101 (2008).
+91R. Assaraf, S. Moroni, and C. Filippi, “Optimizing the energy with quantum monte carlo:
+A lower numerical scaling for jastrow–slater expansions,” Journal of Chemical Theory and
+Computation 13, 5273–5281 (2017).
+92M. Taddei, M. Ruggeri, S. Moroni, and M. Holzmann, “Iterative backﬂow renormalization
+procedure for many-body ground-state wave functions of strongly interacting normal fermi
+liquids,” Physical Review B 91 (2015), 10.1103/physrevb.91.115106.
+93M. Holzmann and S. Moroni, “Orbital-dependent backﬂow wave functions for real-space
+quantum monte carlo,” Physical Review B 99 (2019), 10.1103/physrevb.99.085121.
+94M. Casula, C. Attaccalite,
+and S. Sorella, “Correlated geminal wave function for
+molecules: an eﬃcient resonating valence bond approach,” The Journal of Chemical
+Physics 121, 7110–7126 (2004).
+95P. K. V. V. Nukala and P. R. C. Kent, “A fast and eﬃcient algorithm for Slater deter-
+minant updates in quantum Monte Carlo simulations,” The Journal of Chemical Physics
+130, 204105 (2009).
+49
+
+96B. K. Clark, M. A. Morales, J. McMinis, J. Kim, and G. E. Scuseria, “Computing the
+energy of a water molecule using multideterminants: A simple, eﬃcient algorithm,” The
+Journal of Chemical Physics 135, 244105 (2011).
+97M. A. Morales, J. McMinis, B. K. Clark, J. Kim, and G. E. Scuseria, “Multideterminant
+Wave Functions in Quantum Monte Carlo,” Journal of Chemical Theory and Computation
+8, 2181–2188 (2012).
+98B. Huron, J. P. Malrieu, and P. Rancurel, “Iterative perturbation calculations of ground
+and excited state energies from multiconﬁgurational zeroth-order wavefunctions,” The
+Journal of Chemical Physics 58, 5745–5759 (1973).
+99A. Scemama, M. Caﬀarel, A. Benali, D. Jacquemin, and P.-F. Loos, “Inﬂuence of pseu-
+dopotentials on excitation energies from selected conﬁguration interaction and diﬀusion
+Monte Carlo,” Results in Chemistry 1, 100002 (2019).
+100A. Scemama, A. Benali, D. Jacquemin, M. Caﬀarel, and P.-F. Loos, “Excitation energies
+from diﬀusion Monte Carlo using selected conﬁguration interaction nodes,” The Journal
+of Chemical Physics 149, 034108 (2018).
+101A. D. Chien, A. A. Holmes, M. Otten, C. J. Umrigar, S. Sharma, and P. M. Zimmer-
+man, “Excited States of Methylene, Polyenes, and Ozone from Heat-Bath Conﬁguration
+Interaction,” The Journal of Physical Chemistry A 122, 2714–2722 (2018).
+102J. Li, M. Otten, A. A. Holmes, S. Sharma, and C. J. Umrigar, “Fast semistochastic heat-
+bath conﬁguration interaction,” The Journal of Chemical Physics 149, 214110 (2018).
+103M. Caﬀarel, T. Applencourt, E. Giner, and A. Scemama, “Communication: Toward an
+improved control of the ﬁxed-node error in quantum Monte Carlo: The case of the water
+molecule,” The Journal of Chemical Physics 144, 151103 (2016).
+104A. Scemama, T. Applencourt, E. Giner,
+and M. Caﬀarel, “Accurate nonrelativistic
+ground-state energies of 3d transition metal atoms,” The Journal of Chemical Physics
+141, 244110 (2014).
+105E. Giner, A. Scemama,
+and M. Caﬀarel, “Using perturbatively selected conﬁguration
+interaction in quantum Monte Carlo calculations,” Canadian Journal of Chemistry 91,
+879–885 (2013).
+106J. Berkowitz, H. A. Tasman,
+and W. A. Chupka, “Double-Oven Experiments with
+Lithium Halide Vapors,” The Journal of Chemical Physics 36, 2170–2179 (1962).
+50
+
+107J. Aigueperse, P. Mollard, D. Devilliers, M. Chemla, R. Faron, R. Romano, and J. P. Cuer,
+“Fluorine Compounds, Inorganic,” in Ullmann’s Encyclopedia of Industrial Chemistry
+(American Cancer Society, 2000).
+108L. Zhao and E. Neuscamman, “An Eﬃcient Variational Principle for the Direct Opti-
+mization of Excited states,” Journal of Chemical Theory and Computation 12, 3436–3440
+(2016).
+109J. A. R. Shea and E. Neuscamman, “Size Consistent Excited States via Algorithmic
+Transformations between Variational Principles,” Journal of Chemical Theory and Com-
+putation 13, 6078–6088 (2017).
+110P. J. Robinson, S. D. P. Flores, and E. Neuscamman, “Excitation variance matching with
+limited conﬁguration interaction expansions in variational Monte Carlo,” The Journal of
+Chemical Physics 147, 164114 (2017).
+111G. Onida, L. Reining, and A. Rubio, “Electronic excitations: density-functional versus
+many-body Green’s-function approaches,” Rev. Mod. Phys. 74, 601–659 (2002).
+112L. Zhao and E. Neuscamman, “Variational Excitations in Real Solids: Optical Gaps and
+Insights into Many-Body Perturbation Theory,” Physical Review Letters 123, 036402
+(2019).
+113F. Fuchs, J. Furthm¨uller, F. Bechstedt, M. Shishkin, and G. Kresse, “Quasiparticle band
+structure based on a generalized Kohn-Sham scheme,” Physical Review B 76, 115109
+(2007).
+114S. Tsoi, X. Lu, A. K. Ramdas, H. Alawadhi, M. Grimsditch, M. Cardona, and R. Lauck,
+“Isotopic-mass dependence of the A, B, and C excitonic band gaps in ZnO at low tem-
+peratures,” Physical Review B 74, 165203 (2006).
+115B.-C. Shih, Y. Xue, P. Zhang, M. L. Cohen, and S. G. Louie, “Quasiparticle Band Gap of
+ZnO: High Accuracy from the Conventional G0W0 Approach,” Physical Review Letters
+105, 146401 (2010).
+116E. Fermi and E. Teller, “The Capture of Negative Mesotrons in Matter,” Physical Review
+72, 399–408 (1947).
+117R. F. Wallis, R. Herman, and H. W. Milnes, “Energy levels of an electron in the ﬁeld of
+a ﬁnite dipole,” Journal of Molecular Spectroscopy 4, 51–74 (1960).
+118O. H. Crawford, “Bound states of a charged particle in a dipole ﬁeld,” Proceedings of the
+Physical Society 91, 279–284 (1967).
+51
+
+119J. E. Turner, V. E. Anderson,
+and K. Fox, “Ground-State Energy Eigenvalues and
+Eigenfunctions for an Electron in an Electric-Dipole Field,” Physical Review 174, 81–89
+(1968).
+120J. Simons and K. D. Jordan, “Ab initio electronic structure of anions,” Chemical Reviews
+87, 535–555 (1987), https://doi.org/10.1021/cr00079a004.
+121K.
+D.
+Jordan
+and
+F.
+Wang,
+“Theory
+of
+Dipole-Bound
+An-
+ions,”
+Annual
+Review
+of
+Physical
+Chemistry
+54,
+367–396
+(2003),
+https://doi.org/10.1146/annurev.physchem.54.011002.103851.
+122J. Xu and K. D. Jordan, “Application of the Diﬀusion Monte Carlo Method to the Binding
+of Excess Electrons to Water Clusters,” The Journal of Physical Chemistry A 114, 1364–
+1366 (2010), pMID: 19788288, https://doi.org/10.1021/jp9066108.
+123H. Hao, J. Shee, S. Upadhyay, C. Ataca, K. D. Jordan,
+and B. M. Rubenstein, “Ac-
+curate Predictions of Electron Binding Energies of Dipole-Bound Anions via Quantum
+Monte Carlo Methods,” The Journal of Physical Chemistry Letters 9, 6185–6190 (2018),
+https://doi.org/10.1021/acs.jpclett.8b02733.
+124V. K. Voora, A. Kairalapova, T. Sommerfeld, and K. D. Jordan, “Theoretical approaches
+for treating non-valence correlation-bound anions,” The Journal of Chemical Physics 147,
+214114 (2017).
+125K. Raghavachari, G. W. Trucks, J. A. Pople, and M. Head-Gordon, “A ﬁfth-order per-
+turbation comparison of electron correlation theories,” Chemical Physics Letters 157,
+479–483 (1989).
+126J. F. Stanton and R. J. Bartlett, “The equation of motion coupledcluster method. a sys-
+tematic biorthogonal approach to molecular excitation energies, transition probabilities,
+and excited state properties,” The Journal of Chemical Physics 98, 7029–7039 (1993).
+127J. F. Stanton and J. Gauss, “Analytic energy derivatives for ionized states described by
+the equationofmotion coupled cluster method,” The Journal of Chemical Physics 101,
+8938–8944 (1994).
+128M. Nooijen and R. J. Bartlett, “Equation of motion coupled cluster method for electron
+attachment,” The Journal of Chemical Physics 102, 3629–3647 (1995).
+129S. A. Kucharski, M. W loch, M. Musia l, and R. J. Bartlett, “Coupled-cluster theory for
+excited electronic states: The full equation-of-motion coupled-cluster single, double, and
+triple excitation method,” The Journal of Chemical Physics 115, 8263–8266 (2001).
+52
+
+130T. H. Dunning, “Gaussian basis sets for use in correlated molecular calculations. i. the
+atoms boron through neon and hydrogen,” The Journal of Chemical Physics 90, 1007–
+1023 (1989).
+131R. A. Kendall, T. H. Dunning,
+and R. J. Harrison, “Electron aﬃnities of the ﬁrstrow
+atoms revisited. systematic basis sets and wave functions,” The Journal of Chemical
+Physics 96, 6796–6806 (1992).
+132A. D. Becke, “Densityfunctional thermochemistry. iii. the role of exact exchange,” The
+Journal of Chemical Physics 98, 5648–5652 (1993).
+133C. Lee, W. Yang, and R. G. Parr, “Development of the colle-salvetti correlation-energy
+formula into a functional of the electron density,” Phys. Rev. B 37, 785–789 (1988).
+134S. H. Vosko, L. Wilk, and M. Nusair, “Accurate spin-dependent electron liquid correlation
+energies for local spin density calculations: a critical analysis,” Canadian Journal of
+Physics 58, 1200–1211 (1980).
+135M. G. Brik and A. M. Srivastava, “On the Optical Properties of the Mn4+ Ion in Solids,”
+Journal of Luminescence 133, 69–72 (2013).
+136S. Geschwind, P. Kisliuk, M. P. Klein, J. P. Remeika,
+and D. L. Wood, “Sharp-Line
+Fluorescence, Electron Paramagnetic Resonance, and Thermoluminescence of Mn4+ in
+-Al2O3,” Physical Review 126, 1684–1686 (1962).
+137K. Dunphy and W. W. Duley, “Multiphoton Excitation of Mn4+ and Cr3+ Luminescence
+in MgO,” Journal of Physics and Chemistry of Solids 51, 1077–1082 (1990).
+138M. G. Brik and A. M. Srivastava, “Ab Initio Studies of the Structural, Electronic, and
+Optical Properties of K2SiF6 Single Crystals at Ambient and Elevated Hydrostatic Pres-
+sure,” Journal of Electrochemical Society 159, J212–J216 (2012).
+139M. G. Medvedev, I. S. Bushmarinov, J. Sun, J. P. Perdew, and K. A. Lyssenko, “Density
+Functional Theory Is Straying from the Path Toward the Exact Functional,” Science 355,
+49–52 (2017).
+140P. Lindner, “Theoretical Momentum Densities,” Physica Scripta 15, 112–118 (1977).
+141B. G. Williams, “The Experimental Determination of Electron Momentum Densities,”
+Physica Scripta 15, 92–111 (1977).
+142M. J. Cooper, “Compton scattering and electron momentum determination,” Reports on
+Progress in Physics 48, 415–481 (1985).
+53
+
+143F. Bell and J. R. Schneider, “Three-dimensional electron momentum densities of solids,”
+Journal of Physics: Condensed Matter 13, 7905–7922 (2001).
+144S. B. Dugdale, “Life on the edge: a beginner’s guide to the Fermi surface,” Physica Scripta
+91, 053009 (2016).
+145D. G. Lock, V. H. C. Crisp, and R. N. West, “Positron annihilation and Fermi surface
+studies: a new approach,” Journal of Physics F: Metal Physics 3, 561–570 (1973).
+146S. B. Dugdale, R. J. Watts, J. Laverock, Z. Major, M. A. Alam, M. Samsel-Czeka la,
+G. Kontrym-Sznajd, Y. Sakurai, M. Itou, and D. Fort, “Observation of a Strongly Nested
+Fermi Surface in the Shape-Memory AlloyNi0.62Al0.38,” Physical Review Letters 96 (2006),
+10.1103/physrevlett.96.046406.
+147S. Huotari, J. A. Soininen, T. Pylkk¨anen, K. H¨am¨al¨ainen, A. Issolah, A. Titov, J. McMi-
+nis, J. Kim, K. Esler, D. M. Ceperley, M. Holzmann,
+and V. Olevano, “Momentum
+Distribution and Renormalization Factor in Sodium and the Electron Gas,” Physical Re-
+view Letters 105, 0860403 (2010).
+148M. Holzmann, B. Bernu, C. Pierleoni, J. McMinis, D. M. Ceperley, V. Olevano,
+and
+L. D. Site, “Momentum Distribution of the Homogeneous Electron Gas,” Physical Review
+Letters 107, 110402 (2011).
+149R. N. Silver and P. E. Sokol, eds., Momentum Distributions (Plenum Press, New York,
+1989).
+150N. Hiraoka and T. Nomura, “Electron momentum densities near Dirac cones: Anisotropic
+Umklapp scattering and momentum broadening,” Scientiﬁc Reports 7, 765 (2017).
+151I. Kyl¨anp¨a¨a, Y. Luo, O. Heinonen, P. R. C. Kent, and J. T. Krogel, “Compton proﬁle
+of VO2 across the metal-insulator transition: Evidence of a non-Fermi liquid metal,”
+Physical Review B 99, 075154 (2019).
+152F. Zambelli, L. Pitaevskii, D. M. Stamper-Kurn, and S. Stringari, “Dynamic structure
+factor and momentum distribution of a trapped Bose gas,” Physical Review A 61, 063608
+(2000).
+153S. Lee, K. Hippalgaonkar, F. Yang, J. Hong, C. Ko, J. Suh, K. Liu, K. Wang, J. J. Urban,
+X. Zhang, C. Dames, S. A. Hartnoll, O. Delaire, and J. Wu, “Anomalously low electronic
+thermal conductivity in metallic vanadium dioxide,” Science 355, 371–374 (2017).
+54
