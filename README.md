@@ -2,19 +2,20 @@
 
 [![Build](https://github.com/ShiqianTan/AI4Polymer-book/actions/workflows/book-site.yml/badge.svg)](https://github.com/ShiqianTan/AI4Polymer-book/actions/workflows/book-site.yml)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-v1.0%20print%20snapshot-informational)](https://github.com/ShiqianTan/AI4Polymer-book/releases/tag/print-v1.0)
+[![Version](https://img.shields.io/badge/version-print--v1.1-informational)](https://github.com/ShiqianTan/AI4Polymer-book/tree/print-v1.1)
 [![Stars](https://img.shields.io/github/stars/ShiqianTan/AI4Polymer-book?style=social)](https://github.com/ShiqianTan/AI4Polymer-book)
 
 <p align="center">
-  <img src="manuscripts/cover/ChatGPT-Image-cover-github.png" alt="《AI4Polymer：人工智能驱动的高分子材料设计》——高分子链与神经网络、设计—合成—测试—学习闭环" width="100%">
+  <img src="manuscripts/cover/AI4Polymer-cover-github-v2.png" alt="《AI4Polymer：人工智能驱动的高分子材料设计》封面：高分子链、神经网络与闭环设计" width="420">
 </p>
 
 > [!TIP]
 > ### 下载全书 PDF
 >
-> **推荐下载 PDF 阅读。** 书中有大量公式、表格、脚注与交叉引用，GitHub 直接渲染 Markdown 时 LaTeX 公式与部分排版常常显示不全。PDF 由 Pandoc + XeLaTeX 排版，共 **470 页、151 幅插图**，随 `main` 更新自动构建并发布到 [Releases](https://github.com/ShiqianTan/AI4Polymer-book/releases)。
+> **推荐下载 PDF 阅读。** 书中有大量公式、表格、脚注与交叉引用，GitHub 直接渲染 Markdown 时 LaTeX 公式与部分排版常常显示不全。`print-v1.1` 本地验证版由 Pandoc + XeLaTeX 排版，共 **472 页、153 个 PDF 图对象**，随 `main` 更新自动构建并发布到 [Releases](https://github.com/ShiqianTan/AI4Polymer-book/releases)。
 >
-> - 印刷版快照：标签 [`print-v1.0`](https://github.com/ShiqianTan/AI4Polymer-book/releases/tag/print-v1.0)（提交 `891fc8d`）
+> - 当前版本：标签 [`print-v1.1`](https://github.com/ShiqianTan/AI4Polymer-book/tree/print-v1.1)
+> - 历史印刷版快照：标签 [`print-v1.0`](https://github.com/ShiqianTan/AI4Polymer-book/releases/tag/print-v1.0)（提交 `891fc8d`）
 > - 在线阅读：[GitHub Pages](https://shiqiantan.github.io/AI4Polymer-book/)
 > - 最新 PDF：`https://github.com/ShiqianTan/AI4Polymer-book/releases/latest/download/AI4Polymer-Book.pdf`
 >
@@ -25,6 +26,14 @@
 **本书的主线是：在实验预算的约束下，把高分子设计组织成一场可计算、可复现、可闭环的搜索。** 全书沿「**表示—数据—模型—搜索—闭环**」五层框架展开：结构怎么表示、数据够不够、模型学到的是规律还是记忆、搜索往哪里走、闭环要闭到什么程度。每一层都给出定量直觉——一个 2048 位指纹能区分多少结构、一次密度泛函计算要花多少机时、一轮实验闭环要多久——并说明这些数字如何限定方法在什么预算下可用。
 
 书中方法覆盖高分子物理、机器学习、代价估算与开源复现案例。所有数字都带**六级证据标签**（`[实验]`／`[公开实验数据]`／`[模拟]`／`[复算]`／`[文献]`／`[示意]`），`[复算]` 数字全部可由本仓库的 `calculations/` 重建。更多写作背景见[前言](manuscripts/00-前言.md)。
+
+## print-v1.1 主要变化（2026-11-24）
+
+- **科学性与逻辑修正**：修正 WLF 方程适用域和符号说明、生成模型评价指标的交集/条件通过率口径、描述符碰撞与复算边界；把仓库不能直接完成的训练任务改标为延伸实验，避免把教学设定写成已完成实测。
+- **近期工作增补**：第 9、13、14 章新增“近期进展（更新至 2026-11-24）”，补入并核验 polyBART、POLYT5、polyGen、PANDA、Polymer-Agent 等 2024—2026 年代表性工作，区分正式论文、预印本和观察清单。后续增量维护见[近期工作更新台账](references/RECENT-UPDATES.md)。
+- **插图与视觉呈现**：重新绘制部分关键图表，新增两幅由内置 ImageGen 生成、明确标记为“概念示意”的无文字插图；更新 GitHub 封面横幅和阅读网站样式。完整生成提示词与用途边界见[ImageGen 插图记录](manuscripts/IMAGEGEN-PROMPTS.md)。
+- **参考资料与复现**：参考资料库由 289 项增至 **293 项**，新增论文同时保存正式 DOI 与可检索的开放全文或对应预印本；描述符预算复算增加冲突记录、哈希与测试覆盖。
+- **构建与验证**：全书 PDF 已验证为 **472 页、16 章、153 个 PDF 图对象**，字体全部嵌入；章末结构、图序、脚注、本地链接、来源哈希和 PDF 页面边界检查均通过。
 
 ## 内容目录
 
@@ -76,7 +85,7 @@
 | D | 选型决策速查表（表示、模型、闭环实验设计） |
 | E | 数据与实验的风险清单 |
 | F | 全书通用关键数字（N01–N20） |
-| G | 参考文献（289 条，GB/T 7714 编号制） |
+| G | 参考文献（293 条，GB/T 7714 编号制） |
 | H | 数据集索引 |
 | I | 软件工具索引 |
 | J | 配套仓库资源 |
@@ -84,7 +93,7 @@
 
 ## 三个贯穿全书的案例
 
-全书用三个工程案例贯穿：**高 Tg 透明聚酰亚胺**（数据相对充足、指标明确）、**可回收热固性材料**（数据来自 MD 与模拟校准）、**气体分离膜**（数据稀疏、约束复杂）。三个案例在第 1 章预览，其后各章在讲表示、数据、模型、搜索与闭环时分别以它们为例，第 16 章把它们端到端跑通——含数据准备、模型训练与筛选、失败记录与结果分析。案例的真实数据与复现脚本见 [`experiments/`](experiments/)。
+全书用三个工程案例贯穿：**高 Tg 透明聚酰亚胺**（数据相对充足、指标明确）、**可回收热固性材料**（数据来自 MD 与模拟校准）、**气体分离膜**（数据稀疏、约束复杂）。三个案例在第 1 章预览，其后各章在讲表示、数据、模型、搜索与闭环时分别以它们为例；第 16 章把数据准备、模型训练、候选筛选、失败记录与外部对照连成三条**可复现的端到端计算工作流**，并逐项标出尚未完成的模拟、湿实验或关键标签。它们演示的是怎样把链路推进到实验入口，不代表已经完成材料发现闭环。案例的真实数据与复现脚本见 [`experiments/`](experiments/)。
 
 ## 适合谁读
 
@@ -100,12 +109,14 @@
 
 ## 配套计算与实验
 
+以下计算、实验与校验脚本均要求 **Python 3.10+**。建议先用 `python3 --version` 确认解释器版本；macOS 自带的旧版 Python 可能无法解析项目使用的类型标注语法。
+
 [`calculations/`](calculations/) 是全书数字的唯一复算入口：11 个计算专题（表示预算、化学空间、MD/DFT 代价、GNN 前向、学习曲线、闭环优化、Pareto 筛选、稳健排序、聚合动力学、逆合成路线、贝叶斯优化变体），只用 Python 标准库，不需要 GPU、RDKit、NumPy 或 pandas。
 
 ```bash
 python3 calculations/calc.py reproduce          # 重建 results/ 下全部结果
 python3 calculations/calc.py verify-results     # 校验结果与输入哈希
-python3 -m unittest discover -s calculations/tests -v   # 84 项测试
+python3 -m unittest discover -s calculations/tests -v   # 87 项测试
 ```
 
 [`experiments/`](experiments/) 保存真实数据的端到端实验记录（第 6 章 1765 条聚酰亚胺 $T_g$ 基准、第 16 章三个案例），全部固定随机种子并记录输入 SHA256，可逐字节复现。
@@ -157,7 +168,7 @@ python3 scripts/verify_outline.py           # 提纲结构、编号、锚点、�
 | [manuscripts/](manuscripts/) | 前言、十六章正文、附录、配图与绘图脚本（正文唯一来源） |
 | [calculations/](calculations/) | 11 个复算专题、固定输入与结果（纯标准库） |
 | [experiments/](experiments/) | 真实数据端到端实验与复现记录 |
-| [references/](references/) | 来源清单、289 条参考文献元数据、归档快照与获取状态 |
+| [references/](references/) | 来源清单、293 条参考资料、元数据、归档快照与获取状态 |
 | [archive/outlines/](archive/outlines/) | 提纲、逐章在线扩写资料与写作规范 |
 | [book/](book/README.md) | PDF 模板、构建与校验工具 |
 | [website/](website/README.md)、[scripts/](scripts/README.md) | 网站资源、构建与检查脚本 |

@@ -2,8 +2,7 @@
 
 沿用 AI Agent Book 系列的 ElegantBook 模板，生成真正由 XeLaTeX 排版的 PDF。正文读取 `manuscripts/01-*.md` 至 `16-*.md` 以及 `manuscripts/00-前言.md`，不维护另一套章节副本。
 
-<!-- TODO: release -->
-全书 PDF 由 GitHub Actions 从 `main` 自动构建并发布到 [Releases](https://github.com/ShiqianTan/AI4Polymer-book/releases)。首次发布前暂无固定下载链接；构建完成后可在此处补充 `<https://github.com/ShiqianTan/AI4Polymer-book/releases/latest/download/AI4Polymer-Book.pdf>`。
+全书 PDF 由 GitHub Actions 从 `main` 自动构建并发布到 [Releases](https://github.com/ShiqianTan/AI4Polymer-book/releases)。读者可直接下载[最新 PDF](https://github.com/ShiqianTan/AI4Polymer-book/releases/latest/download/AI4Polymer-Book.pdf)；当前标记版本见 [`print-v1.1`](https://github.com/ShiqianTan/AI4Polymer-book/tree/print-v1.1)，历史印刷版快照见 [`print-v1.0`](https://github.com/ShiqianTan/AI4Polymer-book/releases/tag/print-v1.0)。
 
 编译生成的 PDF、封面和 `*-build.json` 构建记录不纳入版本控制（见 `book/.gitignore`）。
 

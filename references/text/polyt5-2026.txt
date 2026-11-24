@@ -1,0 +1,1642 @@
+                                                             An Encoder-Decoder Foundation Chemical
+                                                        Language Model for Generative Polymer Design
+
+
+
+
+arXiv:2510.18860v1 [cond-mat.mtrl-sci] 21 Oct 2025
+                                                     Harikrishna Sahu1 , Wei Xiong1 , Anagha Savit1 , Shivank S Shukla1 , Rampi Ramprasad1∗
+                                                     1 School of Materials Science and Engineering, Georgia Institute of Technology, Atlanta, GA 30332, USA
+
+
+                                                                    ∗ Corresponding author. Email: rampi.ramprasad@mse.gatech.edu
+
+
+
+
+                                                              Traditional machine learning has advanced polymer discovery, yet direct gen-
+                                                          eration of chemically valid and synthesizable polymers without exhaustive enu-
+                                                          meration remains a challenge. Here we present polyT5, an encoder–decoder
+                                                          chemical language model based on the T5 architecture, trained to understand
+                                                          and generate polymer structures. polyT5 enables both property prediction and
+                                                          the targeted generation of polymers conditioned on desired property values. We
+                                                          demonstrate its utility for dielectric polymer design, seeking candidates with di-
+                                                          electric constant >3, bandgap >4 eV, and glass transition temperature >400 K,
+                                                          alongside melt-processability and solubility requirements. From over 20,000 gen-
+                                                          erated promising candidates, one was experimentally synthesized and validated,
+                                                          showing strong agreement with predictions. To further enhance usability, we
+                                                          integrated polyT5 within an agentic AI framework that couples it with a general-
+                                                          purpose LLM, allowing natural language interaction for property prediction and
+                                                          generative design. Together, these advances establish a versatile and accessible
+                                                          framework for accelerated polymer discovery.
+
+
+
+
+                                                                                                      1
+   Materials discovery is undergoing a transformation with the rise of generative models—particularly
+large language models (LLMs)—for tasks such as data extraction from scientific literature, property
+prediction, synthesis planning, and molecular generation. (1–6) A particular class of generative
+schemes, referred to as “foundation” models, are trained on massive general-purpose language
+datasets, requiring large vocabularies and architectures with billions of parameters. While pow-
+erful, they demand substantial computational resources and lack the domain-specific knowledge
+essential for materials science. Even when fine-tuned for materials applications, these models can
+hallucinate, producing syntactically valid but chemically implausible or infeasible outputs. (7)
+Training on curated datasets encoded with domain-appropriate tokens makes it likely that these
+models will outperform general-purpose counterparts while using only a fraction of the param-
+eters, reducing computational cost and enhancing reliability, interpretability, and adaptability for
+downstream materials discovery tasks. (8–10)
+   Advances in generative models for materials discovery have been preceded by the development
+of the so-called state-of-the-art (SOTA) models. These predictive models have traditionally relied
+on conventional machine learning (ML) techniques, which typically require carefully engineered
+numerical fingerprints to represent chemical structure. More recently, general-purpose LLMs fine-
+tuned for specific prediction tasks (3,11) offer advantages over SOTA models by bypassing complex
+feature engineering through natural language prompts, handling missing features more effectively,
+and adapting rapidly to new problems. In our recent work, we applied this fine-tuning strategy to
+polymers across multiple property domains, including thermal properties (12) and solubility (13),
+demonstrating its potential to streamline predictive modeling in materials informatics.
+   While accurate property prediction is crucial, the complementary challenge in materials dis-
+covery is design, i.e., generating candidate structures that meet desired property or performance
+criteria. In high-throughput screening powered by ML, candidates—first generated by users based
+on heuristics—are rapidly evaluated to identify promising materials. However, these approaches
+still explore only a minute fraction of the vast chemical space and remain constrained by user-
+imposed biases and limitations inherent in the enumeration process. (14–16) Generative design
+methods address this limitation by automatically producing structures conditioned on target prop-
+erties, enabling more efficient navigation of chemical space and accelerating the identification of
+globally optimal materials. A variety of deep generative modeling approaches have been explored
+
+
+                                                 2
+for molecular design, including variational autoencoders (VAEs), generative adversarial networks
+(GANs), graph neural networks (GNNs), and more recently, transformer-based architectures. (6,17)
+Dollar et al. (18) showed that incorporating self-attention layers into generative VAE models en-
+ables them to learn complex molecular grammar, with individual attention heads capturing distinct
+high-level relationships between atomic and structural groups, thereby improving the handling of
+longer and more complex SMILES (Simplified Molecular Input Line Entry System) strings. He et
+al. (19) demonstrated the effectiveness of transformer-based models for translating molecules into
+property-optimized counterparts using SMILES representations. Chemformer, (20) a transformer-
+based model leveraging SMILES representations, demonstrated that self-supervised pre-training
+and transfer learning can enable efficient fine-tuning across diverse sequence-to-sequence and dis-
+criminative cheminformatics tasks, achieving state-of-the-art performance in synthesis prediction
+and molecular optimization.
+   For generative molecular design, the choice of string representation for chemical structures
+is critically important. While SMILES (21, 22) has long been the de facto standard for encoding
+molecules/polymers, its susceptibility to syntactic and semantic errors often leads to invalid struc-
+tures when used in combination with generative algorithms. (23–25) This limitation can hinder the
+efficiency and reliability of design workflows. In contrast, SELFIES (SELF-referencIng Embedded
+Strings) (26) provides a 100% robust alternative that guarantees syntactically and semantically
+valid chemical structures, irrespective of how the string is modified or generated. This robustness
+enables the creation of a valid and continuous latent chemical space, making it particularly well-
+suited for deep generative models. Owing to its robustness, SELFIES is increasingly being adopted
+in generative molecular design. (27–30)
+   Since SELFIES was originally developed for small molecules, its direct application to polymers
+was limited. To overcome this, in our recent work we introduced a pseudo-SELFIES notation
+specifically tailored for polymers, where the termini (*) were substituted with Astatine atoms
+(At). This molecule-like representation enabled the further training of the SELFIES-TED model
+(31)—originally designed for molecules but adapted here for polymers—leading to the development
+of polyBART (32). The model was then used to design candidate polymers by perturbing the latent
+space of known structures with targeted properties. However, the approach inherently constrained
+the generated candidates to remain close to the starting polymer within the learned chemical space.
+
+
+                                                 3
+   Despite growing interest in applying deep generative models to materials discovery, critical gaps
+remain in the domain of complex organic materials—especially polymers. Given their structural
+diversity and chemical complexity, there is a strong need for a foundation LLM trained specifically
+on polymers, capable of capturing underlying structural relationships that can be transferred to
+downstream tasks. From a methodological perspective, many current language models rely on
+decoder-only architectures, which process sequences unidirectionally and therefore fail to capture
+the bidirectional chemical dependencies critical for understanding polymer structures. Moreover,
+common token-level masking strategies are insufficient for learning high-level structural patterns,
+as they do not capture multi-token dependencies and long-range contextual relationships essential
+for effective polymer modeling.
+   The Text-to-Text Transfer Transformer (T5), an encoder–decoder model developed by Raffel et
+al., (33) addresses these key limitations through bidirectional encoder attention and a span-masking
+strategy with sentinel tokens. T5-based models have shown strong potential in chemical domains:
+MolT5 (34) translates between molecular representations and natural language, enabling molecular
+captioning and design from textual descriptions; C5T5 (35) optimizes properties from IUPAC names
+for drug discovery; and other variants facilitate forward and retrosynthetic planning. (36) While T5
+has achieved initial success for organic materials, its general-purpose nature limits performance,
+highlighting the need for a polymer-specific base model attuned to the structural and chemical
+nuances of polymers.
+   Here, we present polyT5, a domain-adapted encoder–decoder language model based on the
+T5 architecture, trained on over 100 million chemically diverse polymer structures in SELFIES
+representation of known and hypothetical candidates, spanning 20 functional groups, 8 heteroatoms,
+with broad representation of aromatic rings and aliphatic chains. Leveraging bidirectional encoder
+attention, polyT5 captures long-range structural relationships, while its span-masking strategy
+more effectively learns missing and next-token patterns than conventional token-level masking.
+   To demonstrate its practical utility, polyT5 was applied to dielectric polymer design, an im-
+portant class of materials for advanced electronic and energy applications. The base model was
+fine-tuned for two key tasks: (i) hypothetical polymer generation conditioned on target glass tran-
+sition temperature (𝑇g ) and (ii) prediction of thermal, electronic, and solubility properties. This
+framework generated over 6 million candidates, which were screened to identify polymers with
+
+
+                                                 4
+high dielectric constant, wide bandgap, elevated 𝑇g , and favorable melt-processability and solubil-
+ity. A schematic of this LLM-driven pipeline for dielectric polymer design is shown in Figure 1.
+A top-performing candidate was synthesized and experimentally validated, with measured proper-
+ties matching predictions, establishing an end-to-end, informatics-driven workflow for accelerated
+generative discovery of next-generation functional polymers. To further broaden accessibility, we
+also demonstrate integration of polyT5 within an agentic AI framework that combines it with a
+general-purpose LLM, enabling natural language interaction for property prediction and generative
+design.
+
+
+PolyT5: Foundation model for polymers
+
+To develop a foundation model for polymers capable of understanding intrinsic structure–property
+relationships, the first step is to curate a sufficiently large and chemically diverse training dataset.
+To this end, a large representative dataset of homopolymer chemical structures was constructed,
+including 12,473 experimentally synthesized polymers collected from the literature and over 100
+million hypothetically generated polymers. To ensure chemical validity and synthetic relevance, the
+hypothetical polymers were generated by reacting commercially available molecules using well-
+established reactions such as polycondensation, (37–40) click chemistry, (41, 42) and ring-opening
+metathesis polymerization (ROMP) (37,43). These polymers encompass a broad range of functional
+groups, heteroatoms, and degrees of backbone saturation, as summarized in Table S1.
+   Each polymer was initially represented using polymer-specific SMILES (PSMILES) notation,
+where two [*]s denote the terminal ends of the polymer chain. However, since [*] is conven-
+tionally used to denote dummy atoms and is not supported in SELFIES—an inherently robust
+representation well suited for generative modeling of molecules—we developed a custom conver-
+sion strategy to overcome this limitation, as illustrated in Figure 2A. (32) During this process, the
+two polymer ends were first joined by removing the [*] tokens to form a cyclic structure, followed
+by canonicalization to mitigate any initial sequence bias. Subsequently, a single bond within the
+backbone was strategically cleaved, and Astatine (At) atoms were attached at the cleavage points.
+At was selected because it is rarely encountered in polymer structures and was entirely absent
+from our training dataset, minimizing the risk of unintended bias. The resulting pseudo-polymer
+
+
+
+                                                   5
+SMILES—molecular representations with At atoms marking the polymer termini—were subse-
+quently converted to SELFIES (26), referred to as PSELFIES. This curated dataset served as the
+foundation for pre-training the base polyT5 language model. A custom tokenizer vocabulary was
+defined to support this representation, comprising 458 tokens including SELFIES tokens (see Fig-
+ure 2B), special markers, and additional tokens for property-conditional generation, all integrated
+as predefined tokens to ensure compatibility with the SentencePiece framework. (44)
+   To explore the effect of model capacity on downstream performance, we pre-trained three
+variants of the T5 architecture with progressively increasing sizes, referred to as Small, Medium,
+and Large. (44) These models differ in the number of transformer layers, embedding dimensions,
+and attention heads, with total parameters ranging from approximately 1.4 million to 59 million
+(see Table S2). Pre-training was carried out using a span-masking strategy in which segments of
+SELFIES strings were replaced with sentinel tokens (Figure 2C). Across all models, the maximum
+sequence length was fixed at 200 positions, which is sufficient to cover 99.91% of the SELFIES
+tokens present in the training dataset, as shown in Figure S1. This setup enabled a systematic as-
+sessment of the trade-off between computational efficiency and representational power for polymer
+informatics applications.
+   Figure S2 shows the training loss per batch across two epochs for all three polyT5 model
+variants. The loss decreases sharply within the first 0.5 epoch and then plateaus, likely due to the
+limited token vocabulary (199 unique tokens) used to represent over 100 million PSELFIES, as
+well as the inherent structural similarity among polymers, despite the underlying chemical diversity
+present in the training dataset. As expected, the polyT5-small model exhibits higher loss, while the
+medium and large variants show marginal differences.
+
+
+Downstream Task 1: Property Prediction
+
+The base polyT5 models were fine-tuned for a variety of property prediction tasks (Figure 2D),
+covering both regression and classification cases, across thermal, electronic, and solubility proper-
+ties. The training datasets used for fine-tuning, comprising experimentally measured or previously
+computed polymer properties, were compiled from earlier studies. The corresponding property
+distributions are shown in Figure S3. (32, 45) The glass transition temperature (𝑇g ) dataset in-
+
+
+
+                                                 6
+cludes 5,130 polymers, with values ranging from 80 K to 873 K and a median around 394 K.
+The distribution is slightly right-skewed, with a higher concentration of polymers between 325 K
+and 488 K, as shown in Figure S3(A). For decomposition temperature (𝑇𝑑 ), the dataset contains
+4,204 entries, spanning from 291 K to 1,167 K. The melting temperature (𝑇𝑚 ) dataset, comprising
+2,151 polymers, displays a slightly narrower range, from 226 K to 860 K, with most values falling
+between 400 K and 550 K. The electronic bandgap (𝐸 𝑔 ) dataset, computed using density functional
+theory (DFT), consists of 4,113 polymers, covering values from as low as 0.07 eV to nearly 9.84
+eV. The majority of polymers exhibit 𝐸 𝑔 values clustered between 3.4 eV and 5.6 eV, with a median
+value of 4.58 eV (Figure S3(D)). The dielectric constant (𝜀) dataset comprises 1,569 polymers, with
+values ranging from 1.68 to 10.40. The distribution is moderately skewed toward higher values,
+with a median of 3.09 and most polymers falling between 2.55 and 3.97. The dataset includes both
+computational and experimental values: 382 dielectric constants were calculated using DFT, while
+the remaining 1,187 values were experimentally measured at nine different frequencies, ranging
+from 60 Hz to 1015 Hz. The distribution of 𝜀 values at each measurement frequency, along with the
+DFT-calculated and total combined distributions, is provided in Figure S3(E). For polymer–solvent
+solubility, the dataset contains 19,245 soluble and 9,970 insoluble cases, covering 6,246 unique
+polymers tested across 58 different solvents.
+   All three polyT5 base model variants were fine-tuned to predict thermal (𝑇g , 𝑇d , 𝑇m ), electronic
+(𝐸 g , 𝜀), and solubility properties. (44) The mean absolute error (MAE) values across epochs
+for the polyT5-medium model, evaluated on thermal and electronic properties, are presented in
+Figure S4A–C. As expected, the MAE decreased with increasing epochs, saturating around 30
+epochs, and also showed a general decrease with larger training set sizes. For the polyT5-medium
+model, learning curves showing the RMSE values on unseen test sets are presented in Figure 3A,
+while the corresponding plots for 𝑅 2 and Pearson correlation coefficient (𝑟) are shown in Figure S4D-
+E. Error bars represent the standard deviation obtained from five different random train-test splits.
+As expected, the RMSE values decrease, and both 𝑅 2 and 𝑟 increase with larger training set sizes.
+The average RMSEs for an 80% training size on the unseen test set were 40.8, 78.6, and 67.1 for
+𝑇g , 𝑇d , and 𝑇m , respectively. For 𝐸 g and 𝜀, the RMSE values were 0.596 and 0.649, respectively.
+The parity plots for each property for a representative split with an inset of the error distribution
+are shown in Figure 3 (C-G). As shown in the parity plots, the predicted values closely align with
+
+
+                                                  7
+the true values for all properties. The corresponding error distributions are centered around zero
+with relatively small spreads, indicating good model performance.
+   For the solubility of polymers across various solvents, the learning curves for the prediction
+accuracy of the soluble, insoluble and overall cases are presented in Figure 3B, with error bars
+representing the standard deviation between five random splits. As expected, accuracy improves
+with increasing training set size. For an 80% training size, the accuracies for soluble and insoluble
+cases reached 0.957 and 0.917, respectively, resulting in an overall accuracy of 0.943. The confusion
+matrix for a representative split, shown in Figure 3H, further illustrates this performance, with 95.7%
+of soluble and 92.6% of insoluble cases correctly classified.
+   The results for polyT5-small and polyT5-large are shown in Figures S5 and S6, respectively.
+Overall, the fine-tuned polyT5-small models underperformed compared to the medium model,
+while the polyT5-large models showed marginal improvements over the medium variant. Consid-
+ering the balance between predictive accuracy and computational cost, the polyT5-medium model
+was selected for subsequent analyses.
+
+
+Downstream Task 2: Generative design
+
+For the design of dielectric materials, the 𝑇g of polymers plays a critical role in determining their
+thermal and mechanical stability under operating conditions. (46) Given that the corresponding
+dataset is the largest in our collection and encompasses a broad range of chemical diversity, it was
+selected for the generative design task. The polyT5 models were fine-tuned (44) on the 𝑇g dataset,
+where 𝑇g values were provided as input and the corresponding PSELFIES strings served as output
+(Figure 2E). The fine-tuned models were subsequently employed to generate candidate polymers
+targeting specific 𝑇g values.
+   During generation, several hyperparameters influence the selection of the next token and,
+consequently, the resulting PSELFIES. These include the number of fine-tuning epochs, the T5
+temperature parameter (which scales the logits to adjust randomness or confidence in predictions),
+and nucleus sampling (top p), which limits token selection to the smallest possible set whose cumu-
+lative probability meets a specified threshold. To systematically assess how these hyperparameters
+govern the generation of hypothetical polymers for small, medium and large-polyT5 models, we
+
+
+
+                                                  8
+varied the number of training epochs from 1 to 15, the temperature from 0.1 to 2.0 in increments of
+0.1, and used top p values of 0.75 and 0.95, generating 10,000 polymers for each configuration.
+   To assess the performance and quality of the generated hypothetical polymers, four evaluation
+metrics were employed. First, SMILES Validity (SV) was determined using RDKit (47) to ensure
+the chemical validity of the generated structures. Next, Training Set Deduplication (TSD) filtered
+out any candidates that were already present in the training dataset. The Dataset Deduplication (DD)
+step removed duplicates within the generated set itself, retaining only unique candidates. Finally,
+PSMILES Validity (PV) ensured that each retained candidate contained exactly two Astatine (At)
+atoms, each with a valency of one, as required by the polymer design rules. These filters follow a
+nested relationship: SV ⊃ TSD ⊃ DD ⊃ PV, such that polymers passing the PV criterion are valid,
+unique, and novel structures generated by the polyT5 models.
+   Figure 4A presents the performance of hypothetical candidate generation by the polyT5-small,
+medium, and large models targeting a 𝑇g of 500 K, using the optimal combination of epochs,
+sampling temperature, and top p values that maximize the number of candidates passing the PV
+filter. The performance across all possible combinations of these hyperparameters is provided in
+Figure S7. Our results revealed important trends in how fine-tuning epoch and generation hyper-
+parameters influence the quality of hypothetical polymer candidates. As the number of fine-tuning
+epochs increased, the models initially improved, producing fewer invalid candidates. However,
+beyond a certain point, extended fine-tuning began to increase the number of duplicates within the
+generated set — a trend especially pronounced for the medium and large models. Higher T5 tem-
+peratures increased the likelihood of generating invalid PSMILES, while lower temperatures led to
+excessive duplication, either producing identical hypothetical polymers or reproducing structures
+from the training set. The effect of top p was also notable: a higher value (0.95) allowed a broader
+range of tokens during sampling, resulting in greater chemical diversity but also a higher fraction
+of invalid structures. In contrast, a lower top p (0.75) restricted token choices, reducing invalid
+outputs but increasing duplication. These observations highlight the delicate trade-offs involved in
+tuning candidate generation and emphasize the need for a careful balance between model training
+and generation parameters.
+   In the process of varying fine-tuning epochs and generation hyperparameters, a total of 6,171,066
+valid candidate polymers were generated that passed the PV filter. To assess the novelty and
+
+
+                                                 9
+structural similarity of these hypothetical polymers relative to the training set, Tanimoto similarity
+was computed between each generated polymer and the known polymers in the training data, using
+ECFP6 2048-bit fingerprints as implemented in RDKit. (47) To eliminate terminal effects and
+better approximate infinite polymer chains, the two ends of each repeating unit were connected to
+form a loop prior to fingerprint calculation. Figure 4B presents the 𝑇g of the most similar (highest
+Tanimoto similarity) known polymer in the training set against the corresponding similarity value.
+As expected, most generated polymers are close in 𝑇g to 500 K, consistent with the target value
+specified during generative design. Importantly, the distribution of Tanimoto similarity values
+indicates that while generated polymers are guided by examples in the training set, their molecular
+structures are largely distinct. Further insight into the chemical diversity of the generated polymers
+is provided in Figure 4C, which shows the distribution of functional groups present in the generated
+hypothetical candidates, with a detailed breakdown listed in Table S4. As shown, allyl, ether,
+and amide functional groups dominate the generated set, while a sizable portion also contains
+ester, imide, amine, aldehyde, acrylate, and thioether groups. This highlights the model’s ability
+to capture underlying structure–property relationships while generating a chemically diverse set of
+novel polymer candidates tailored to the desired thermal property.
+   The fine-tuned polyT5-medium model was employed to predict the 𝑇g values of all 6 million
+generated hypothetical polymers, with the resulting distribution shown in Figure 4D. As expected,
+the distribution is centered around the target value of 500 K, although it exhibits a slight skew
+toward lower 𝑇g values, likely due to the higher abundance of training samples below 500 K relative
+to those above (see Figure S3). To further assess the model’s generative capability, an additional
+set of candidates was generated using polyT5-medium with a target 𝑇g of 300 K. The predicted
+𝑇g distribution for these candidates, shown in Figure S8, now peaks near 300 K as anticipated.
+These results collectively demonstrate that polyT5 has effectively learned the intrinsic relationship
+between polymer chemical structure and 𝑇g , enabling the generation of candidates tailored to
+specified target temperatures.
+
+
+
+
+                                                 10
+Impact of pre-training: Ablation study on polyT5
+
+An ablation study was conducted using the polyT5-medium model to evaluate the impact of
+pre-training on both property prediction and candidate generation tasks. Table S5 summarizes
+prediction results for thermal, electronic, and solubility properties. Across all cases, fine-tuning the
+pre-trained model significantly outperformed training from randomly initialized weights, despite
+using the same architecture and training protocol. For example, in the case of 𝑇g , the model
+trained without pre-training achieved an average RMSE of 89.35,K and 𝑅 2 of 0.31 across five
+data splits, while the pre-trained model reduced the RMSE to 40.82,K and improved 𝑅 2 to 0.86.
+Figures S9 and S10 present the generation results for hypothetical polymers targeting a 𝑇g ) of
+500 K. The pre-trained model consistently produced a higher number of valid candidates with
+the desired property (500±50 K), and demonstrated reduced sensitivity to fine-tuning epochs and
+T5 temperature. Notably, the SELFIES reproducibility (SR) metric—defined as the fraction of
+generated SELFIES strings that, when converted to SMILES and back to SELFIES, yield the
+identical string—showed a 5-fold improvement with pre-training. Since SR measures the model’s
+ability to produce canonical SELFIES representations, it reflects a particularly challenging aspect of
+chemical language modeling. These findings highlight the critical role of large-scale pre-training on
+100 million polymers, which equips polyT5 with an in-depth understanding of structural features
+in chemical representations and facilitates effective transfer learning for property prediction and
+polymer generation.
+
+
+Dielectric polymer design
+
+In designing dielectric polymers, we considered not only a high 𝜖 (>3) but also key properties
+such as a wide 𝐸 g (>4 eV) and high 𝑇g (>400 K) to ensure thermal and electrical stability. Practical
+processing criteria, including melt processability (𝑇m -𝑇g >100 K, 𝑇d -𝑇g >100 K) and solubility either
+in water or ethanol, were also enforced to ensure that the selected candidates could be synthesized
+and processed experimentally. These thresholds collectively balance performance, stability, and
+manufacturability, ensuring that screened polymers are suitable for high-performance dielectric
+applications.
+   To identify promising candidates for high-performance dielectric applications, a multi-step
+
+
+                                                  11
+screening strategy was applied (see Figure 5A) to the 6,171,066 hypothetical polymers generated by
+the polyT5 models. First, general property criteria were used to narrow down the set: polymers with
+a predicted 𝑇g exceeding 400 K accounted for approximately 5 million candidates. Of these, 520,803
+exhibited a predicted 𝐸 g greater than 4 eV, and 348,272 satisfied the target dielectric constant range.
+Subsequently, 177,985 candidates met the melt processing requirement (𝑇m − 𝑇g > 100 K), while
+168,815 satisfied the thermal stability condition (𝑇d − 𝑇g > 100 K). Finally, solubility criteria were
+applied to prioritize polymers compatible with common, low-cost, and environmentally friendly
+solvents. Specifically, water and ethanol were selected due to their status as widely available, green
+solvents (48) frequently used in industrial and laboratory processing. This final filter identified
+21,457 polymers predicted to be soluble in at least one of these solvents. This systematic, multi-
+property screening workflow enabled the identification of a focused set of candidates that combine
+desirable dielectric, thermal, and processing attributes, suitable for further experimental validation.
+   To evaluate the synthetic accessibility (SA) of the generated hypothetical polymers, the SA
+score for each candidate was calculated by first replacing the placeholder atoms ([At] or [*]) with
+hydrogen atoms, effectively treating each polymer as a monomer. The SA scores were then computed
+using RDKit (47). As shown in Figure S11, nearly all known polymers in the training set exhibited
+SA scores below 6, with most falling within the 2–3 range. Figure 5B presents the distribution
+of predicted 𝑇g values against SA scores for the screened candidates, with side histograms and
+annotations based on the SR metric, effectively testing whether polyT5 generated SELFIES strings
+in a chemically consistent and robust manner. Among the 21,457 screened candidates, 3,978 were
+found to pass the SR test. Notably, candidates with reproducible SELFIES strings exhibited lower
+SA scores on average, while those failing the reproducibility test tended to have higher SA scores,
+including 535 candidates with values exceeding 6. These findings suggest that polymers with
+reproducible SELFIES representations are generally less structurally complex, making them easier
+for the model to learn and, in turn, more synthetically accessible.
+
+
+Experimental validation
+
+The polymer shown in Figure 5C was selected for experimental verification owing to its ease of
+synthesis. The polymer was prepared by solution polycondensation using glutaryl dichloride and
+
+
+
+                                                  12
+4,4’-diaminodiphenylmethane under basic conditions. 1 H NMR spectroscopy (Figure S12) con-
+firmed the expected chemical structure and composition. The measured and predicted properties
+are summarized in Table 1. The experimental 𝑇g was 472 K, in good agreement with the pre-
+dicted value of 483 K. The 𝑇m appeared at 543 K, about 60 K lower than predicted, suggesting
+semi-crystalline domains. A higher 𝑇d was observed at 607 K, 36 K less than the predicted value.
+From DFT calculations, the 𝐸 g was determined to be 4.53 eV, showing remarkable consistency
+with the predicted 4.45 eV. All deviations fall within the models’ error ranges. Details of the syn-
+thetic procedures, additional characterization, and DFT calculations are provided in the Supporting
+Information. (44).
+
+
+Agentic AI framework: Integration of LLM and polyT5 models
+
+To demonstrate how such a polymer generative capability can have enhanced accessibility, we
+developed an agentic AI framework that integrates a general-purpose large language model (gpt-
+5-nano (49)) with fine-tuned polyT5 models under a single conversational interface. (44) This
+framework enables users to query thermal, electronic, solubility, and dielectric properties of poly-
+mers, as well as perform generative design tasks, using natural language. All inputs and outputs
+are expressed in SMILES format, with internal conversion to and from SELFIES for inference.
+During generation, invalid candidates are automatically filtered, ensuring that only valid polymer
+SMILES are returned. A schematic overview (Figure S13) illustrates how user queries are parsed
+by the controller LLM, routed to the relevant polyT5 model, and returned as validated outputs.
+   The framework unifies multiple models under one platform, removing the need to switch
+between tools, while natural language interaction broadens accessibility to non-experts. It further
+ensures robustness through automated input handling, reproducibility via standardized schemas, and
+extensibility through a modular design that allows seamless integration of new models. Together, this
+agentic AI framework lowers the barrier to advanced polymer modeling, combining the reasoning
+capabilities of LLMs with the predictive and generative power of polyT5.
+
+
+
+
+                                                 13
+Discussion
+In this work, we introduced polyT5, the first foundation large language model (LLM) tailored for
+polymers. Trained on over 100 million polymer structures in SELFIES representation with domain-
+specific tokens using the T5 architecture, polyT5 was developed in three variants of varying depth
+and embedding dimensions and fine-tuned for two key downstream tasks: (a) property prediction
+across thermal, electronic, and solubility properties, and (b) generative design of polymers with
+targeted glass-transition temperatures (𝑇g ).
+   For property prediction, polyT5 achieved RMSEs of 40.82, 67.07 and 78.59 K for 𝑇g , 𝑇m , and
+𝑇m , respectively, and 0.60 eV and 0.65 for 𝐸 g and 𝜖. For polymer solubility classification, the model
+reached an overall accuracy of 0.94, with soluble and insoluble cases predicted with accuracies of
+0.96 and 0.92, respectively. In the generative design task, polyT5 successfully produced hypotheti-
+cal polymers with targeted 𝑇g values of 300 and 500 K, with predicted distributions centered near the
+specified targets. Tanimoto similarity analysis confirmed that the generated candidates were chem-
+ically diverse rather than trivial replicas, demonstrating that the model captures structure–property
+relationships beyond simple memorization.
+   To demonstrate the practical utility of the developed framework, we applied polyT5 to the de-
+sign of high-energy dielectric polymers. Leveraging its generative and predictive capabilities, over
+6 million candidates were generated and subsequently screened with property-prediction models.
+Using cutoff criteria of 𝜖 ≥3, 𝐸 g ≥4 eV, 𝑇g ≥400 K, along with melt processability and solubility
+requirements, more than 20,000 candidates were identified as promising. One representative poly-
+mer was synthesized and experimentally validated, showing good agreement between measured
+and predicted properties, while additional DFT calculations confirmed the predicted band gap;
+together, these validations further support the reliability of the framework.
+   Beyond model development and validation, we integrated polyT5 within an agentic AI frame-
+work that combines it with a general-purpose LLM, enabling natural language interaction for
+property prediction and generative design. This conversational interface lowers technical barriers
+by handling input validation, format conversion, and model selection automatically, thereby making
+advanced polymer modeling accessible to both experts and non-experts. Taken together, these con-
+tributions highlight the promise of domain-specific foundation models in polymer science, polyT5
+
+
+                                                  14
+captures polymer structure–property relationships and extends this knowledge to prediction and
+generative design. With fewer than 7.5 million parameters, it achieves both accuracy and efficiency,
+establishing a practical, accessible, and extensible foundation for accelerated polymer discovery
+and future applications to more complex materials systems.
+
+
+
+
+                                                15
+     A Pre-training
+                              100 million polymers
+                  T5
+                                                            polyT5
+     B Fine-tuning
+                                      polyT5                   Property prediction
+            Polymer
+                                                         (Thermal, electronic and solubility)
+
+                                      polyT5
+      Target property (Tg)                                  Hypothetical polymer generation
+
+     C Polymer dielectrics design workflow
+          Polymer pool                          Screening                   Desired polymers
+
+       6 million polymer
+          candidates
+
+     polyT5-based polymer            polyT5-based property models         Wet lab experiments
+     generator (Tg = 500K)            (Tg, Td, Tm, Eg, ε, solubility)
+
+
+Figure 1: Schematic workflow illustrating the large language model (LLM)-based framework
+for organic material design targeting dielectric applications. (A) polyT5, a T5-based language
+model, pre-trained on a corpus of 100 million polymer structures to capture underlying chemical
+and structural patterns. (B) Fine-tuning polyT5 for domain-specific tasks, including: (i) property
+prediction for thermal, electrical, and solubility-related properties and (ii) generative design —
+generating hypothetical polymer candidates based on a target property (e.g., glass transition tem-
+perature, 𝑇g )). (C) Application of the fine-tuned model for dielectric polymer design by generating
+hypothetical polymers targeting a 𝑇g of 500 K, followed by screening to identify candidates sat-
+isfying dielectric, thermal stability, and solubility criteria, thus enabling a data-driven materials
+discovery pipeline.
+
+
+
+
+                                                 16
+                        A PSMILES to PSELFIES conversion
+
+
+
+
+                                                                          Form a loop, canonicalize and break
+
+      Polycarbonate                     PSMILES                                                                                     PSELFIES
+                          CC(C)(C1=CC=C(O[*])C=C1)C1=CC=C(OC                                                [C][C][Branch1][C][C][Branch1][C][At][C][=C][C][=C][Branc
+                                      ([*])=O)C=C1                                                          h2][Ring1][C][O][C][=Branch1][C][=O][O][C][=C][C][=C][Br
+                                                                                                              anch1][C][At][C][=C][Ring1][#Branch1][C][=C][Ring1][P]
+                        B Tokenization
+                          [C] [C] [Branch1] [C] [C] [Branch1] [C] [At] [C] [=C] [C] [=C] [Branch2]                         [Ring1] [C] [O] [C] [=Branch1]     ⋯
+ch1][C][=C][Ring1][P]
+                        C Pre-training polyT5
+                         Masked SELFIES
+                          [C]    <extra_id_0>         [C] [Branch1] [C]      <extra_id_1>     [C] [=C]          <extra_id_2>       [C] [O] [C] [=Branch1]     ⋯
+
+                         Sentinel tokens followed by their corresponding masked tokens
+                                                                                               T5
+                           <extra_id_0>       [C] [Branch1] [C]      <extra_id_1>   [At] [C]     [=C]       <extra_id_2>     [Branch2] [Ring1] ⋯ <extra_id_{n+1}>
+
+                        D Fine-tuning polyT5 for property prediction
+                               Polymer: SELFIES        Property: value      ⋯     polyT5         Target Property
+
+                                      :                       :              :                          :
+
+                        E Fine-tuning polyT5 for hypothetical polymer generation
+                           Target Property   polyT5           SELFIES
+
+                                  :                               :
+
+                        F Dielectric polymer design
+
+                                                          General    Melt Processing
+                                                          Tg > 400 K                     Solution Processing Selected              Desired
+                          Tg : 500K                                  Tm-Tg > 100K         Soluble in water or candidates           organic
+                                                          Eg > 4 eV
+                                                                     Td-Tg > 100K         ethanol                                  materials
+                                                          ε>3
+
+                             polyT5: Inverse Polymers                    polyT5: Screening                         Wet lab experiments
+                                 design
+
+
+
+                        Figure 2: polyT5: Key steps in the design of polymers for dielectric applications. (A) Con-
+                        version of polymer SMILES (PSMILES) to polymer SELFIES (PSELFIES) representations. (B)
+                        Tokenization of PSELFIES for language model input. (C) Implementation of a masking strategy
+                        for pre-training the base polyT5 model. (D) Fine-tuning of the base model for property prediction
+                        tasks, including thermal, electronic, and solubility properties. (E) Fine-tuning of the base model for
+                        conditional hypothetical polymer generation. (F) Generation and screening of hypothetical poly-
+                        mers targeting desired dielectric properties through integrated property prediction models.
+
+
+
+
+                                                                                            17                                                            1
+                                           A                                       B
+
+
+
+
+                               C                                   D                                E
+          RMSE= 42.1K, R2=0.86, r=0.93                                        RMSE=69.4K, R2=0.6, r=0.80
+                                               RMSE=80.5K, R2=0.52 , r=0.75
+
+
+
+
+                               Tg                                   Td                              Tm
+
+
+                               F                                   G          H
+          RMSE=0.62 eV, R2=0.82 , r=0.91       RMSE=0.60, R2=0.76 , r=0.88
+
+
+
+
+                              Eg                                     ε
+
+
+
+
+Figure 3: Performance of fine-tuned polyT5-medium models for various property prediction
+tasks. (A) Learning curves showing the root-mean-square errors (RMSEs) for thermal and elec-
+tronic property predictions. (B) Learning curves for solubility prediction. For panels A and B, error
+bars represent the standard deviation from five different random train-test splits. (C–G) Parity plots
+for a representative split, comparing predicted and experimental values for glass transition tem-
+perature (𝑇g ), thermal decomposition temperature (𝑇𝑑 ), melting temperature (𝑇𝑚 ), electronic band
+gap (𝐸 𝑔 ), and dielectric constant (𝜀). (H) Confusion matrix for a representative split for solubility
+prediction, with values reported in percentage.
+
+
+                                                                 18
+ A                                                                                        B
+
+
+
+
+                                                                    Tanimoto similarity
+
+
+
+
+                                                                                              Closest known polymer Tg (K)
+ C
+                                                                                          D
+
+
+
+                                                     Count × 10-6
+
+
+
+
+                                                                                                            Tg (K)
+
+
+
+
+Figure 4: Hypothetical candidate generation using polyT5. (A) Optimal combination of fine-
+tuning epoch, T5 sampling temperature, and sampling probability identified for small (14, 0.9,
+0.75), medium (6, 1.1, 0.75), and large (8, 1.1, 0.95) polyT5 models for maximizing the generation
+of valid hypothetical polymers. SV, TSD, DD, and PV represent successive validation filters:
+validity of SMILES strings verified by RDKit (SV), removal of duplicates against the training set
+(TSD), deduplication within the generated hypothetical polymer dataset (DD), and polymer validity
+(PV) ensuring the presence of exactly two Astatine (At) atoms each with valency one. Note that
+PV ⊂ DD ⊂ TSD ⊂ SV. (B) Distribution of Tanimoto similarity values between each of the over 6
+million polyT5-generated hypothetical polymers and their closest known polymer in the training
+dataset, as a function of the closest polymer’s 𝑇g (K). (C) Distribution of polymer classes based on
+the presence of functional groups in the 6 million generated hypothetical polymers. (D) Distribution
+of predicted 𝑇g values by polyT5-medium for over 6 million candidate polymers.
+
+
+                                                19
+                   A                  100.0%
+                                                                              B
+  Hypothetical polymers
+                                     6,171,066
+
+                                       81.3%
+            Tg > 400 K
+                                     5,017,991
+
+                                              8.4%
+             Eg > 4 eV
+                                             520,803
+
+                                              5.6%
+                  ε>3
+                                             348,272
+
+                                              2.9%
+        Tm - Tg > 100 K
+                                             177,985
+
+                                              2.7%
+        Td - Tg > 100 K
+                                             168,815
+
+                                                  0.3%
+     H2O/EtOH soluble
+                                                 21,457
+
+                          C                          O          O
+                          * N                    N                  *
+                              H                  H
+
+
+
+
+Figure 5: Designing dielectric polymers with polyT5. (A) Screening of candidates based on ther-
+mal, electronic, and solubility criteria. (B) Synthetic accessibility scores of selected polymers versus
+predicted 𝑇g , annotated by SELFIES reproducibility, with corresponding marginal histograms. (C)
+Selected polymer for experimental validation
+
+
+
+
+Table 1: Properties of the selected polymer as obtained from polyT5, experiment, and DFT.
+Predictions were made using the polyT5-medium model. The band gap (𝐸 g ) was computed using
+DFT, while the remaining properties were measured experimentally.
+                          Property                    𝑇g (K) 𝑇m (K) 𝑇d (K)              𝐸 g (eV)
+                          polyT5                          483           603       643    4.45
+                          Experiment/DFT                  472           543       607    4.53
+
+
+
+
+                                                                20
+References and Notes
+ 1. Y. Zhang, et al., Exploring the role of large language models in the scientific method: from
+    hypothesis to discovery. npj Artif. Intell. 1, 14 (2025).
+
+ 2. I. Peivaste, et al., Artificial intelligence in materials science and engineering: Current landscape,
+    key challenges, and future trajectories. Compos. Struct. 372, 119419 (2025).
+
+ 3. M. C. Ramos, C. J. Collison, A. D. White, A review of large language models and autonomous
+    agents in chemistry. Chem. Sci. 16, 2514–2572 (2025).
+
+ 4. E. O. Pyzer-Knapp, et al., Foundation models for materials discovery –current state and future
+    directions. npj Comput. Mater. 11, 61 (2025), doi:10.1038/s41524-025-01538-0.
+
+ 5. M.-H. Van, P. Verma, C. Zhao, X. Wu, A Survey of AI for Materials Science: Foundation
+    Models, LLM Agents, Datasets, and Tools (2025), https://arxiv.org/abs/2506.20743.
+
+ 6. D. M. Anstine, O. Isayev, Generative Models as an Emerging Paradigm in the Chemical
+    Sciences. J. Am. Chem. Soc. 145 (16), 8736–8750 (2023), doi:10.1021/jacs.2c13467.
+
+ 7. M. Zaki, Jayadeva, Mausam, N. M. A. Krishnan, MaScQA: investigating materials science
+    knowledge of large language models. Digital Discovery 3, 313–327 (2024).
+
+ 8. J. Zhang, X. Chen, X. Ye, Y. Yang, B. Ai, Large Language Model in Materials Science: Roles,
+    Challenges, and Strategic Outlook. Advanced Intelligent Discovery p. 202500085 (2025).
+
+ 9. Z. Liu, et al., MolXPT: Wrapping Molecules with Text for Generative Pre-training (2023),
+    https://arxiv.org/abs/2305.10688.
+
+10. H. Chen, et al., An overview of domain-specific foundation model: key technologies, applica-
+    tions and challenges (2025), https://arxiv.org/abs/2409.04267.
+
+11. D. M. Anisuzzaman, J. G. Malins, P. A. Friedman, Z. I. Attia, Fine-Tuning Large Language
+    Models for Specialized Use Cases. Mayo Clinic Proceedings: Digital Health 3 (1), 100184
+    (2025), doi:https://doi.org/10.1016/j.mcpdig.2024.11.005.
+
+
+
+                                                  21
+12. S. Gupta, A. Mahmood, S. Shukla, R. Ramprasad, Benchmarking Large Language Models for
+    Polymer Property Predictions (2025), https://arxiv.org/abs/2506.02129.
+
+13. S. Agarwal, A. Mahmood, R. Ramprasad, Polymer Solubility Prediction Using Large Language
+    Models. ACS Mater. Lett. 7, 2017–2023 (2025).
+
+14. G. Chen, et al., Machine-Learning-Assisted De Novo Design of Organic Molecules and Poly-
+    mers: Opportunities and Challenges. Polymers 12 (1) (2020), doi:10.3390/polym12010163,
+    https://www.mdpi.com/2073-4360/12/1/163.
+
+15. J.-L. Reymond, The Chemical Space Project. Acc. Chem. Res. 48, 722–730 (2015), doi:10.
+    1021/ar500432k.
+
+16. H. Sahu, et al., Designing promising molecules for organic solar cells via machine learning as-
+    sisted virtual screening. J. Mater. Chem. A 7, 17480–17488 (2019), doi:10.1039/C9TA04097H.
+
+17. H. Park, Z. Li, A. Walsh, Has generative artificial intelligence solved inverse materials design?
+    Matter 7, 2355–2367 (2024), doi:10.1016/j.matt.2024.05.017.
+
+18. O. Dollar, N. Joshi, D. A. C. Beck, J. Pfaendtner, Attention-based generative models for de
+    novo molecular design. Chem. Sci. 12, 8362–8372 (2021), doi:10.1039/D1SC01050F.
+
+19. J. He, et al., Molecular optimization by capturing chemist’s intuition using deep neural net-
+    works. J. Cheminform. 13, 26 (2021), doi:10.1186/s13321-021-00497-0.
+
+20. R. Irwin, S. Dimitriadis, J. He, E. J. Bjerrum, Chemformer: a pre-trained transformer for
+    computational chemistry. Mach. learn.: sci. technol. 3, 015022 (2022).
+
+21. D. Weininger, SMILES, a chemical language and information system. 1. Introduction to
+    methodology and encoding rules. J. Chem. Inf. Comput. Sci. 28, 31–36 (1988).
+
+22. D. Weininger, A. Weininger, J. L. Weininger, SMILES. 2. Algorithm for generation of unique
+    SMILES notation. J. Chem. Inf. Comput. Sci. 29, 97–101 (1989), doi:10.1021/ci00062a008.
+
+23. K. Sattari, Y. Xie, J. Lin, Data-driven algorithms for inverse design of polymers. Soft Matter
+    17, 7607–7622 (2021), doi:10.1039/D1SM00725D.
+
+
+                                                 22
+24. R. Batra, et al., Polymers for Extreme Conditions Designed Using Syntax-Directed Variational
+    Autoencoders. Chem. Mat. 32, 10489–10500 (2020), doi:10.1021/acs.chemmater.0c03332.
+
+25. M. A. Skinnider, Invalid SMILES are beneficial rather than detrimental to chemical language
+    models. Nat. Mach. Intell. 6, 437–448 (2024), doi:10.1038/s42256-024-00821-x.
+
+26. M. Krenn, F. Häse, A. K. Nigam, P. Friederich, A. Aspuru-Guzik, Self-referencing embedded
+    strings (SELFIES): A 100representation. Mach. Learn.: Sci. Technol. 1, 045024 (2020), doi:
+    10.1088/2632-2153/aba947.
+
+27. M. Krenn, et al., SELFIES and the future of molecular string representations. Patterns 3,
+    100588 (2022), doi:10.1016/j.patter.2022.100588.
+
+28. T. Xu, N. Velzeboer, Y. Maruyama, Chemist-Computer Interaction: Representation Learning
+    for Chemical Design via Refinement of SELFIES VAE, in HCI International 2023 – Late
+    Breaking Posters, C. Stephanidis, M. Antona, S. Ntoa, G. Salvendy, Eds. (Springer Nature
+    Switzerland, Cham) (2024), pp. 353–361.
+
+29. S. Piao, J. Choi, S. Seo, S. Park, SELF-EdiT: Structure-constrained molecular optimi-
+    sation using SELFIES editing transformer. Appl. Intell. 53, 25868–25880 (2023), doi:
+    10.1007/s10489-023-04915-8.
+
+30. M. T. Albrijawi, R. Alhajj, LSTM-driven drug design using SELFIES for target-focused de
+    novo generation of HIV-1 protease inhibitor candidates for AIDS treatment. PLOS ONE 19,
+    1–30 (2024), doi:10.1371/journal.pone.0303597.
+
+31. IBM Research, https://huggingface.co/ibm-research/materials.selfies-ted.
+
+32. A. Savit, H. Sahu, S. Shukla, W. Xiong, R. Ramprasad, polyBART: A Chemical Linguist
+    for Polymer Property Prediction and Generative Design (2025), https://arxiv.org/abs/
+    2506.04233.
+
+33. C. Raffel, et al., Exploring the Limits of Transfer Learning with a Unified Text-to-Text Trans-
+    former (2023), https://arxiv.org/abs/1910.10683.
+
+
+
+                                                23
+34. C. Edwards, et al., Translation between Molecules and Natural Language (2022), https:
+    //arxiv.org/abs/2204.11817.
+
+35. D. Rothchild, A. Tamkin, J. Yu, U. Misra, J. Gonzalez, C5T5: Controllable Generation of
+    Organic Molecules with Transformers (2021), https://arxiv.org/abs/2108.10307.
+
+36. J. Lu, Y. Zhang, Unified Deep Learning Model for Multitask Reaction Predictions with Expla-
+    nation. J. Chem. Inf. Model. 62 (6), 1376–1387 (2022), doi:10.1021/acs.jcim.1c01467.
+
+37. R. Gurnani, et al., AI-assisted discovery of high-temperature dielectrics for energy storage.
+    Nat. Commun. 15, 6107 (2024), doi:10.1038/s41467-024-50413-x.
+
+38. S. Kim, C. M. Schroeder, N. E. Jackson, Open Macromolecular Genome: Generative Design
+    of Synthetically Accessible Polymers. ACS Polymers Au 3, 318–330 (2023), doi:10.1021/
+    acspolymersau.3c00003.
+
+39. M. Ohno, Y. Hayashi, Q. Zhang, Y. Kaneko, R. Yoshida, SMiPoly: Generation of a Synthe-
+    sizable Polymer Virtual Library Using Rule-Based Polymerization Reactions. J. Chem. Inf.
+    Model. 63, 5539–5548 (2023), doi:10.1021/acs.jcim.3c00329.
+
+40. T. Yue, J. He, Y. Li, Polyuniverse: generation of a large-scale polymer library using rule-based
+    polymerization reactions for polymer informatics. Digital Discovery 3, 2465–2478 (2024),
+    doi:10.1039/D4DD00196F.
+
+41. H. C. Kolb, M. G. Finn, K. B. Sharpless, Click Chemistry: Diverse Chemical Function from a
+    Few Good Reactions. Angew. Chem. Int. Ed. 40, 2004–2021 (2001).
+
+42. Z. Geng, J. J. Shin, Y. Xi, C. J. Hawker, Click chemistry strategies for the accelerated synthesis
+    of functional macromolecules. J. Polym. Sci. 59, 963–1042 (2021), doi:https://doi.org/10.1002/
+    pol.20210126.
+
+43. G. Odian, Ring-Opening Polymerization (John Wiley & Sons, Ltd), chap. 7, pp. 544–618
+    (2004), doi:https://doi.org/10.1002/047147875X.ch7.
+
+44. Materials and methods are available as supplementary material.
+
+
+                                                 24
+45. C. Kuenneth, R. Ramprasad, polyBERT: a chemical language model to enable fully
+    machine-driven ultrafast polymer informatics. Nat. Commun. 14, 4099 (2023), doi:10.1038/
+    s41467-023-39868-6.
+
+46. Y. Liang, et al., All organic polymer dielectrics for high-temperature energy storage from the
+    classification of heat-resistant insulation grades. J. Polym. Sci. 61 (22), 2777–2795 (2023),
+    doi:https://doi.org/10.1002/pol.20230334.
+
+47. G. Landrum, RDKit: Open-source cheminformatics (2016), https://www.rdkit.org.
+
+48. C. M. Alder, et al., Updating and further expanding GSK’s solvent sustainability guide. Green
+    Chem. 18, 3879–3890 (2016), doi:10.1039/C6GC00611F.
+
+49. OpenAI, GPT-5-Nano: API Documentation, https://platform.openai.com/docs/
+    models/gpt-5-nano (2025).
+
+50. G. Odian, Step Polymerization (John Wiley & Sons, Ltd), chap. 2, pp. 39–197 (2004), doi:
+    https://doi.org/10.1002/047147875X.ch2.
+
+51. T. Sterling, J. J. Irwin, ZINC 15 – Ligand Discovery for Everyone. J. Chem. Inf. Model. 55 (11),
+    2324–2337 (2015), doi:10.1021/acs.jcim.5b00559.
+
+52. A. Gaulton, et al., The ChEMBL database in 2017. Nucleic Acids Res. 45, D945–D954 (2016),
+    doi:10.1093/nar/gkw1074.
+
+53. eMolecules Inc., eMolecules database (n.d.), retrieved May 31, 2024, from https://www.
+    emolecules.com/.
+
+54. C. E. Hoyle, C. N. Bowman, Thiol–Ene Click Chemistry. Angew. Chem. Int. Ed. 49 (9),
+    1540–1573 (2010), doi:https://doi.org/10.1002/anie.200903924.
+
+55. A. B. Lowe, C. E. Hoyle, C. N. Bowman, Thiol-yne click chemistry: A powerful and versatile
+    methodology for materials synthesis. J. Mater. Chem. 20, 4745–4750 (2010), doi:10.1039/
+    B917102A.
+
+
+
+
+                                                25
+56. Y. Zhang, et al., Thiol–bromo click polymerization for multifunctional polymers: synthesis,
+    light refraction, aggregation-induced emission and explosive detection. Polym. Chem. 6, 97–
+    105 (2015), doi:10.1039/C4PY01164C.
+
+57. A. Gandini, The furan/maleimide Diels–Alder reaction: A versatile click–unclick tool in
+    macromolecular synthesis. Prog. Polym. Sci. 38, 1–29 (2013), doi:https://doi.org/10.1016/j.
+    progpolymsci.2012.04.002.
+
+58. H. Wang, et al., SuFEx-Based Polysulfonate Formation from Ethenesulfonyl Fluoride–Amine
+    Adducts. Angew. Chem. Int. Ed. 56, 11203–11208 (2017), doi:https://doi.org/10.1002/anie.
+    201701160.
+
+59. J. Collins, Z. Xiao, A. Espinosa-Gomez, B. P. Fors, L. A. Connal, Extremely rapid and versatile
+    synthesis of high molecular weight step growth polymers via oxime click chemistry. Polym.
+    Chem. 7, 2581–2588 (2016), doi:10.1039/C6PY00372A.
+
+60. I. Priyadarsini, et al., SELF-BART : A Transformer-based Molecular Representation Model
+    using SELFIES (2024), https://arxiv.org/abs/2410.12348.
+
+61. T. Kudo, J. Richardson, SentencePiece: A simple and language independent subword tokenizer
+    and detokenizer for Neural Text Processing (2018), https://arxiv.org/abs/1808.06226.
+
+62. H. Sahu, K.-H. Shen, J. H. Montoya, H. Tran, R. Ramprasad, Polymer Structure Predictor
+    (PSP): A Python Toolkit for Predicting Atomic-Level Structural Models for a Range of Polymer
+    Geometries. J. Chem. Theory Comput. 18, 2737–2748 (2022).
+
+63. G. Kresse, J. Furthmüller, Efficiency of ab-initio total energy calculations for metals and
+    semiconductors using a plane-wave basis set. Comput. Mater. Sci. 6, 15–50 (1996), doi:https:
+    //doi.org/10.1016/0927-0256(96)00008-0.
+
+64. J. P. Perdew, K. Burke, M. Ernzerhof, Generalized Gradient Approximation Made Simple.
+    Phys. Rev. Lett. 77, 3865–3868 (1996).
+
+65. J. Heyd, G. E. Scuseria, M. Ernzerhof, Hybrid functionals based on a screened Coulomb
+    potential. J. Chem. Phys. 118, 8207–8215 (2003).
+
+                                                26
+Acknowledgments
+Funding:    The authors acknowledge financial support by the Office of Naval Research through
+grants N00014-19-1-2103 and N00014-20-1-2175.
+
+
+Author contributions:     H. S. was the primary architect of the project, including dataset develop-
+ment, base and fine-tuned models, candidate generation and screening workflow, and manuscript
+preparation. A. S. assisted in developing the base model. S. S. generated the hypothetical candidate
+dataset using known reactions employed for pre-training the base model. W. X. conducted the
+experimental validations and contributed to writing the corresponding sections. R. R. conceived
+the project, provided overall guidance, and supervised the work.
+
+
+Competing interests:     “There are no competing interests to declare.”
+
+
+Supplementary materials
+
+Materials and Methods
+Figs. S1 to S13
+Tables S1 to S5
+
+
+
+
+                                                27
+                           Supplementary Materials for
+  An Encoder-Decoder Foundation Chemical Language Model
+                          for Generative Polymer Design
+    Harikrishna Sahu1 , Wei Xiong1 , Anagha Savit1 , Shivank S Shukla1 , Rampi Ramprasad1∗
+1 School of Materials Science and Engineering, Georgia Institute of Technology, Atlanta, GA 30332, USA
+
+                    ∗ Corresponding author. Email: rampi.ramprasad@mse.gatech.edu
+
+
+
+
+This PDF file includes:
+
+Materials and Methods
+Figures S1 to S13
+Tables S1 to S5
+
+
+
+
+                                                 S1
+Materials and Methods
+
+Generation of reliable hypothetical polymers for pre-training
+
+Over 100 million of hypothetical homopolymers were generated using well-established polymer-
+ization reactions, encompassing common polymer chemistries such as polyamides, polyimides,
+polyesters, polyethers, polyureas, and polyurethanes. These candidates were created by reacting
+commercially available small molecules sourced from databases including eMolecules, ChEMBL,
+and ZINC-15 via known polycondensation reactions, following strategies similar to those reported in
+previous studies. (37–40, 50–53) To further enhance structural diversity, the ring-opening metathe-
+sis polymerization (ROMP) was employed as demonstrated in prior work. (37, 43) Several click
+reactions were also considered, such as Cu-catalyzed azide–alkyne cycloaddition (CuAAC), strain-
+promoted azide–alkyne cycloaddition (SPAAC), thiol–ene/yne/bromo coupling, Diels–Alder (fu-
+ran–maleimide), sulfur fluoride exchange (SuFEx), and oxime-based click reactions. (41,42,54–59)
+These approaches significantly expanded the chemical and functional space of the generated poly-
+mer dataset.
+
+
+Tokenizer vocabulary
+
+For tokenizing the PSELFIES strings, each substring enclosed within square brackets (e.g., [C], [O])
+was treated as a distinct token, (32,60) resulting in a base vocabulary of 199 unique tokens. Several
+special tokens were also introduced, including start- and end-of-sequence markers, unknown and
+padding tokens, a whitespace marker, and 100 sentinel tokens for masking during pre-training.
+To further expand the vocabulary and enable property-conditional generation and prediction, an
+additional 154 tokens were incorporated. These included property names, numerical digits (0–9),
+decimal point (.), units, arithmetic and relational operators (+, -, >, <, =, etc.), boolean values, and
+a set of common polymer-related keywords. This resulted in a final vocabulary size of 458 tokens.
+To ensure compatibility with the SentencePiece (61) tokenizer framework, all SELFIES tokens and
+additional custom tokens were included as predefined tokens.
+
+
+
+
+                                                  S2
+Model pre-training: Architectures, span Masking, and optimization
+
+We pre-trained three variants of a polymer-specialized T5-based (33) model: polyT5-small,
+polyT5-medium, and polyT5-large, using a masked span prediction objective within a sequence-
+to-sequence framework. Polymer structures were represented using SELFIES strings and tokenized
+using a custom SentencePiece (61) tokenizer comprising 199 unique tokens corresponding to the
+SELFIES vocabulary. Each model variant follows the standard T5 architecture but differs in size
+and complexity (see Table S2): PolyT5-small uses an embedding dimension (d model) of 128
+with 3 encoder and decoder layers (∼1.44 million parameters); PolyT5-medium uses d model =
+256 with 4 layers (∼7.46 million parameters); and PolyT5-large uses d model = 512 with 8 layers
+(∼58.98 million parameters). All models employ relative positional encodings with a maximum
+input length of 200 tokens.
+   The training objective follows the span corruption strategy introduced in the original T5 model.
+For each polymer sequence, up to 8 non-overlapping masked spans (each up to 3 tokens long)
+were randomly selected to mask up to 15% of the input tokens. These spans were replaced with
+sentinel tokens (<extra id n>) in the input sequence, and the target sequence was constructed by
+concatenating the masked spans, each prefixed with its corresponding sentinel token. The sentinel
+tokens were assigned in increasing numerical order of 𝑛 and placed such that no two masked spans
+were adjacent, ensuring at least one unmasked token between them.
+   The models were trained on ∼90 million masked polymer sequences (90% of the dataset), using
+a batch size of 450 for up to 5 epochs on a single NVIDIA L40S GPU. The remaining 10% was
+reserved for validation and testing. Training loss was calculated using the token-level cross-entropy
+objective and optimized with the AdamW optimizer. Batch-level training loss was monitored and
+logged, with checkpoints saved after each epoch. After training, the model weights were saved for
+subsequent fine-tuning and inference, while a single, pre-defined tokenizer was used throughout.
+
+
+Downstream Task 1: Property Prediction
+
+To fine-tune polyT5 for polymer property prediction, we formulated the task as a sequence-to-
+sequence problem. The model input consisted of polymer structures encoded as SELFIES strings,
+with supplementary information provided when relevant. For instance, dielectric constant prediction
+
+
+                                                 S3
+included frequency information in log scale, and solubility prediction incorporated the SELFIES
+representation of solvents prefixed appropriately. The target output was either a continuous value
+for thermal or electronic properties, or a categorical label (e.g., “soluble” or “insoluble”) for
+classification tasks such as solubility.
+   Fine-tuning was performed separately for each property using data splits ranging from 20%
+to 80% for training and the remainder for testing. Five different random splits were employed
+to generate learning curves and assess model robustness. Both input and target sequences were
+tokenized using a single, pre-defined SentencePiece tokenizer, with sequences truncated or padded
+to a maximum length of 200 tokens.
+   Training proceeded for up to 30 epochs with a batch size of 16, using the AdamW optimizer
+with a learning rate of 3e−4 and a weight decay of 0.01 for regularization. The loss function was
+token-level cross-entropy, where padding tokens in the target sequences were replaced by –100 to
+be ignored during loss calculation. Evaluation was conducted at the end of each epoch, measur-
+ing mean absolute error (MAE) between predicted and true property values. For regression tasks,
+predictions were generated using beam search with a beam width of 4, decoded into floating-point
+numbers, and filtered to remove any invalid or non-numeric outputs.
+
+
+   Model input-output examples for property prediction tasks:
+
+   1. Thermal and electronic Properties (𝑇g , 𝑇m , 𝑇d , 𝐸 g ):
+      INPUT: PSELFIES
+      Example: [C][C][C][C][Branch1][C][At][C][At]
+      OUTPUT: Property value, e.g., 236.0
+
+   2. Dielectric constant (𝜀):
+      INPUT: Property tag with log(frequency) followed by PSELFIES
+      Example: property 4.1; polymer [C][C][Branch1][C][At][C][At]
+      OUTPUT: Property value, e.g., 3.7
+
+   3. Polymer solubility:
+      INPUT: Polymer and solvent represented in SELFIES format
+      Example: polymer [C][C][Branch1][C][At][C][At]; solvent [C][C][C][O][C]
+
+                                                 S4
+      [Ring1][Branch1]
+      OUTPUT: Classification token, e.g., soluble or insoluble
+
+
+Downstream Task 2: Polymer Generation
+
+For the polymer generation task, we fine-tuned the pre-trained polyT5 models to generate complete
+polymer structures in SELFIES format, conditioned on a target property. In this study, 𝑇g was
+selected as the target property due to its significance in materials design, broad coverage across
+diverse chemistries, and the relative completeness of the available data in the training set. This
+task was formulated as a conditional sequence generation problem, where the model learns to map
+scalar property values to valid polymer sequences.
+   The fine-tuning dataset consisted of paired (𝑇g , PSELFIES) examples, with 90% of the data used
+for training and 10% for validation. All sequences were tokenized using the same SentencePiece
+tokenizer employed during pre-training and padded to a maximum sequence length of 200 tokens.
+No masking was applied during this phase, as the model was trained to generate the full target
+sequence autoregressively, conditioned on the input property string.
+   Fine-tuning was performed using the HuggingFace Seq2SeqTrainer API for up to 15 epochs,
+with a batch size of 16. The training used the AdamW optimizer with a learning rate of 3e−4 and
+a weight decay of 0.01. Training, evaluation, and checkpointing were performed at the end of each
+epoch. The objective was to minimize the token-level cross-entropy loss, ignoring padding tokens
+in the target sequence using a special –100 label. Generation was enabled during evaluation, with a
+maximum output length of 200 tokens. Upon completion, the fine-tuned models and their associated
+tokenizers were saved for downstream inference and sampling tasks.
+   During inference, polymer sequences were generated using a sampling-based approach instead
+of beam search (which was used for the property prediction task). To systematically assess the ef-
+fects of temperature and sampling diversity on generation quality, we evaluated models fine-tuned
+for 1 to 15 epochs using combinations of top p ∈ {0.75, 0.95} sampling thresholds and temperature
+values ranging from 0.1 to 2.0 in increments of 0.1. This setup enabled a comprehensive exploration
+of generation behavior under varying stochastic sampling conditions.
+
+
+   Hypothetical polymer generation based on target 𝑇g :
+
+                                                S5
+    • INPUT: Target property value (e.g., 236.0)
+      OUTPUT: Corresponding polymer in SELFIES format
+      Example: [C][C][C][C][Branch1][C][At][C][At]
+
+
+Agentic AI Framework
+
+An agentic AI framework was constructed by integrating a general-purpose LLM (gpt-5-nano (49))
+with task-specific polymer models. The LLM acted as the controller agent, implemented via the
+PydanticAI library, which provides structured tool invocation and schema validation. Each polyT5
+model (thermal predictors, Eg predictor, solubility predictor, and Tg-conditioned generator) was
+wrapped as a PydanticAI Tool with standardized input and output schemas defined using Pydantic
+BaseModels.
+   The supervisor LLM was supplied with routing rules in its system prompt to ensure that user
+queries were directed to the appropriate tool. All inputs and outputs were expressed as SMILES
+strings: prediction tasks required polymer SMILES with two [*] termini, while solubility addition-
+ally required solvent SMILES without termini, and generation required only a target Tg value. In
+the backend, SMILES were automatically converted to SELFIES for model inference. For genera-
+tion, candidate SELFIES were converted back to polymer SMILES, with invalid strings rejected to
+ensure that only valid polymer SMILES were returned. All scientific predictions and generations
+were executed exclusively by the polyT5 models.
+   A lightweight Streamlit interface exposed the framework as a conversational chatbot. User
+queries were relayed to the supervisor LLM, which invoked the relevant tool and returned outputs
+displayed as text. The interface retained chat history within each session, allowing the dialogue to
+proceed across successive queries.
+
+
+First-Principles Calculations
+
+The initial infinite-chain polymer structure was generated using the PSP (62) package, with vac-
+uum regions of 12Å along the non-periodic directions to minimize interchain interactions. Density
+functional theory (DFT) calculations were then performed using the Vienna Ab initio Simula-
+tion Package (VASP) (63), employing the Perdew–Burke–Ernzerhof (PBE) exchange–correlation
+functional (64) and a plane-wave energy cutoff of 400 eV. Geometry optimization was considered
+
+                                                S6
+converged when the maximum force on any atom was below 0.01 eV/Å. The optimized geometries
+were subsequently used to compute the electronic structure using the HSE06 hybrid functional. (65)
+
+
+Experimental validation
+
+Synthesis of PA from Glutaryl dichloride and 4,4’-Diaminodiphenylmethane: All glassware
+was oven-dried and cooled under a nitrogen atmosphere before use. A three-neck round-bottom
+flask was fitted with a dropping funnel, condenser, and magnetic stir bar, and nitrogen flow was
+maintained throughout the reaction. Glutaryl dichloride (1.194 g, 7.07 mmol, 1.0 equiv) and 4,4’-
+diaminodiphenylmethane (1.400 g, 7.07 mmol, 1.0 equiv) were dissolved together in 200 mL
+of anhydrous dichloromethane (DCM) and cooled in an ice–water bath to 0–5°C. Triethylamine
+(0.785 g, 7.78 mmol, 1.1 equiv) was added dropwise over about 30 min under vigorous stirring,
+keeping the temperature below 10°C to control the heat release. After TEA addition, the mix-
+ture was allowed to reach room temperature (∼25°C) and stirred for an additional 2 h. A white
+precipitate appeared, indicating polymer formation. The crude product was collected by filtration,
+washed several times with cold methanol/diethyl ether (1:1 v/v) to remove TEA hydrochloride and
+unreacted monomers, and then dried in a vacuum oven at 40°C for 12 h to give the purified PA.
+
+
+   Characterization: The chemical structure and composition of the polymers were confirmed
+by 1 H nuclear magnetic resonance (1 H NMR) spectroscopy in d6-DMSO at room temperature.
+Characteristic peaks corresponding to both monomer units were clearly observed in the 1 H NMR
+spectra (See Figure S12).The 𝑇g was measured using differential scanning calorimetry (DSC) under
+a nitrogen atmosphere with a heating rate of 10°C/min.
+
+
+
+
+                                               S7
+Figure S1: Distribution of token counts per SELFIES string. The histogram represents the
+number of tokens required to encode 100 million polymers in SELFIES format, used for pre-
+training the language model.
+
+
+
+
+                              7                                                        Small
+                                                                                       Medium
+                              6                                                        Large
+
+                              5
+
+
+              Training loss
+                              4
+                              3
+                              2
+                              1
+                              0
+                                  0.00   0.25   0.50   0.75    1.00   1.25   1.50   1.75   2.00
+                                                 Epoch (Batch-wise progress)
+
+Figure S2: Training loss per batch as a function of epoch progress for T5-based models of
+different sizes. The x-axis represents fractional progress through training epochs, and the y-axis
+shows the mean cross-entropy loss computed over each batch. Results are shown for small, medium,
+and large model variants to compare training dynamics across model scales.
+
+
+
+                                                              S8
+                A                                B                           C
+
+
+
+
+                D                                E             Total               F
+                                                                DFT
+                                                           Experimental
+                                                                6×101 Hz
+                                                                1×102 Hz
+                                                                1×103 Hz
+                                                                1×104 Hz
+                                                                1×105 Hz
+                                                                1×106 Hz
+                                                                1×107 Hz
+                                                                1×109 Hz
+                                                                1×1015 Hz
+
+
+
+
+Figure S3: Property distributions of polymer datasets. Histogram plots showing the distribution
+of (A) glass transition temperature (𝑇g , K), (B) decomposition temperature (𝑇d , K), (C) melting
+temperature (𝑇m , K), (D) electronic bandgap (𝐸 g , eV), and (E) dielectric constant (𝜀). Panel (F)
+presents the counts of soluble and insoluble cases in the polymer solubility dataset.
+
+
+
+
+                                                S9
+                                                 A
+
+
+
+
+                   B                                            C
+
+
+
+
+                         D                                            E
+
+
+
+
+Figure S4: Performance of fine-tuned polyT5-medium models for thermal and electronic
+property prediction. (A) Mean absolute error (MAE) as a function of training epochs for an 80-
+20% train-test split. (B–C) MAE across varying train-test splits, from 20-80% to 80-20%. (D–E)
+Learning curves showing the coefficient of determination (𝑅 2 ) and Pearson correlation coefficient
+(𝑟), respectively. For panels A–E, error bars represent the standard deviation across five different
+random data splits.                             S10
+                            A                                             B
+
+
+
+
+                     C                                                    D
+
+
+
+
+Figure S5: Performance of fine-tuned polyT5-small models for thermal, electronic, and solu-
+bility property prediction. (A–C) Learning curves showing the coefficient of determination (𝑅 2 ),
+Pearson correlation coefficient (𝑟), and root-mean-square error (RMSE), respectively, for thermal
+and electronic properties. (D) Learning curves for solubility prediction. Error bars indicate the
+standard deviation across five random data splits.
+
+
+
+
+                                               S11
+                            A                                             B
+
+
+
+
+                     C                                                    D
+
+
+
+
+Figure S6: Performance of fine-tuned polyT5-large models for thermal, electronic, and solu-
+bility property prediction. (A–C) Learning curves showing the coefficient of determination (𝑅 2 ),
+Pearson correlation coefficient (𝑟), and root-mean-square error (RMSE), respectively, for thermal
+and electronic properties. (D) Learning curves for solubility prediction. Error bars indicate the
+standard deviation across five random data splits.
+
+
+
+
+                                               S12
+            A                                   B
+
+
+
+
+            C                                   D
+
+
+
+
+            E
+
+
+                                                     F
+
+
+
+
+            G                                    H
+
+
+
+
+            I
+
+
+
+                                                     J
+
+
+
+            K                                    L
+
+
+
+
+Figure S7: Validity assessment of hypothetical polymers generated by polyT5 across fine-
+tuning epochs, T5 temperatures, and sampling rates. Candidates were filtered sequentially by
+SMILES validity (SV), training set deduplication (TSD), internal deduplication (DD), and polymer
+validity (PV) ensuring exactly two Astatine (At) atoms with valency one (PV ⊂ DD ⊂ TSD ⊂
+SV). (A–D) show the number of candidates passing SV, TSD, DD, and PV checks, respectively,
+out of 10,000 generated for each case with polyT5-small; (E–H) and (I–L) correspond to polyT5-
+medium and polyT5-large.
+                                              S13
+              A                                              B
+
+
+
+
+Figure S8: Distribution of predicted 𝑇g for hypothetical polymers generated by polyT5.
+Hypothetical polymers conditioned on target temperatures of 300 K (A) and 500 K (B) show distinct
+𝑇g distributions, demonstrating the model’s ability to align generation with thermal property targets.
+
+
+
+
+                                                 S14
+                       A                         B
+
+
+
+     SV-pass count
+
+
+
+
+                       C                            D
+
+      TSD-pass count
+
+
+
+
+                       E                             F
+
+
+
+     DD-pass count
+
+
+
+
+                       G                            H
+
+
+
+     PV-pass count
+
+
+
+
+                           T5 temperature                  T5 temperature
+
+
+
+
+Figure S9: Ablation study comparing pre-trained and non-pre-trained polyT5-medium mod-
+els for generating hypothetical polymers targeting 𝑇g = 500 K. Validity of 10,000 generated
+candidates was assessed across fine-tuning epochs, temperature settings, and sampling rates. Can-
+didates were sequentially filtered by SMILES validity (SV), training set deduplication (TSD),
+internal deduplication (DD), and polymer validity (PV), where PV ⊂ DD ⊂ TSD ⊂ SV. Subfigures
+A, C, E, and G correspond to models without pre-training; B, D, F, and H show results with
+pre-training.
+
+
+                                              S15
+                      A                          B
+
+
+
+
+     TP-pass count
+
+
+
+
+                      C                           D
+
+
+
+      SR-pass count
+
+
+
+
+                          T5 temperature                    T5 temperature
+
+
+
+
+Figure S10: Ablation study comparing pre-trained and non-pre-trained polyT5-medium
+models for generating polymers targeting 𝑇g = 500 K, evaluated using property and repro-
+ducibility metrics. Each model generated 10,000 hypothetical candidates. Two independent metrics
+were assessed: (1) TP — proportion of candidates with predicted 𝑇g within 500 ± 50 K, and (2) SR
+— proportion passing the SELFIES reproducibility test. Subfigures A and B correspond to models
+without pre-training; C and D show results with pre-training.
+
+
+
+
+                                               S16
+                        SA score
+
+
+
+
+                                              Tg (K)
+
+
+Figure S11: SA score vs. 𝑇g distribution for known polymers. Distribution of synthetic accessi-
+bility (SA) scores for known polymers in the 𝑇g dataset plotted against their respective 𝑇g values,
+with accompanying marginal histograms showing the individual distributions of 𝑇g and SA scores.
+
+
+
+
+                                               S17
+              A
+
+
+
+
+        B                                                C
+
+
+
+
+Figure S12: Characterization of the synthesized polymer. (A) 1 H NMR spectra recorded in
+d6 -DMSO, showing characteristic proton signals confirming polymer structure. (B) Thermogravi-
+metric analysis (TGA) curve demonstrating thermal stability and decomposition profile. (C) Dif-
+ferential scanning calorimetry (DSC) curve indicating thermal transitions such as glass transition
+and melting temperatures.
+
+
+
+
+                                               S18
+Figure S13: Snapshot of the agentic AI framework in action. The user queries the chatbot in
+natural language and the system responds with predictions or generated candidates. This unified
+conversational interface integrates the general-purpose LLM controller with fine-tuned polyT5
+models, automatically handling input parsing, format conversion, and property prediction or gen-
+erative design.
+
+
+
+
+                                              S19
+Table S1: Classification of the 100 million polymers used for pre-training polyT5 (total
+counts = 100,145,883). Polymers were categorized based on their elemental composition, degree
+of unsaturation, aromaticity, and the presence of functional groups. Classification was performed by
+considering the entire polymer structure, allowing a single polymer to belong to multiple categories.
+
+
+  Elemental Composition       %      Unsaturation/Aromaticity      %     Functional Group       %
+  Hydrocarbon                <0.1        Any unsaturation         99.8         Ether          90.7
+  Non-hydrocarbon            100.0      Carbon unsaturation       98.3         Amide          71.4
+  Oxygen                     99.0          Aromatic ring          97.9         Amine          65.1
+  Nitrogen                   93.6       Polycyclic Aromatic       60.7         Acetal         30.3
+  Sulfur                     41.1                                            Thioether        28.9
+  Halogens                   34.0                                               Ester         23.1
+  Phosphorus                  1.6                                               Allyl         21.4
+  Silicon                     0.4                                            Hydroxyl         18.9
+                                                                             Sulfoxide        15.2
+                                                                                Urea          11.1
+                                                                               Imide           8.4
+                                                                               Nitrile         5.7
+                                                                              Urethane         5.3
+                                                                          Carboxylic acid      5.2
+                                                                              Amidine          4.1
+                                                                             Acrylates         3.7
+                                                                            Hydrazides         3.4
+                                                                              Alkyne           2.2
+                                                                           Methacrylates       2.0
+                                                                               Thiol           1.5
+
+
+
+
+                                                S20
+Table S2: Architectural configurations of the pre-trained T5 models. The models differ in em-
+bedding dimension (d model), number of transformer layers (num layers), size of the feedforward
+network (d ff), number of attention heads (num heads), and dimensionality of key and value vectors
+(d kv). All models use a maximum sequence length (n positions) of 200 positions.
+                    Parameter                        Small   Medium    Large
+                    d model                          128      256       512
+                    num layers                        3        4         8
+                    d ff                             512      1024     2048
+                    num heads                         4        4         8
+                    d kv                              32       64        64
+                    n positions                      200      200       200
+                    Total parameters (million)       1.44     7.46     58.98
+
+
+
+
+                                               S21
+Table S3: Classification of polymers in glass-transition temperature (𝑇g ) dataset (total counts
+= 5,130) used for fine-tuning polyT5 for hypothetical candidate generation. Polymers were
+categorized based on their elemental composition, degree of unsaturation, aromaticity, and the
+presence of functional groups. Classification was performed by considering the entire polymer
+structure, allowing a single polymer to belong to multiple categories.
+
+
+  Elemental Composition       %     Unsaturation/Aromaticity      %      Functional Group     %
+  Hydrocarbon                3.2        Any unsaturation        94.5          Ether         35.6
+  Non-hydrocarbon            96.8     Carbon unsaturation       78.8         Amide          34.7
+  Oxygen                     88.5         Aromatic ring         76.0          Ester         34.2
+  Nitrogen                   43.0     Polycyclic Aromatic       46.8          Imide         13.9
+  Halogens                   14.4                                           Thioether        8.9
+  Sulfur                     10.8                                           Sulfoxide        6.9
+  Silicon                    4.1                                              Allyl          5.4
+  Phosphorus                 3.4                                             Amine           4.9
+                                                                            Hydroxyl         4.9
+                                                                              Nitrile        3.3
+                                                                            Urethane         3.2
+                                                                              Urea           1.0
+                                                                             Epoxide         1.0
+                                                                            Phosphate        0.8
+                                                                              Acetal         0.8
+                                                                            Anhydride        0.8
+                                                                            Acrylates        0.7
+                                                                         Carboxylic acid     0.7
+                                                                           Hydrazides        0.5
+                                                                             Alkyne          0.4
+
+
+
+
+                                               S22
+Table S4: Classification of hypothetical polymers generated using polyT5 with targeted glass-
+transition temperature (𝑇g ) of 500 K (total counts = 6,171,066). Polymers were categorized based
+on their elemental composition, degree of unsaturation, aromaticity, and the presence of functional
+groups. Classification was performed by considering the entire polymer structure, allowing a single
+polymer to belong to multiple categories.
+
+
+  Elemental Composition       %     Unsaturation/Aromaticity     %     Functional Group       %
+  Hydrocarbon                0.7        Any unsaturation        98.9         Allyl         84.3
+  Non-hydrocarbon            99.3     Carbon unsaturation       94.6         Ether         66.1
+  Oxygen                     96.6           Aromatic ring       85.8         Amide         56.0
+  Nitrogen                   67.1     Polycyclic Aromatic       76.5         Ester         24.2
+  Halogens                   11.8                                            Imide         14.0
+  Sulfur                     11.6                                            Amine         12.8
+  Phosphorus                 2.4                                           Aldehyde        10.6
+  Silicon                    2.0                                           Acrylates         9.5
+                                                                           Thioether         9.2
+                                                                           Sulfoxide         7.5
+                                                                           Hydroxyl          6.1
+                                                                         Vinylsulfone        5.4
+                                                                           Urethane          3.5
+                                                                         Methacrylates       3.4
+                                                                              Urea           2.6
+                                                                             Nitrile         2.2
+                                                                            Amidine          1.6
+                                                                             Acetal          1.2
+                                                                          Hydrazides         1.0
+                                                                            Alkyne           0.7
+
+
+
+
+                                                 S23
+Table S5: Ablation study comparing model performance with and without pre-training across
+various properties. In the non-pre-trained setting, model weights were randomized while keep-
+ing the architecture and training protocol identical, including fine-tuning for 30 epochs. Metrics
+reported include RMSE, 𝑅 2 , and Pearson’s 𝑟 for regression tasks, and soluble accuracy, insoluble
+accuracy, and overall accuracy for classification. Values in parentheses represent standard devia-
+tions computed over five different data splits.
+          Property                      RMSE                    R2                r
+          𝑇g (pre train)             40.82 (1.33)           0.86 (0.00)      0.93 (0.01)
+          𝑇g                         89.35 (4.65)           0.31 (0.05)      0.65 (0.01)
+          𝑇d (pre train)             78.59 (3.56)           0.53 (0.03)      0.76 (0.02)
+          𝑇d                         113.59 (8.96)          0.02 (0.16)      0.39 (0.07)
+          𝑇m (pre train)             67.07 (5.18)           0.61 (0.07)      0.80 (0.03)
+          𝑇m                        175.81 (61.02)         -1.96 (1.77)      0.25 (0.21)
+          𝐸 g (pre train)             0.60 (0.03)           0.83 (0.02)      0.92 (0.01)
+          𝐸g                          0.92 (0.05)           0.60 (0.04)      0.79 (0.02)
+          𝜀 (pre train)               0.65 (0.10)           0.71 (0.11)      0.86 (0.04)
+          𝜀                           0.88 (0.09)           0.49 (0.05)      0.73 (0.03)
+
+                                   Soluble Accuracy     Insoluble Accuracy   Accuracy
+          Solubility (pre train)      0.96 (0.00)           0.92 (0.01)      0.94 (0.00)
+          Solubility                  0.98 (0.02)           0.04 (0.04)      0.66 (0.00)
+
+
+
+
+                                                  S24
+

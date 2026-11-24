@@ -2,9 +2,9 @@
 
 本书正文引用的原始论文、综述、数据集与官方文档按章登记于此。每条来源先在 `sources.tsv` 登记，再由 `fetch.py` 下载、生成可搜索文本并写入 `manifest.json`。
 
-当前清单 289 项：已取得正文 227 项，其中 PDF 199 份。其余项目的获取状态见文末。
+当前清单 293 项：已取得正文 231 项，其中 PDF 203 份。其余项目的获取状态见文末。
 
-[来源清单](sources.tsv) · [下载与校验记录](manifest.json) · [待补充清单](NEEDED.md) · [本地索引](index.md)
+[来源清单](sources.tsv) · [下载与校验记录](manifest.json) · [待补充清单](NEEDED.md) · [近期工作更新台账](RECENT-UPDATES.md) · [本地索引](index.md)
 
 PDF 原件位于 `files/`，可搜索文本位于 `text/`。网页同时保存原始 HTML 与离线文本。不得把网页入口记作规范全文。
 
@@ -312,12 +312,13 @@ PDF 原件位于 `files/`，可搜索文本位于 `text/`。网页同时保存�
 | [Polymers for Extreme Conditions Designed Using Syntax-Directed Variational Autoencoders](https://arxiv.org/abs/2011.02551) | [原件](files/papers/polyvae-2020.pdf) · [文本](text/polyvae-2020.txt) | 语法指导 VAE 与聚合物候选设计 |
 | [polyGen: A Learning Framework for Atomic-level Polymer Structure Generation](https://arxiv.org/abs/2504.17656) | [原件](files/papers/polygen-2025.pdf) · [文本](text/polygen-2025.txt) | 原子级聚合物结构生成 |
 | [A Self-Improvable Polymer Discovery Framework Based on Conditional Generative Model](https://arxiv.org/abs/2312.04013) | [原件](files/papers/self-improvable-polymer-2023.pdf) · [文本](text/self-improvable-polymer-2023.txt) | 条件生成与自改进聚合物发现 |
-| [polyBART: A Chemical Linguist for Polymer Property Prediction and Generative Design](https://arxiv.org/abs/2506.04233) | [原件](files/papers/polybart-2025.pdf) · [文本](text/polybart-2025.txt) | 聚合物序列生成与性质预测 |
+| [polyBART: A Chemical Linguist for Polymer Property Prediction and Generative Design](https://arxiv.org/abs/2506.04233) | [原件](files/papers/polybart-2025.pdf) · [文本](text/polybart-2025.txt) | 聚合物序列生成与性质预测；2025 年 11 月形成同行评审会议版本 |
 | [GLAMOUR: Graph Learning over Macromolecule Representations](https://arxiv.org/abs/2103.02565) | [原件](files/papers/glamour-2021.pdf) · [文本](text/glamour-2021.txt) | 高分子图表征与表示学习 |
 | [AI-guided inverse design and discovery of recyclable vitrimeric polymers](https://arxiv.org/abs/2312.03690) | [原件](files/papers/vitrimer-inverse-2023.pdf) · [文本](text/vitrimer-inverse-2023.txt) | 可回收聚合物的生成式逆向设计 |
 | [Open-source Polymer Generative Pipeline](https://arxiv.org/abs/2412.08658) | [原件](files/papers/open-polymer-generative-pipeline-2024.pdf) · [文本](text/open-polymer-generative-pipeline-2024.txt) | 开源聚合物生成流程与评价协议 |
 | [Estimation of synthetic accessibility score of drug-like molecules based on molecular complexity and fragment contributions](https://jcheminf.biomedcentral.com/articles/10.1186/1758-2946-1-8) | [原件](files/papers/sa-score-2009.html) · [文本](text/sa-score-2009.txt) | 可合成性评分的片段贡献法 |
 | [Attention Is All You Need](https://arxiv.org/abs/1706.03762) | [原件](files/papers/transformer-2017.pdf) · [文本](text/transformer-2017.txt) | Transformer：自注意力架构 |
+| [POLYT5: an encoder-decoder foundation chemical language model for generative polymer design](https://doi.org/10.1038/s44387-026-00087-1) | [原件](files/papers/polyt5-2026.pdf) · [文本](text/polyt5-2026.txt) | 聚合物专用基础模型、条件生成与实验验证；本地归档预印本，规范入口为正式 DOI |
 
 ## 第 10 章 逆向设计与多目标材料设计
 
@@ -459,6 +460,7 @@ PDF 原件位于 `files/`，可搜索文本位于 `text/`。网页同时保存�
 | [Self-driving laboratory for accelerated discovery of thin-film materials](https://arxiv.org/abs/1906.05398) | [原件](files/papers/self-driving-lab-thinfilm-2019.pdf) · [文本](text/self-driving-lab-thinfilm-2019.txt) | 薄膜自驱动实验室预印本 |
 | [PANDA: A self-driving lab for studying electrodeposited polymer films](https://arxiv.org/abs/2406.17725) | [原件](files/papers/panda-2024.pdf) · [文本](text/panda-2024.txt) | 聚合物薄膜自驱动实验室 |
 | [Self-Driving Laboratory Optimizes the Lower Critical Solution Temperature of Thermoresponsive Polymers](https://arxiv.org/abs/2509.05351) | [原件](files/papers/sdl-lcst-2025.pdf) · [文本](text/sdl-lcst-2025.txt) | 温敏聚合物自驱动实验室 |
+| [Semiautomated experiment with a robotic system and data generation by foundation models for synthesis of polyamic acid particles](https://doi.org/10.1038/s41428-024-00930-9) | [原件](files/papers/semi-auto-polyamic-2024.pdf) · [文本](text/semi-auto-polyamic-2024.txt) | 半自动实验与基础模型辅助观察/失败诊断 |
 | [Beyond Ternary OPV: High-Throughput Experimentation and Self-Driving Laboratories Optimize Multi-Component Systems](https://arxiv.org/abs/1909.03511) | [原件](files/papers/opv-self-driving-2019.pdf) · [文本](text/opv-self-driving-2019.txt) | 高通量与自驱动实验室优化多元体系 |
 
 ## 第 14 章 高分子基础模型与智能体系统
@@ -475,8 +477,12 @@ PDF 原件位于 `files/`，可搜索文本位于 `text/`。网页同时保存�
 | [TransPolymer: a Transformer-based language model for polymer property predictions](https://www.nature.com/articles/s41524-023-01016-5) | [原件](files/papers/transpolymer-2023.pdf) · [文本](text/transpolymer-2023.txt) | 聚合物 Transformer 表示与预训练 |
 | [A universal graph deep learning interatomic potential for the periodic table](https://arxiv.org/abs/2202.02450) | [原件](files/papers/m3gnet-2022.pdf) · [文本](text/m3gnet-2022.txt) | 通用图势：周期表覆盖与材料筛选 |
 | [GROMACS: High performance molecular simulations through multi-level parallelism from laptops to supercomputers](https://www.sciencedirect.com/science/article/pii/S2352711015000059) | 未获取（failed） | GROMACS 5：多级并行的分子模拟 |
+| [polyBART: A Chemical Linguist for Polymer Property Prediction and Generative Design](https://arxiv.org/abs/2506.04233) | [原件](files/papers/polybart-2025.pdf) · [文本](text/polybart-2025.txt) | 聚合物序列生成与性质预测；2025 年 11 月形成同行评审会议版本 |
 | [Attention Is All You Need](https://arxiv.org/abs/1706.03762) | [原件](files/papers/transformer-2017.pdf) · [文本](text/transformer-2017.txt) | Transformer：自注意力架构 |
 | [BERT: Pre-training of Deep Bidirectional Transformers for Language Understanding](https://arxiv.org/abs/1810.04805) | [原件](files/papers/bert-2019.pdf) · [文本](text/bert-2019.txt) | 掩码语言建模预训练 |
+| [Harnessing large language models for data-scarce learning of polymer properties](https://doi.org/10.1038/s43588-025-00768-y) | [原件](files/papers/llm-polymer-data-scarce-2025.pdf) · [文本](text/llm-polymer-data-scarce-2025.txt) | 低保真物理合成数据预训练与少量实验数据微调；本地归档题名不同的预印本，规范入口为正式 DOI |
+| [POLYT5: an encoder-decoder foundation chemical language model for generative polymer design](https://doi.org/10.1038/s44387-026-00087-1) | [原件](files/papers/polyt5-2026.pdf) · [文本](text/polyt5-2026.txt) | 聚合物专用基础模型、条件生成与实验验证；本地归档预印本，规范入口为正式 DOI |
+| [Polymer-Agent: Large Language Model Agent for Polymer Design](https://doi.org/10.1021/acs.jcim.6c00343) | [原件](files/papers/polymer-agent-2026.pdf) · [文本](text/polymer-agent-2026.txt) | 性质预测、性质引导生成与结构修改的工具编排；本地归档预印本，规范入口为正式 DOI |
 | [Uni-Mol: A Universal 3D Molecular Representation Learning Framework](https://arxiv.org/abs/2110.01191) | [原件](files/papers/unimol-2023.pdf) · [文本](text/unimol-2023.txt) | 三维分子表示的去噪预训练 |
 | [Large-Scale Chemical Language Representations Capture Molecular Structure and Properties](https://arxiv.org/abs/2106.09553) | [原件](files/papers/molformer-2022.pdf) · [文本](text/molformer-2022.txt) | 大规模化学语言表示 |
 | [Multi-modal Molecule Structure-text Model for Text-based Retrieval and Editing](https://arxiv.org/abs/2212.10789) | [原件](files/papers/moleculestm-2023.pdf) · [文本](text/moleculestm-2023.txt) | 结构–文本多模态分子模型 |

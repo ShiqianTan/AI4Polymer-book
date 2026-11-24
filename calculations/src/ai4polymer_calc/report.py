@@ -18,10 +18,20 @@ def _format(value) -> str:
 
 def summary_table(result: dict) -> str:
     lines = ["| 结果 | 值 |", "| --- | ---: |"]
-    for key, value in result["summary"].items():
+    summary = result["summary"]
+    log_fallbacks = {
+        "expected_collisions": "expected_collisions_log10",
+        "collision_probability": "collision_probability_log10",
+    }
+    for key, value in summary.items():
         if isinstance(value, (list, dict)):
             continue
-        lines.append(f"| {key} | {_format(value)} |")
+        log_value = summary.get(log_fallbacks.get(key, ""))
+        if value == 0.0 and isinstance(log_value, (int, float)):
+            rendered = f"≈10^{log_value:.2f}（对数尺度）"
+        else:
+            rendered = _format(value)
+        lines.append(f"| {key} | {rendered} |")
     return "\n".join(lines)
 
 

@@ -2,9 +2,7 @@
 
 **人工智能正在改变高分子材料的设计方式。** 从分子表示到性质预测，从生成式序列设计到自驱动实验室，理解数据、模型与物理规律如何协同，才能把机器学习真正用于材料发现。
 
-[GitHub 仓库](https://github.com/ShiqianTan/AI4Polymer-book) · [前言](../manuscripts/00-前言.md)
-
-<!-- TODO: release 发布后在此补充全书 PDF 下载链接，例如 https://github.com/ShiqianTan/AI4Polymer-book/releases/latest/download/AI4Polymer-Book.pdf -->
+[GitHub 仓库](https://github.com/ShiqianTan/AI4Polymer-book) · [下载最新 PDF](https://github.com/ShiqianTan/AI4Polymer-book/releases/latest/download/AI4Polymer-Book.pdf) · [前言](../manuscripts/00-前言.md)
 
 ## 这本书写什么
 
@@ -12,7 +10,7 @@
 
 高分子材料的独特之处在于**多尺度结构与序列复杂性**：同一条链的化学组成、序列、构象和聚集形态共同决定宏观性能。传统设计依赖经验试错，而机器学习可以在高维空间中发现规律、加速筛选。本书贯穿的主线是**把领域知识编码进模型**：用描述符和表示刻画分子，用物理约束和数据基准保证可复现，用生成与优化方法在巨大的设计空间中搜索。
 
-书中的方法与案例都强调可复现：数据来源、基准划分、模型评估与计算记录尽量公开，便于读者复算和比较。更多写作背景见[前言](../manuscripts/00-前言.md)。目前书稿仍是初稿，正在持续修订。
+书中的方法与案例都强调可复现：数据来源、基准划分、模型评估与计算记录尽量公开，便于读者复算和比较。更多写作背景见[前言](../manuscripts/00-前言.md)。当前标记版本为 `print-v1.1`（2026-11-24）；正文、网站与最新 PDF 均从同一份 Markdown 源构建。
 
 ## 十六章导读
 

@@ -55,6 +55,7 @@ FINGERPRINT_BITS = descriptor['feature_dim']
 BYTES_PER_MOLECULE = descriptor['bytes_per_molecule']
 LIBRARY_SIZE = descriptor['library_size']
 EXPECTED_COLLISIONS = descriptor['expected_collisions']
+EXPECTED_COLLISIONS_LOG10 = descriptor['expected_collisions_log10']
 
 
 def two_panel(height=3.9, wspace=0.34, left=0.09, right=0.97):
@@ -106,11 +107,12 @@ def figure_16_2_cases(exp):
     ]
     D.table(ax, ['案例', '目标性质', '硬约束', '数据规模', '关键风险'], rows,
             y_top=0.82, row_h=0.17, col_x=[0.13, 0.35, 0.56, 0.75, 0.90])
-    text(ax, 0.04, 0.19,
-         f'候选空间：10 单体、链长 100 嵌段组合 {CANDIDATES} 条；\n'
-         f'规则可合成比例 {SYNTH_FRACTION:.1f}（规则判据，不等于实验可合成）；\n'
-         f'Morgan {FINGERPRINT_BITS} 位指纹每条 {BYTES_PER_MOLECULE} B，'
-         f'{LIBRARY_SIZE:,} 库期望碰撞 {EXPECTED_COLLISIONS:.0f}。',
+    text(ax, 0.04, 0.13,
+         f'复算：{CANDIDATES} 个嵌段组合；规则可合成率 {SYNTH_FRACTION:.1f}'
+         f'（规则判据 ≠ 实验成功率）。\n'
+         f'{FINGERPRINT_BITS} 位 Morgan 指纹为 {BYTES_PER_MOLECULE} B/条；'
+         f'$10^6$ 库均匀模型期望约 $10^{{{EXPECTED_COLLISIONS_LOG10:.0f}}}$。\n'
+         f'该理想数值 ≠ 真实 ECFP 碰撞。',
          size=11)
     exp.save(fig, 'figure-16-2-cases', badge='CALC')
 

@@ -1,0 +1,951 @@
+                                           Polymer-Agent: Large Language Model Agent
+                                                                      for Polymer Design
+
+                                                Vani Nigam,† Achuth Chandrasekhar,‡ and Amir Barati Farimani∗,‡
+
+
+
+
+arXiv:2601.16376v2 [cs.CL] 11 Feb 2026
+                                           †Department of Materials Science and Engineering, Carnegie Mellon University, 5000
+                                                                  Forbes Avenue, Pittsburgh, PA 15213, USA
+                                         ‡Department of Mechanical Engineering, Carnegie Mellon University, 5000 Forbes Avenue,
+                                                                           Pittsburgh, PA 15213, USA
+
+                                                                             E-mail: barati@cmu.edu
+
+
+                                                                                     Abstract
+
+                                                 On-demand Polymer discovery is essential for various industries, ranging from
+
+                                              biomedical to reinforcement materials. Experiments with polymers have a long trial-
+
+                                              and-error process leading to use of extensive resources. For these processes, machine
+
+                                              learning has accelerated scientific discovery at the property prediction and latent space
+
+                                              search fronts. However, laboratory researchers cannot readily access codes and these
+
+                                              models to extract individual structures and properties due to infrastructure limitations.
+
+                                              We present a closed-loop polymer structure-property predictor integrated in a termi-
+
+                                              nal for early-stage polymer discovery. The framework is powered by LLM reasoning to
+
+                                              provide users with property prediction, property-guided polymer structure generation,
+
+                                              and structure modification capabilities. The SMILES sequences are guided by the syn-
+
+                                              thetic accessibility score and the synthetic complexity score (SC Score) to ensure that
+
+                                              polymer generation is as close as possible to synthetically accessible monomer-level
+
+                                              structures. This framework addresses the challenge of generating novel polymer struc-
+
+
+
+                                                                                         1
+     tures for laboratory researchers, thereby providing computational insights into polymer
+
+     research.
+
+
+
+Introduction
+
+Polymer materials present a wide range of tunable biodegradation, mechanical properties,
+porosity, and surface-to-volume ratio. 1 These materials are used in applications to increase
+durability in solar cells through a cross-linking strategy in three-dimensional hyperbranched
+polymers. 2 Polymer scaffolds are utilized in cardiovascular operations, employing multi-
+ple polymer scaffolds to mimic the human myocardium and improve hydrophilicity and
+biodegradability. 3 Conjugated polymers (CPs) are organic semiconductor materials with
+large pi-conjugated backbones that allow a wide light absorption range and light harvesting
+for antitumor therapy, differentiation, and killing of pathogenic bacteria, and intracellular
+imaging. 4 Polyethylene oxide (PEO)-based electrolytes are examples of polymer-based elec-
+trolytes for uniform, fast, and stable migration/diffusion behavior. 5 Primary and secondary
+structures of polymers play a pivotal role in the variety of the above characteristics of the
+wide-ranging soft materials including thermoplastic elastomers, thermosets, membranes, hy-
+drogels, emulsions, etc. The field of polymer chemistry has seen tremendous growth in molec-
+ular precision and the synthesis of macromolecules with a range of controlled composition,
+chain ends, topology, molecular weight, and polymerization. 6 Polymers have a vast param-
+eter space, exhibiting variations in molecular chains, compositional polydispersity, sequence
+randomness, multi-level structures. 7 Researchers work on fabricating materials by developing
+synthesis routes that target specific properties. Conjugated polymer nanomaterials are reac-
+tions of dimers resulting from radical cations by oxidizing monomers. The initiation of poly-
+merization involves three routes: chemical, electrochemical, and photo-induced oxidation. 8
+Similarly, the process for synthesizing conductive polymer gels (CPGs) involves cross-linking
+of molecules with multiple functional groups to form 3D molecular networks to improve the
+
+
+
+                                               2
+conductivity of these networks. These materials have applications in bioelectronics, energy
+storage, and conversion devices due to their conductive structural properties. 9 However,
+this trial-and-error method for designing novel polymer structures is costly and laborious.
+This necessitates the exploration of more efficient methods to explore the parameters of
+polymer properties, thereby accelerating the research process. 10 ML-based experimental rec-
+ommendations have guided material discovery in phase change memory alloys, high entropy
+alloys, photovoltaics, and porous membrane design. 11 . 12 The integration of Large Language
+Models (LLMs) in polymer design involves training or fine-tuning existing models using
+materials databases that require multimodal learning, high-cost, and energy-intensive meth-
+ods. 13 14 15 16 17 18 Multiple research studies, conducted in various capacities, have focused on
+data-driven material discovery. For example, Variational Autoencoders (VAE) are used to
+encode high-dimensional polymer structures into continuous, low-dimensional latent spaces,
+which enable high-throughput search. Graph neural networks are used to represent molecules
+and thereby learn their chemical bonds. Bayesian optimization has been experimented with,
+to traverse the latent space to target polymers with desired properties. 19 As a self-supervised
+model, MolCLR uses a large unlabeled dataset to train and learn molecular similarities. 20
+Property prediction tasks have also gained momentum in Large Language Model research,
+which treats polymer SMILES as sequences to leverage progress in natural language process-
+ing tasks and uses regression heads to use labeled property databases. 21 22
+   Despite multiple steps in different directions, methods remain isolated and task-specific.
+These isolated implementations limit the scalability and efficiency of current pipelines. A
+polymer discovery experiment requires the seamless integration of various computational
+methods. 23 Compared to using only computational methods for material simulations, 24 ML-
+based approaches can offer fast, high-throughput screening for polymer discovery, prediction,
+and design. Inverse design of materials inherits an extremely vast search space, which can
+be navigated using one of the following methods: (1) High-throughput virtual screening,
+(2) Global optimization, (3) Generative models. 25 In research, the inverse design of specific
+
+
+                                                3
+polymers and the statistical design of experiments using explainable AI are implemented. 26
+Additionally, there have been advancements in Large Language Models (LLMs), which are
+fine-tuned on a material database and utilize LoRA, as well as API from LLMs like OpenAI
+(https://openai.com/api/) and Gemini (https://ai.google.dev/gemini-api/docs) ,
+to facilitate polymer-specific conversations with the LLM. PolySea, a domain-specific LLMs
+for polymer informatics, achieves a classification accuracy of 79% in thermal stability pre-
+diction. 27 Fine-tuned GPT-3.5 can achieve predictive accuracies of solubility of up to 90%. 28
+However, the use of stand-alone LLMs and neural networks for scientific discovery suffers
+from cognitive deficiency, i.e., the inability to decide whether or not to move to the next
+step of the procedure. Agentic AI, on the other hand, scales horizontally by employing an
+LLM as the brain of the process and external tools to guide and monitor every step the
+agent takes. 29 30 Many interdisciplinary applications have used agentic AI to present users
+with contextual querying over domain knowledge, subjective tools for diverse tasks using
+foundational models and APIs etc. 31 32 33 34 Within the agentic workflows, the past research
+shows meaningful integrations with manually integrated APIs, hardcoded Pythonic algo-
+rithms, and frameworks like ReAct. 35 However, these frameworks are brittle due to schema
+enforcement and API costs during tool invocation. 36 In this work, we introduce Polymer-
+Agent, an LLM-powered agent framework designed to leverage agentic AI to keep a human
+in the loop during polymer design. The agent performs two essential tasks: predicting a
+polymer SMILES property and generating target-motivated polymer SMILES. The Model
+Context Protocol (MCP: https://www.anthropic.com/news/model-context-protocol)
+servers enable a simulation researcher to access the generated results in an integrated termi-
+nal using natural language queries.
+
+
+
+
+                                              4
+Methods
+
+Polymer Informatics
+
+Generative Models
+
+In recent years, applications of Transformers 37 have advanced significantly in natural lan-
+guage processing (NLP) and AI for science. Transformer-based models have emerged for
+molecule property predictions, processing reactions, and as a structure-agnostic model for
+text string representation in SMILES-BERT, 38 ChemBERTa, 39 Molecular Transformer, 40
+Moformer, 41 PolyRetro, 42 MOFGPT. 43 TransPolymer 21 is a transformer-based language
+model for polymer property predictions, reaching test R of 0.92-0.93 in the polymer properties
+of bulk bandgap, 0.69 in electric conductivity, 0.32 in p-type polymer OPV power conver-
+sion efficiency, 0.91 in electron affinity, 0.76 in dielectric constant. The RoBERTa 44 based
+transformer model uses polymer SMILES 45 as sequences of polymer repeating units and
+structural descriptors. The chemically aware tokenizer of the model tokenizes the SMILES
+as input to the TransPolymer. Bond angles, chain configuration, bond length, and electronic
+stability of the polymer are expected to be learned implicitly by the model.
+   For the prediction component of our work, we fine-tune the pretrained model on polymer
+datasets (table 1) of electron affinity, bulk bandgap, p-type polymer OPV power conversion
+efficiency, electric conductivity, and dielectric constant for the polymer property regressor
+head, as mentioned in the TransPolymer’s repository (https://github.com/ChangwenXu98/
+TransPolymer.git). Generative models can also be used to generate and search the chemical
+latent space in large amounts of molecular data, and hence create large synthetic databases
+like PolyInfo, 46 PI1M, 47 Polymer Genome, 48 which are datasets or web-based user interfaces
+for one-time search in the synthetic latent spaces. These works have significantly accelerated
+the data-intensive pretraining of chemically aware models. However, these generative models
+do not focus on the synthetic feasibility of common reactants available in wet labs. 49 Molecule
+Chef model 50 introduces de novo design (DND) for searching molecules with target property
+
+                                               5
+values, along with maintaining the brittle SMILES to remain valid molecules. Bradshaw
+et al. suggest Molecule Chef as a generative model with two components: (1) a decoder
+from a continuous latent space mapped to a set of easily procurable reactants (https://
+www.emolecules.com/) in the paper’s implementation as Open Macromolecular Genome, 49
+(2) a reaction predictor model to map reactants to semantically valid molecules. Open
+Macromolecule Genome utilized the Molecule Chef generative model to demonstrate property
+targeting by augmenting log P estimations, 51 thereby providing relevant databases with
+constitutional repeating units (CRUs). The databases are publicly hosted at https://
+github.com/TheJacksonLab/OpenMacromolecularGenome.
+   For the de novo design of polymers in our work, this database is extended to properties
+mentioned in the table 1 using the TransPolymer predictor to maintain a large synthetically
+accessible and semantically aligned database for finetuning the Molecule Chef’s decoder.
+
+
+
+
+Figure 1: Workflow illustrating how each tool is sent an input and how each of the tools
+generates an output in the Polymer-Agent
+
+
+
+Model Context Protocol (MCP)
+
+LLMs are now capable of autonomous planning, reasoning, and resource access. These ad-
+vances apply to several reasoning projects and their usage in applications towards mimicking
+
+                                             6
+human reasoning. 52 53 Model Context Protocol, or MCP, also referred to as ”USB-C of AI,”
+was introduced in 2024 by Anthropic. 54 It integrates the recent work in LLMs and increases
+the adoption of LLMs in recent studies. Major AI providers like OpenAI, Google Gemini,
+and codebases like Cline and Cursor have used the framework to enhance their products,
+and hence, MCP servers have gained rapid traction. 53 MCP frameworks act as an interface
+layer for AI sources, tools, and resources. MCP architecture works with three components:
+host, client, server. The host interacts with control of the tools and user requests, and is
+the user-facing LLM applications. The host uses the LLM to extract the user query to call
+the tools via the MCP client. The MCP client consists of multiple servers that can enable
+tools and resources assigned to them. The basic entities of MCP include: tools (defined
+functions), resources (databases), and prompts (templates for workflow) 55 56
+
+
+
+Agent Design
+
+Task Description
+
+The agent serves as an end-to-end pipeline for performing property prediction and structure
+generation, as illustrated in figure 1.
+   Generation of SMILES. For the generation of new polymer structures, it is very im-
+portant to generate valid SMILES (Simplified Molecular Input Line Entry System), 45 for
+polymer reactions with common reagents. The field of structure generation/ optimization is
+still evolving, and notable generative models, reinforcement learning, and graph optimiza-
+tion techniques have been implemented. 57 58 50 Kim et al developed a deep generative model
+for property-targeted design of synthetic polymers subject to optimization of octanol−water
+solubilities, inspired by the Bradshaw et al’s generative model, which proposes a synthetic
+polymer design with a bag of common initial reactants. 49 50 The SMILES generation tool uti-
+lizes the fine-tuned model trained on the set of properties, as mentioned in table 1. The latent
+space for the polymer SMILES within which the new SMILES is generated is represented in
+
+
+                                               7
+the supplementary section.
+
+
+
+
+Figure 2: Tools available for usage in the MCP servers. The figure also shows how the tools
+access their respective utility and deliver it to the users.
+
+
+   Property Prediction. Machine learning algorithms, specifically graph neural networks
+and Transformer-based tokenization, have been used recently to predict single-task as well as
+multi-task properties from polymer structures as inputs, leveraging the progress achieved in
+the natural language domain. Multiple task-specific models, including graph neural networks
+and generative models (like TransPolymer, CatBERTa), enable libraries and platforms (
+like JARVIS PolymerGenome, PolyId) to enable one-click search and fine-tuning of specific
+properties. 21 59 48 60 61 The polymers are tokenized and converted to SMILES sequences where
+* is added to represent repeating units in a polymer. Other signs are also included besides
+the atom symbols, like . is used for the separation of two units of copolymers, and ˆ is
+included to indicate branches in copolymers. 21 For each candidate molecule, Polymer-Agent
+uses the TransPolymer model, which has been fine-tuned for the same set of target properties
+as the SMILES generation task.
+   Conventional optimization techniques have used powerful algorithms to perform these
+
+                                             8
+Table 1: Summary of datasets for finetuning of the TransPolymer model for the downstream
+tasks. Table referenced from 21
+
+Dataset            Property             # Data   # Augmented train data   # Test data         Data split
+     62
+ PE-I            conductivity            9185             34803              146        train-test split by year
+ Egb 63        bandgap (bulk)            561               6443              113        5-fold cross-validation
+ Eea 63        electron affinity         368               3993               74        5-fold cross-validation
+ EPS 63      dielectric constant         382               4188              77         5-fold cross-validation
+ OPV 64   power conversion efficiency    1203              4810              241        5-fold cross-validation
+
+
+tasks, but recent research shows the advantages of using autonomous constraint generation
+with built-in reasoning and parameter exploration. 65 LLM-powered agents can execute a
+series of optimization, prediction, and modification tasks, 66 and in our approach, the MCP
+servers use the above two models to expose the generative and predictive functions as tools
+for iterating on polymer property prediction, structure generation, and user query handling,
+helping the user navigate between the two tools through human dialogs. Specific use cases
+of the Polymer-Agent and sample prompts are provided in the supplementary section.
+
+                 Table 2: Summary of tools exposed to the MCP Client server
+
+ Task Module                                              Primary Tool Components
+ SMILES Generation                    Molecule Chef tool, Curated Database
+ Property Prediction                  TransPolymer, Molecule Chef
+ LLM internal knowledge and reasoning Gemini 3.0 Auto/Pro/Flash
+ Structure initial Validation         RDKit
+
+
+
+
+Workflow
+
+This workflow, as shown in figure 2, works with the 3 systems concurrently - (1) LLM to
+maintain the reasoning of the query asked, tool exposure, and the final human-readable
+results. (2) The polymer SMILES generative model (3) Polymer property predictor using
+SMILES as inputs.
+   Polymer-Agent is designed to assist users in generating a plausible starting polymer
+structure in experimental settings or computational environments. This accelerates the
+
+
+                                                      9
+polymer design experiment to predict the structure with given properties.
+   The user starts with a polymer property and its value. The agent can work on a strict
+value as well as a range for the property value. Polymer-Agent’s MCP Client triggers the
+MCP server to generate structures, optimizing the latent space from two descriptors into a
+synthetic polymer SMILES. The SMILES obtained can be directly viewed on the Command
+Line Interface, and the user can request to continue or stop the generation.
+   After generation, TransPolymer, the prediction tool, uses SMILES to predict proper-
+ties with a Transformer-based model. For using a descriptor-based database instead of the
+original training/finetuning corpus PI1M, 47 the OMG database 49 is used for finetuning the
+structure generation.
+
+
+
+
+Figure 3: Workflow of the terminal responses (blue: missteps taken by the LLM reasoning
+being crosschecked by the prediction MCP), (yellow: determined steps of the MCP server)
+
+
+
+
+                                            10
+Results
+
+Closed loop generation and prediction
+
+The AI assistant identifies the relevant tools to use for specific queries of the users. To
+illustrate the interface between generation and property prediction, we show the terminals’
+outputs (figure 3) in the integrated Gemini Command Line to the user’s development envi-
+ronment.
+
+
+Generative Server
+
+The Molecule Chef 50 model was adapted to generate the seed molecules with property head
+fine-tuned on the OMG database. 49 Building on the features of reactants and reactions
+from Molecule Chef, we used the synthetic database curated in this project to fine-tune the
+property head. The database is accessible on the GitHub page mentioned. The database
+consists of 12 million distinct repeating units (CRUs) with the polymer properties of bulk
+bandgap, electric conductivity, p-type polymer OPV power conversion efficiency, electron
+affinity, and dielectric constant. SC Score 67 was chosen by Kim et al 49 to estimate how often
+a reactant molecule has been cited in published literature. The learned metric (SC score)
+exhibits recognition in synthetic complexity throughout a number of linear synthetic routes,
+measuring score from 1 to 5 with increasing complexity to fabrication (table 3).
+   The Synthetic Accessibility Score (SA Score) 68 is an important metric for virtually de-
+signed molecules used in multiple databases 47 to numerically represent the synthesis of
+molecules in the laboratory. As Schuffenhaur et al. mention, molecules with a high SA
+score above 6, based on the distribution of SA score, are difficult to synthesize, whereas
+molecules with low SA score values are easily synthetically accessible. A score between 1
+and 3 is perceived to be easily synthesized in reality. The initial OMG database, and hence
+the finetuning data for Polymer-Agent, display an acceptable score, ranging from 1.094 to
+7.953. The histogram (see figure 4) shows the distribution of the scores.
+
+
+                                              11
+                                                                  6000
+        7000   (a)                                                       (b)
+        6000                                                      5000
+        5000                                                      4000
+        4000
+Count                                                     Count   3000
+        3000
+                                                                  2000
+        2000
+        1000                                                      1000
+
+           0                                                         0
+               1       2     3      4     5      6                       1.0     1.2   1.4   1.6   1.8   2.0     2.2
+                   Synthetic Accessibility (SA) Score                          Synthetic Complexity (SC) Score
+Figure 4: Representation of the Synthetic accessibility and synthetic complexity scores in
+OMG database.
+
+Table 3: Comparison of the statistical information from the PolyInfo, PI1M and OMG
+datasets, to validate the latent space using SC score mentioned in the Open Macromolecule
+Genome article 49
+
+                                        Dataset         Mean SC Score
+                                        OMG                  1.93
+                                        PI1M                3.459
+                                        PolyInfo            2.16
+
+
+Property-Aware Molecular Refinement
+
+Key refinements to the molecular SMILES can be made using the two tools available, [Multi
+Property head] and [Single Property head]. The two tools differ in chemical diversity: the
+multi-property optimizer tends to suggest more complex structures (such as the cyano-
+substituted aromatic ring in the second example of table 4 ) because it considers the shared
+latent space across all five properties. The multi-property optimizer allows you to add con-
+straints (e.g., ”target PE I of -5.3 but maintain Egb less than 4.0”), which is often more useful
+for actual material design. The Gemini reasoning (or any LLM integrated into the MCP
+server) can also account for the differences between the two methods. The Gemini reasoning
+was tested to modify particular substitutional groups in the polymer. The reasoning attempts
+
+
+
+                                                         12
+to nudge and change the substitution groups, as shown in figures 3, which illustrates the
+chemical logic of increasing or decreasing the targeted property. The property is re-measured
+using the property-predictor server. However, the LLM’s general reasoning modifications can
+lead to latent-space movements in the opposite direction, causing the target to move farther
+from already generated SMILES. This is flagged by the server because it is designed to always
+validate its prediction using the Property predictor generative model and never proceed with
+the LLM’s reasoning as is. The multi-property head optimizes the same target of electrical
+conductivity of -5.3 to *CCOCCOCCCCC(Br)=CC=COCOC1CC(C#N)CCC1OC(C=O)OC* and the sin-
+gle property head optimizes the SMILES to *OCCOC(C)C(Br)CSO*, the differences in the
+respective properties are as illustrated in the table 4.
+
+Table 4: Comparison of the Single Property Property head. Here is the comparison for a
+target of electrical conductivity, -5.3
+
+ Metrics                       Single Property Head        Multi Property Head
+ PE I (Target achieved)                  -5.37                     -5.72
+ Electron Affinity (Eea)               0.99 eV                    1.34 eV
+ Chain Bandgap (Egb)                   5.68 eV                    4.35 eV
+ Dielectric Constant (EPS)               3.44                       3.59
+ PCE (OPV)                              4.73%                      4.13%
+
+
+
+
+Property Predictor Server
+
+Polymer-Agent not only provides users with targeted property search for polymers but also
+mitigates the issue with the black box prediction framework by relying on the generative mod-
+els instead of the general reasoning of the LLM. TransPolymer 21 employs chemically aware
+tokenization to embed and add descriptors such as degree of polymerization, polydispersity,
+and chain conformation. Unlike neural networks, Transformers depend on the self-attention
+mechanism, which relates tokens at different positions in a sequence to learn representations
+of the polymer SMILES. The comparison of the property prediction modules in the Polymer-
+Agent with a webpage search from the Polymer Genome: http://www.polymergenome.org/
+data source is shown in table 5.
+
+                                               13
+Table 5: Comparison of the property prediction by an open source platform, single and
+multi-property head of Polymer-Agent.
+
+Platform                            Polymer-Agent     Polymer Genome 48
+SMILES                            *OCCOC(C)C(Br)CSO* *OCCOC(C)C(Br)CSO*
+Electron Affinity (Eea)                 0.99 eV            1.0 0.4 eV
+Chain Bandgap (Egb)                     5.68 eV            6.4 0.5 eV
+Dielectric Constant (EPS at 1KHz)         3.44              4.54 0.68
+Power Conversion Efficiency(OPV)         4.73%            Not available
+
+
+   Yang et al 69 note in their paper the presence of linear backbones, fragments of ”-O-CH2-
+CH2”. While targeting the highest conductivity of polymer in their work’s data(( 5.07 ×
+10−4 S cm−1 ), Polymer-Agent reaches ‘*N=CC=NC=C(Cl)C=C1C=CC=C(OCC)C=C1OCCOCCOC‘ (
+1.07 × 10−4 S cm−1 ) as its top candidate. Multiple such candidates are shown in the supple-
+mentary information. Sharifi et al., 70 in their prediction model of dielectric constants, show
+an illustrative graph for actual and predicted dielectric constants with the polymer structures.
+We replicate the same range of 3 - 3.5 true dielectric constants and reach similar polymers
+with a low SA score of 3.48, as shown in supplementary information, where Polymer-Agent
+reaches a Tanimoto similarity 71 of 0.34 and a dice similarity(rdkit.Chem.AtomPairs) of 0.5
+calculated on Morgan Fingerprints of ‘*OCC=O‘[polymer-agent’s optimised polymer] and
+‘NCCCCCC(=O)‘ [Nylon-6].These examples illustrate the use of Polymer-Agent to generate
+on-demand, targeted, and novel polymers.
+
+
+
+Discussion
+
+Open polymer databases with the property features are very hard to create because of the
+sparse data present in the domain. It is very important that the polymer database be ac-
+cessible to other researchers at no cost and with minimal effort and time. PolyInfo article
+with MatNavi database was published for the public in 2011, 72 giving access to polymer
+blends, copolymers, and homopolymers extracted from the published articles on the web.
+Polymer Genome was introduced in the 2018 article, 48 providing users with an organic com-
+
+
+
+                                              14
+putational and experimental polymer database, along with machine learning tools to predict
+valid SMILES properties. Joint Automated Repository for Various Integrated Simulations
+(JARVIS) is a unified platform for computational and machine learning models, provid-
+ing users with access to databases, tools, benchmarks, etc from their published tools and
+research. 61 However, these projects are either proprietary webpages or defined structured
+libraries, leading to the requirement of registrations, logins, or having limited tool change
+access. The Polymer-Agent generates polymer SMILES reliably from a reaction-aware gen-
+erative model and open-source LLM reasoning. The current implementation executes only
+one such model, but users can add multiple models to compare the results as generative mod-
+els continue to improve. The Polymer-Agent is a closed-loop generative model, i.e., it can
+generate polymer SMILES in a continuous optimization space with targeted property value
+specified by the user. The models can also target multiple properties in the latent space at
+the same time. An attempt at chained molecular refinements guided by LLM reasoning was
+made, adding or removing specific functional groups to optimise the property value towards
+the target. However, these modifications are not always precise and can lead to unreachable
+polymer SMILES; therefore, a property prediction model is used to recheck the property
+value before presenting the final result to the user. In general, the most appropriate scores
+for polymer synthesis in real life, such as the SA Score, are used to assess the accessibility
+of the polymer generated by the model, as shown in the Supplementary section.
+
+
+
+Open Challenges and Future Work
+
+Materials seed molecules
+
+Polymer databases are sparsely collected, and only a few databases have served as the sole
+sources for training and testing polymer informatics models. Although synthetic datasets
+have increased in number, there is still a need for a large generalized dataset to test and
+validate results from computational models.
+
+
+                                              15
+AI agent evaluation
+
+Model Context Protocol frameworks have increased the ability for multiple resources and
+tools to work in tandem within a single system. However, the MCP tool’s calling ability has
+been evaluated by comparing its results with those of similar websites or applications. As
+MCP evaluation frameworks evolve, there is scope to integrate multiple tools and APIs for
+tasks such as computational characterization, running molecular dynamics simulations, and
+evaluating the system architecture of tool-server interactions.
+
+
+
+Conclusion
+
+In this study, we introduced Polymer-Agent, an LLM-powered tool orchestrating agent for
+automated polymer SMILES discovery. We integrated two chemically aware generative mod-
+els to not only generate close-to-real polymers but also optimize the structure for user-defined
+property values. The user can interact with the LLM’s reasoning in natural language, and
+the agent can easily switch between structure-generation and property-prediction models
+without requiring any code changes. The key strength of Polymer-Agent is its ability to
+search for target property values within a chemically valid polymer space using two defined
+workflows. This makes polymer discovery more accessible to laboratories in need of poly-
+mers with targeted properties and reduces the time required to predict new structures in
+wet laboratories.
+
+
+
+Technology Use Disclosure
+
+We used ChatGPT and Gemini web versions to help with grammar and typographical cor-
+rections during the preparation of this preprint manuscript and in the integration of the code.
+The authors have carefully reviewed, verified, and approved all content to ensure accuracy
+and integrity.
+
+
+                                              16
+Code Availability Statement
+
+The code that supports this studys findings can be found in the following publicly available
+GitHub repository: https://github.com/BaratiLab/PolyAgent
+
+
+
+References
+
+ (1) Terzopoulou, Z.; Zamboulis, A.; Koumentakou, I.; Michailidou, G.; Noordam, M. J.;
+     Bikiaris, D. N. Biocompatible Synthetic Polymers for Tissue Engineering Purposes.
+     Biomacromolecules 2022, 23, 1841–1863, Publisher: American Chemical Society.
+
+ (2) Li, Z.; Jia, C.; Wan, Z.; Cao, J.; Shi, J.; Xue, J.; Liu, X.; Wu, H.; Xiao, C.; Li, C.; Li, M.;
+     Zhang, C.; Li, Z. Boosting mechanical durability under high humidity by bioinspired
+     multisite polymer for high-efficiency flexible perovskite solar cells. Nature Communica-
+     tions 2025, 16, 1771, Publisher: Nature Publishing Group.
+
+ (3) Toh, H. W.; Toong, D. W. Y.; Ng, J. C. K.; Ow, V.; Lu, S.; Tan, L. P.; Wong, P. E. H.;
+     Venkatraman, S.; Huang, Y.; Ang, H. Y. Polymer blends and polymer composites for
+     cardiovascular implants. European Polymer Journal 2021, 146, 110249.
+
+ (4) Sensing, Imaging, and Therapeutic Strategies Endowing by Conjugate Polymers for
+     Precision Medicine - Shen - 2024 - Advanced Materials - Wiley Online Library. https:
+     //advanced.onlinelibrary.wiley.com/doi/10.1002/adma.202310032.
+
+ (5) Li, X.; Feng, J.; Li, Y.; Li, N.; Jia, X.; Wang, Y.; Ding, S. Regulating Li+ transport
+     behavior by cross-scale synergistic rectification strategy for dendrite-free and high area
+     capacity polymeric all-solid-state lithium batteries. Energy Storage Materials 2024, 72,
+     103759.
+
+ (6) Lutz, J.-F.; Lehn, J.-M.; Meijer, E. W.; Matyjaszewski, K. From precision polymers to
+
+
+
+
+                                                17
+     complex materials and systems. Nature Reviews Materials 2016, 1, 16024, Publisher:
+     Nature Publishing Group.
+
+ (7) Meijer, H. E. H.; Govaert, L. E. Mechanical performance of polymer systems: The
+     relation between structure and properties. Progress in Polymer Science 2005, 30, 915–
+     938.
+
+ (8) Nguyen, D. N.; Yoon, H. Recent Advances in Nanostructured Conducting Polymers:
+     from Synthesis to Practical Applications. Polymers 2016, 8, 118, Publisher: Multidis-
+     ciplinary Digital Publishing Institute.
+
+ (9) Zhao, F.; Shi, Y.; Pan, L.; Yu, G. Multifunctional Nanostructured Conductive Polymer
+     Gels: Synthesis, Properties, and Applications. Accounts of Chemical Research 2017,
+     50, 1734–1743, Publisher: American Chemical Society.
+
+(10) Zhao, G.; Xu, T.; Fu, X.; Zhao, W.; Wang, L.; Lin, J.; Hu, Y.; Du, L. Machine-learning-
+     assisted multiscale modeling strategy for predicting mechanical properties of carbon
+     fiber reinforced polymers. Composites Science and Technology 2024, 248, 110455.
+
+(11) Adams, F.; McDannald, A.; Takeuchi, I.; Kusne, A. G. Human-in-the-loop for Bayesian
+     autonomous materials phase mapping. Matter 2024, 7, 697–709.
+
+(12) Cao, Z.; Barati Farimani, O.; Ock, J.; Barati Farimani, A. Machine Learning in Mem-
+     brane Design: From Property Prediction to AI-Guided Optimization. Nano Letters
+     2024, 24, 2953–2960.
+
+(13) Badrinarayanan, S.; Guntuboina, C.; Mollaei, P.; Barati Farimani, A. Multi-Peptide:
+     Multimodality Leveraged Language-Graph Learning of Peptide Properties. Journal of
+     Chemical Information and Modeling 2025, 65, 83–91.
+
+(14) Liao, V.; Jayaraman, A. Inverse Design of Block Polymer Materials with Desired
+
+
+
+
+                                               18
+    Nanoscale Structure and Macroscale Properties. JACS Au 2025, 5, 2810–2824, Pub-
+    lisher: American Chemical Society.
+
+(15) Zheng, Y.; Thakolkaran, P.; Biswal, A. K.; Smith, J. A.; Lu, Z.; Zheng, S.;
+    Nguyen, B. H.; Kumar, S.; Vashisth, A. AI-Guided Inverse Design and Discovery
+    of Recyclable Vitrimeric Polymers. Advanced Science 2025, 12, 2411385, eprint:
+    https://advanced.onlinelibrary.wiley.com/doi/pdf/10.1002/advs.202411385.
+
+(16) Sahu, H.; Xiong, W.; Savit, A.; Shukla, S. S.; Ramprasad, R. An Encoder-Decoder
+    Foundation Chemical Language Model for Generative Polymer Design. 2025; http:
+    //arxiv.org/abs/2510.18860, arXiv:2510.18860 [cond-mat].
+
+(17) Choudhary, K. AtomGPT: Atomistic Generative Pretrained Transformer for Forward
+    and Inverse Materials Design. The Journal of Physical Chemistry Letters 2024, 15,
+    6909–6917, Publisher: American Chemical Society.
+
+(18) Balaji, S.; Magar, R.; Jadhav, Y.; Farimani, A. B. GPT-MolBERTa: GPT Molecular
+    Features Language Model for molecular property prediction. 2023; http://arxiv.org/
+    abs/2310.03030, arXiv:2310.03030 [physics].
+
+(19) Vogel, G.; Weber, J. M. Inverse Design of Copolymers Including Stoichiometry
+    and Chain Architecture. 2024; http://arxiv.org/abs/2410.02824, arXiv:2410.02824
+    [cond-mat].
+
+(20) Wang, Y.; Wang, J.; Cao, Z.; Barati Farimani, A. Molecular contrastive learning of
+    representations via graph neural networks. Nature Machine Intelligence 2022, 4, 279–
+    287.
+
+(21) Xu, C.; Wang, Y.; Barati Farimani, A. TransPolymer: a Transformer-based language
+    model for polymer property predictions. npj Computational Materials 2023, 9, 64.
+
+
+
+
+                                          19
+(22) Kuenneth, C.; Ramprasad, R. polyBERT: a chemical language model to enable fully
+     machine-driven ultrafast polymer informatics. Nature Communications 2023, 14, 4099,
+     Publisher: Nature Publishing Group.
+
+(23) Pak, P.; Chandrasekhar, A.; Farimani, A. B. Agentic Additive Manufacturing Alloy
+     Discovery. 2025; http://arxiv.org/abs/2510.02567, arXiv:2510.02567 [cs].
+
+(24) Barati Farimani, O.; Cao, Z.; Barati Farimani, A. Fast Water Desalination with
+     a GrapheneMoS2 Nanoporous Heterostructure. ACS Applied Materials & Interfaces
+     2024, 16, 29355–29363.
+
+(25) Wang, J.; Wang, Y.; Chen, Y. Inverse Design of Materials by Machine Learning. Ma-
+     terials 2022, 15, 1811, Publisher: Multidisciplinary Digital Publishing Institute.
+
+(26) Dangayach, R.; Jeong, N.; Demirel, E.; Uzal, N.; Fung, V.; Chen, Y. Machine Learning-
+     Aided Inverse Design and Discovery of Novel Polymeric Materials for Membrane Sepa-
+     ration. Environmental Science & Technology 2025, 59, 993–1012, Publisher: American
+     Chemical Society.
+
+(27) Qiu, H.; Zhao, J.; Jing, E.; Hu, W.; Lv, Y.; Li, X.; Sun, Z.-Y. Introducing PolySea: An
+     LLM-Based Polymer Smart Evolution Agent. 2025; https://chemrxiv.org/engage/
+     chemrxiv/article-details/67f8d2d481d2151a02f55516.
+
+(28) Agarwal, S.; Mahmood, A.; Ramprasad, R. Polymer Solubility Prediction Using Large
+     Language Models. ACS Materials Letters 2025, 7, 2017–2023, Publisher: American
+     Chemical Society.
+
+(29) Tran, K.-T.; Dao, D.; Nguyen, M.-D.; Pham, Q.-V.; O’Sullivan, B.; Nguyen, H. D.
+     Multi-Agent Collaboration Mechanisms: A Survey of LLMs. 2025; http://arxiv.
+     org/abs/2501.06322, arXiv:2501.06322 [cs].
+
+
+
+
+                                             20
+(30) Chandrasekhar, A.; Farimani, A. B. Automating MD simulations for Proteins using
+     Large language Models: NAMD-Agent. 2025; http://arxiv.org/abs/2507.07887,
+     arXiv:2507.07887 [cs].
+
+(31) Chandrasekhar, A.; Chan, J.; Ogoke, F.; Ajenifujah, O.; Barati Farimani, A. AMGPT:
+     A large language model for contextual querying in additive manufacturing. Additive
+     Manufacturing Letters 2024, 11, 100232.
+
+(32) Liu, Z.; Qiu, J.; Wang, S.; Zhang, J.; Liu, Z.; Ram, R.; Chen, H.; Yao, W.; Heinecke, S.;
+     Savarese, S.; Wang, H.; Xiong, C. MCPEval: Automatic MCP-based Deep Evaluation
+     for AI Agent Models. Proceedings of the 2025 Conference on Empirical Methods in
+     Natural Language Processing: System Demonstrations. Suzhou, China, 2025; pp 373–
+     402.
+
+(33) Chandrasekhar, A.; Farimani, O. B.; Ajenifujah, O. T.; Ock, J.; Farimani, A. B.
+     NANOGPT: A Query-Driven Large Language Model Retrieval-Augmented Genera-
+     tion System for Nanotechnology Research. 2025; http://arxiv.org/abs/2502.20541,
+     arXiv:2502.20541 [cs].
+
+(34) TaskMatrix.AI: Completing Tasks by Connecting Foundation Models with Mil-
+     lions of APIs | Intelligent Computing. https://spj.science.org/doi/10.34133/
+     icomputing.0063.
+
+(35) Yao, S.; Zhao, J.; Yu, D.; Du, N.; Shafran, I.; Narasimhan, K.; Cao, Y. ReAct: Syn-
+     ergizing Reasoning and Acting in Language Models. 2023; http://arxiv.org/abs/
+     2210.03629, arXiv:2210.03629 [cs].
+
+(36) Mastouri, M.; Ksontini, E.; Kessentini, W. Making REST APIs Agent-Ready: From
+     OpenAPI to MCP Servers for Tool-Augmented LLMs. 2025; http://arxiv.org/abs/
+     2507.16044, arXiv:2507.16044 [cs].
+
+
+
+                                             21
+(37) Vaswani, A.; Shazeer, N.; Parmar, N.; Uszkoreit, J.; Jones, L.; Gomez, A. N.; Kaiser, u.;
+     Polosukhin, I. Attention is All you Need. Advances in Neural Information Processing
+     Systems. 2017.
+
+(38) Wang, S.; Guo, Y.; Wang, Y.; Sun, H.; Huang, J. SMILES-BERT: Large Scale Un-
+     supervised Pre-Training for Molecular Property Prediction. Proceedings of the 10th
+     ACM International Conference on Bioinformatics, Computational Biology and Health
+     Informatics. New York, NY, USA, 2019; pp 429–436.
+
+(39) Chithrananda, S.; Grand, G.; Ramsundar, B. ChemBERTa:                  Large-Scale Self-
+     Supervised Pretraining for Molecular Property Prediction. 2020; http://arxiv.org/
+     abs/2010.09885, arXiv:2010.09885 [cs].
+
+(40) Schwaller, P.; Laino, T.; Gaudin, T.; Bolgar, P.; Hunter, C. A.; Bekas, C.; Lee, A. A.
+     Molecular Transformer: A Model for Uncertainty-Calibrated Chemical Reaction Pre-
+     diction. ACS Central Science 2019, 5, 1572–1583.
+
+(41) Cao, Z.; Magar, R.; Wang, Y.; Barati Farimani, A. MOFormer: Self-Supervised Trans-
+     former Model for MetalOrganic Framework Property Prediction. Journal of the Amer-
+     ican Chemical Society 2023, 145, 2958–2967.
+
+(42) Agarwal, S.; Xiong, W.; Ramprasad, R. polyRETRO: a Language Model Approach
+     to predict Polymerization Class and Monomer(s) for a Target Polymer. 2025; http:
+     //arxiv.org/abs/2512.05138, arXiv:2512.05138 [cond-mat].
+
+(43) Badrinarayanan, S.; Magar, R.; Antony, A.; Meda, R. S.; Barati Farimani, A.
+     MOFGPT: Generative Design of MetalOrganic Frameworks using Language Models.
+     Journal of Chemical Information and Modeling 2025, 65, 9049–9060.
+
+(44) Liu, Y.; Ott, M.; Goyal, N.; Du, J.; Joshi, M.; Chen, D.; Levy, O.; Lewis, M.; Zettle-
+     moyer, L.; Stoyanov, V. RoBERTa: A Robustly Optimized BERT Pretraining Ap-
+     proach. 2019; http://arxiv.org/abs/1907.11692, arXiv:1907.11692 [cs].
+
+                                             22
+(45) Weininger, D. SMILES, a chemical language and information system. 1. Introduction
+     to methodology and encoding rules. Journal of Chemical Information and Computer
+     Sciences 1988, 28, 31–36.
+
+(46) Ishii, M.; Ito, T.; Sado, H.; Kuwajima, I. NIMS polymer database PoLyInfo (I):
+     an overarching view of half a million data points. Science and Technology of Ad-
+     vanced Materials: Methods 2024, 4, 2354649, Publisher: Taylor & Francis eprint:
+     https://doi.org/10.1080/27660400.2024.2354649.
+
+(47) Ma, R.; Luo, T. PI1M: A Benchmark Database for Polymer Informatics. Journal of
+     Chemical Information and Modeling 2020, 60, 4684–4690, PMID: 32986418.
+
+(48) Kim, C.; Chandrasekaran, A.; Huan, T. D.; Das, D.; Ramprasad, R. Polymer Genome:
+     A Data-Powered Polymer Informatics Platform for Property Predictions. The Jour-
+     nal of Physical Chemistry C 2018, 122, 17575–17585, Publisher: American Chemical
+     Society.
+
+(49) Kim, S.; Schroeder, C. M.; Jackson, N. E. Open Macromolecular Genome: Generative
+     Design of Synthetically Accessible Polymers. ACS Polymers Au 2023, 3, 318–330.
+
+(50) Bradshaw, J.; Paige, B.; Kusner, M. J.; Segler, M. H. S.; Hernndez-Lobato, J. M.
+     A Model to Search for Synthesizable Molecules. 2019; http://arxiv.org/abs/1906.
+     05221, arXiv:1906.05221 [cs].
+
+(51) Wildman, S. A.; Crippen, G. M. Prediction of Physicochemical Parameters by Atomic
+     Contributions. Journal of Chemical Information and Computer Sciences 1999, 39,
+     868–873.
+
+(52) Xu, F. et al. Towards Large Reasoning Models: A Survey of Reinforced Reasoning with
+     Large Language Models. 2025; http://arxiv.org/abs/2501.09686, arXiv:2501.09686
+     [cs].
+
+
+                                          23
+(53) Luo, Z.; Shen, Z.; Yang, W.; Zhao, Z.; Jwalapuram, P.; Saha, A.; Sahoo, D.;
+     Savarese, S.; Xiong, C.; Li, J. MCP-Universe: Benchmarking Large Language Mod-
+     els with Real-World Model Context Protocol Servers. 2025; http://arxiv.org/abs/
+     2508.14704, arXiv:2508.14704 [cs] version: 1.
+
+(54) Introducing the Model Context Protocol. https://www.anthropic.com/news/
+     model-context-protocol.
+
+(55) Errico, H.; Ngiam, J.; Sojan, S. Securing the Model Context Protocol (MCP):
+     Risks,   Controls,   and Governance. 2025;      http://arxiv.org/abs/2511.20920,
+     arXiv:2511.20920 [cs].
+
+(56) What is the Model Context Protocol (MCP)? https://modelcontextprotocol.io/
+     docs/getting-started/intro.
+
+(57) Qiu, H.; Sun, Z.-Y. On-demand reverse design of polymers with PolyTAO. npj Com-
+     putational Materials 2024, 10, 273, Publisher: Nature Publishing Group.
+
+(58) Blaschke, T.; Ars-Pous, J.; Chen, H.; Margreitter, C.; Tyrchan, C.; Engkvist, O.; Pa-
+     padopoulos, K.; Patronov, A. REINVENT 2.0: An AI Tool for De Novo Drug Design.
+     Journal of Chemical Information and Modeling 2020, 60, 5918–5922, Publisher: Amer-
+     ican Chemical Society.
+
+(59) Ock, J.; Badrinarayanan, S.; Magar, R.; Antony, A.; Barati Farimani, A. Multimodal
+     language and graph learning of adsorption configuration in catalysis. Nature Machine
+     Intelligence 2024, 6, 1501–1511.
+
+(60) Wilson, A. N.; St John, P. C.; Marin, D. H.; Hoyt, C. B.; Rognerud, E. G.; Nim-
+     los, M. R.; Cywar, R. M.; Rorrer, N. A.; Shebek, K. M.; Broadbelt, L. J.; Beck-
+     ham, G. T.; Crowley, M. F. PolyID: Artificial Intelligence for Discovering Performance-
+     Advantaged and Sustainable Polymers. Macromolecules 2023, 56, 8547–8557, Pub-
+     lisher: American Chemical Society.
+
+                                            24
+(61) Choudhary, K. The JARVIS infrastructure is all you need for materials design. Com-
+     putational Materials Science 2025, 259, 114063.
+
+(62) Oyaizu, K. AI-Assisted Exploration of Superionic Glass-Type Li+ Conductors with
+     Aromatic Structures. 2020,
+
+(63) Kuenneth, C.; Rajan, A. C.; Tran, H.; Chen, L.; Kim, C.; Ramprasad, R. Polymer
+     informatics with multi-task learning. Patterns 2021, 2, 100238.
+
+(64) Nagasawa, S.; Al-Naamani, E.; Saeki, A. Computer-Aided Screening of Conjugated
+     Polymers for Organic Solar Cell: Classification by Random Forest. The Journal of
+     Physical Chemistry Letters 2018, 9, 2639–2646, Publisher: American Chemical Society.
+
+(65) Zeng, T.; Badrinarayanan, S.; Ock, J.; Lai, C.-K.; Barati Farimani, A. LLM-guided
+     chemical process optimization with a multi-agent approach. Machine Learning: Science
+     and Technology 2025, 6, 045067.
+
+(66) Ock, J.; Meda, R. S.; Badrinarayanan, S.; Aluru, N. S.; Chandrasekhar, A.; Fari-
+     mani, A. B. Large Language Model Agent for Modular Task Execution in Drug Dis-
+     covery. 2025; https://www.biorxiv.org/content/10.1101/2025.07.02.662875v1,
+     ISSN: 2692-8205 Pages: 2025.07.02.662875 Section: New Results.
+
+(67) Coley, C. W.; Rogers, L.; Green, W. H.; Jensen, K. F. SCScore: Synthetic Complexity
+     Learned from a Reaction Corpus. Journal of Chemical Information and Modeling 2018,
+     58, 252–261.
+
+(68) Ertl, P.; Schuffenhauer, A. Estimation of synthetic accessibility score of drug-like
+     molecules based on molecular complexity and fragment contributions. Journal of Chem-
+     informatics 2009, 1, 8.
+
+(69) Yang, Z.; Ye, W.; Lei, X.; Schweigert, D.; Kwon, H.-K.; Khajeh, A. De novo design
+
+
+
+
+                                            25
+     of polymer electrolytes using GPT-based and diffusion-based generative models. npj
+     Computational Materials 2024, 10, 296.
+
+(70) Sharifi, S.; Bonardd, S.; Miccio, L. A. Dielectric constant prediction in polymers: A
+     chemical structure based approach. Next Materials 2025, 8, 100795.
+
+(71) Bajusz, D.; Rácz, A.; Héberger, K. Why is Tanimoto index an appropriate choice for
+     fingerprint-based similarity calculations? Journal of cheminformatics 2015, 7, 20.
+
+(72) Otsuka, S.; Kuwajima, I.; Hosoya, J.; Xu, Y.; Yamazaki, M. PoLyInfo: Polymer
+     Database for Polymeric Materials Design. 2011 International Conference on Emerg-
+     ing Intelligent Data and Web Technologies. 2011; pp 22–29.
+
+(73) Krenn, M. et al. SELFIES and the future of molecular string representations. Patterns
+     2022, 3, 100588.
+
+
+
+
+                                            26
+Supplementary Work
+
+Feature extraction via a variational autoencoder yields a continuous latent space that repre-
+sents features of the data, in our case, polymer SMILES structures. Constitutional Repeating
+Units (CRUs) used for training the VAE generate the following SELFIES 73 latent spaces 5
+with a color gradient based on the material property. 49 We have shown the following latent
+spaces, along with our database’s labels, to illustrate the property gradient.
+
+
+
+
+Figure 5: Representation of Principal components of the latent space of the polymer SMILES
+space with colour indexing of the properties.
+
+
+   Examples of prompts in 6 for generating and using all the tools of the MCP servers
+are provided below. Users can use the same prompt template to generate valid results, as
+designed by the authors.
+
+
+
+
+                                             27
+Figure 6: Use-case of Polymer-Agent with final MCP response after a sample user query.
+Note that the user receives a prompt to move forward from the MCP server before any tool
+is executed.
+
+
+
+
+                                          28
+Figure 7: Use-case of Polymer-Agent with final MCP response after a sample user query.
+Continued terminal output from figure 6
+
+
+   Prompts in 8 for generating and using all the tools for targeting single property opti-
+mization in Polymer-Agent.
+   For further validation of the agent’s output, we tested the prompts using the specified
+tools 10 to generate SMILES and validate the output. The same SMILES is then compared
+with predictions from articles using open-source models, Molecular dynamics, and other
+techniques in the results section.
+
+
+
+
+                                           29
+Figure 8: Representation of the Terminal output for a multi-property target given to the
+MCP server, the results can be saved in any form as per the user in order to reuse the
+information obtained from the MCP server.
+
+
+
+
+                                          30
+Figure 9: Representation of the Terminal output for a multi-property target given to the
+MCP server, the results are appended with SA score for users.
+
+
+
+
+                                          31
+      Figure 10: Representation of the Terminal output for the final property report.
+
+
+   The results mention a user search for a dielectric constant with 3-3.5. The below terminal
+output11 shows the final one shot reply and related structures drawn with rdkit library, as
+image generation is not a part of Polymer-Agent yet.
+
+
+
+
+                                             32
+Figure 11: Representation of the Terminal output for the final property report for a dielectric
+constant range of 3-3.5.
+
+
+
+
+                                              33
+

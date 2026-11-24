@@ -159,7 +159,7 @@ def index(items):
         "",
         f"当前清单 {len(items)} 项：已取得正文 {len(ok)} 项，其中 PDF {len(pdfs)} 份。其余项目的获取状态见文末。",
         "",
-        "[来源清单](sources.tsv) · [下载与校验记录](manifest.json) · [待补充清单](NEEDED.md) · [本地索引](index.md)",
+        "[来源清单](sources.tsv) · [下载与校验记录](manifest.json) · [待补充清单](NEEDED.md) · [近期工作更新台账](RECENT-UPDATES.md) · [本地索引](index.md)",
         "",
         "PDF 原件位于 `files/`，可搜索文本位于 `text/`。网页同时保存原始 HTML 与离线文本。不得把网页入口记作规范全文。",
         "",

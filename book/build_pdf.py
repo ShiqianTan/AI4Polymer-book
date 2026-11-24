@@ -152,7 +152,7 @@ def main():
     if args.from_outline:
         edition = '提纲样张'
     else:
-        edition = f'第 {args.chapter} 章排版样张' if args.chapter else 'v1.0'
+        edition = f'第 {args.chapter} 章排版样张' if args.chapter else 'print-v1.1'
     before.write_text('\\renewcommand{\\BookEdition}{'+edition+'}\n\\input{cover.tex}\n'
                      '\\pagenumbering{Roman}\n')
     front_sources = []

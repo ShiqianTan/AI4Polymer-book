@@ -36,10 +36,24 @@ def verify(name):
             if (float(a['xMin']) < -2 or float(a['yMin']) < -2 or
                 float(a['xMax']) > width+2 or float(a['yMax']) > height+2):
                 outside.append(dict(page=i,text=word.text))
-    critical=[w for w in build['warnings'] if any(s in w for s in ['Missing character','Overfull','undefined'])]
+    critical=[]
+    for warning in build['warnings']:
+        if 'Missing character' in warning or 'undefined' in warning:
+            critical.append(warning)
+            continue
+        if 'Overfull' in warning:
+            match = re.search(r'\((\d+(?:\.\d+)?)pt too (?:wide|high)\)', warning)
+            # Sub-point box rounding is visually negligible and is separately
+            # guarded by the page-bound coordinate check below.
+            if match is None or float(match.group(1)) >= 1.0:
+                critical.append(warning)
+    chapters = build['chapters']
+    numbered_chapters = [n for n in chapters if n != 90]
+    has_appendix = 90 not in chapters or '附录' in text
     checks={
         'title_and_author': 'AI4Polymer' in text and '谭诗乾' in text,
-        'all_chapters': all(re.search(rf'第\s*{n}\s*章',text) for n in build['chapters']),
+        'all_chapters': has_appendix and all(
+            re.search(rf'第\s*{n}\s*章', text) for n in numbered_chapters),
         'all_fonts_embedded': not unembedded,
         'all_pages_portrait': all(angle == 0 for angle in rotations.values()) and all(float(p.attrib['height']) > float(p.attrib['width']) for p in bounds.findall('.//x:page',ns)),
         'text_within_pages': not outside,

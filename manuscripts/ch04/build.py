@@ -178,16 +178,19 @@ def figure_mwd_entanglement_rheology(exp):
     mn = 100.0
     ms = [10 ** (math.log10(5) + i * (math.log10(500) - math.log10(5)) / 240)
           for i in range(241)]
-    for dj, color, ls, label in [(1.1, COL['blue'], '-', '窄单峰 Đ≈1.1'),
-                                 (2.0, COL['green'], '-', '宽单峰 Đ≈2'),
-                                 (3.0, COL['orange'], '-', '带长尾 Đ≈3')]:
+    for dj, color, ls, marker, label in [
+            (1.1, COL['blue'], '-', 'o', '窄单峰 Đ≈1.1'),
+            (2.0, COL['green'], '--', 's', '宽单峰 Đ≈2'),
+            (3.0, COL['orange'], '-.', '^', '带长尾 Đ≈3')]:
         s2 = math.log(dj)
         s = math.sqrt(s2)
         mu = math.log(mn) - s2 / 2
         w = [math.exp(-((math.log(m) - mu) ** 2) / (2 * s2)) / (m * s)
              for m in ms]
         peak = max(w)
-        ax.plot(ms, [x / peak for x in w], color=color, lw=2.0, label=label)
+        ax.plot(ms, [x / peak for x in w], color=color, lw=2.1, ls=ls,
+                marker=marker, markevery=40, ms=4.2, mfc='white', mec=color,
+                label=label)
     ax.axvline(mn, color=COL['line'], lw=1, ls='--')
     ax.set_xscale('log')
     ax.set_xlim(5, 500)
@@ -204,18 +207,21 @@ def figure_mwd_entanglement_rheology(exp):
     t = np.logspace(-8, 6, 400)
     curves = [
         ([-8, -4, -2, 0, 2, 4, 6], [9, 9, 6.5, 4.5, 2.5, 0.5, -1], COL['orange'],
-         '未缠结（无平台）'),
+         '-.', '^', '未缠结（无平台）'),
         ([-8, -4, -3, -2.5, -1, 1, 2, 4, 6],
-         [9, 9, 6.2, 5.8, 5.8, 5.8, 4, 0.5, -1], COL['blue'], '缠结（平台可松弛）'),
+         [9, 9, 6.2, 5.8, 5.8, 5.8, 4, 0.5, -1], COL['blue'],
+         '-', 'o', '缠结（平台可松弛）'),
         ([-8, -4, -3, -2.5, -1, 6], [9, 9, 6.2, 5.8, 5.8, 5.8], COL['green'],
-         '交联（平台永久）'),
+         '--', 's', '交联（平台永久）'),
     ]
-    for xp, yp, color, label in curves:
+    for xp, yp, color, ls, marker, label in curves:
         xp = np.array(xp, dtype=float)
         yp = np.array(yp, dtype=float)
         xf = np.linspace(xp.min(), xp.max(), 300)
         yf = np.interp(xf, xp, yp)
-        ax.plot(10 ** xf, 10 ** yf, color=color, lw=2.0, label=label)
+        ax.plot(10 ** xf, 10 ** yf, color=color, lw=2.1, ls=ls,
+                marker=marker, markevery=50, ms=4.2, mfc='white', mec=color,
+                label=label)
     ax.axvspan(1e-3, 1e1, color=COL['gray'], alpha=.5, zorder=0)
     ax.set_xscale('log')
     ax.set_yscale('log')

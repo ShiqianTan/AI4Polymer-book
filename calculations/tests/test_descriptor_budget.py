@@ -3,6 +3,7 @@ import unittest
 
 import _common  # noqa: F401
 from ai4polymer_calc.schema import REQUIRED_KEYS
+from ai4polymer_calc.report import summary_table
 from ai4polymer_calc.topics.descriptor_budget import calculate
 
 
@@ -29,6 +30,25 @@ class DescriptorBudgetTests(unittest.TestCase):
         self.assertGreater(small, large)
         self.assertGreaterEqual(large, 0.0)
         self.assertLessEqual(large, 1.0)
+
+    def test_log_collision_budget_survives_float_underflow(self):
+        summary = calculate(n_bits=2048, library_size=1_000_000)["summary"]
+        self.assertEqual(summary["expected_collisions"], 0.0)
+        self.assertLess(summary["expected_collisions_log10"], -500)
+        self.assertAlmostEqual(summary["collision_probability_log10"],
+                               summary["expected_collisions_log10"], places=12)
+
+    def test_single_entry_library_has_no_collision_pairs(self):
+        summary = calculate(n_bits=2048, library_size=1)["summary"]
+        self.assertEqual(summary["expected_collisions"], 0.0)
+        self.assertEqual(summary["collision_probability"], 0.0)
+        self.assertIsNone(summary["expected_collisions_log10"])
+        self.assertIsNone(summary["collision_probability_log10"])
+
+    def test_markdown_report_uses_log_scale_instead_of_false_zero(self):
+        table = summary_table(calculate(n_bits=2048, library_size=1_000_000))
+        self.assertIn("expected_collisions | ≈10^-604.81（对数尺度）", table)
+        self.assertNotIn("expected_collisions | 0 |", table)
 
     def test_other_representations_use_declared_widths(self):
         mordred = calculate(representation="mordred")["summary"]

@@ -310,6 +310,7 @@ def main():
         {'figure': '14-8', 'asset': 'ch14/figure-14-8-multiagent.svg'},
         {'figure': '14-9', 'asset': 'ch14/figure-14-9-eval-metrics.svg'},
         {'figure': '14-10', 'asset': 'ch14/figure-14-10-cost-success.svg'},
+        {'figure': '14-11', 'asset': 'ch14/figure-14-11-multimodal-foundation-model-concept.png'},
     ]
     (HERE / 'figure-index.json').write_text(
         json.dumps(index, ensure_ascii=False, indent=2) + '\n')

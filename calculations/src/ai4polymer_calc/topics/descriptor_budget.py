@@ -4,7 +4,7 @@ Fingerprint collisions are estimated for a folded n_bits key space; the raw
 feature dimension is reported separately so bit fingerprints and dense
 descriptor vectors are never conflated.
 """
-from math import ceil, exp, ldexp
+from math import ceil, expm1, ldexp, log10
 
 from ..schema import Graph, result
 from ..sources import config, provenance
@@ -52,8 +52,17 @@ def calculate(representation: str = "morgan", n_bits: int = 2048, radius: int = 
     spec = config("descriptors.json")["representations"][representation]
     feature_dim, bytes_per_molecule, element_bytes = _representation_dimension(spec, representation, n_bits, atoms, bonds)
     pairs = library_size * (library_size - 1) // 2
+    expected_collisions_log10 = (
+        log10(pairs) - n_bits * log10(2) if pairs else None
+    )
     expected_collisions = ldexp(float(pairs), -n_bits) if pairs.bit_length() <= 1000 else 0.0
-    collision_probability = -exp(-expected_collisions) + 1.0
+    collision_probability = -expm1(-expected_collisions)
+    # For lambda << 1, P(at least one collision) = 1-exp(-lambda) ~= lambda.
+    # Keep its logarithm because the ordinary float underflows for 2048 bits.
+    collision_probability_log10 = (
+        expected_collisions_log10 if expected_collisions < 1e-6
+        else log10(collision_probability)
+    )
     expected_unique = max(0.0, library_size - expected_collisions)
     word_operations = pairs * ceil(n_bits / 64)
 
@@ -69,14 +78,16 @@ def calculate(representation: str = "morgan", n_bits: int = 2048, radius: int = 
                      library_size=library_size, fingerprint_space_bits=n_bits,
                      expected_unique_fingerprints=expected_unique,
                      expected_collisions=expected_collisions,
+                     expected_collisions_log10=expected_collisions_log10,
                      collision_probability=collision_probability,
+                     collision_probability_log10=collision_probability_log10,
                      pairwise_comparison_count=library_size * (library_size - 1) // 2,
                      xor_popcount_word_operations=word_operations),
         assumptions=[
             "特征维度按声明表示规格计算：Morgan/ECFP 为 n_bits 位、Mordred 为声明描述符条数、graph 为原子与键特征拼接维度、PSMILES 为字符串长度估计；不是实测内存或运行时占用。",
             f"ECFP4 等价于 Morgan 半径 2、{n_bits} 位；若改变半径必须改用对应 ECFP 阶数，本工具拒绝把其他半径当作 ECFP4。",
             "去重、检索或聚类时所有表示都被折叠为同一 n_bits 指纹键空间，因此碰撞按生日问题在 2^n_bits 上估计；稠密描述符之间的精确浮点碰撞不在此模型内。",
-            "期望碰撞对数 = C(M,2)/2^n_bits，至少一次碰撞的概率 = 1-exp(-期望碰撞对数)；两者都是均匀随机指纹的期望，不是对真实高分子分布或相关性的预测。",
+            "期望碰撞对数 = C(M,2)/2^n_bits，至少一次碰撞的概率 = 1-exp(-期望碰撞对数)；同时报告 log10 值，避免 2048 位情形在双精度浮点中下溢成 0。两者都是均匀随机指纹的理想期望，不是对真实高分子分布或相关性的预测。",
             "bytes_per_molecule 采用按位打包（位指纹向上取整到字节）或声明元素宽度；未计入索引、标签、图结构或对齐填充。",
             "pairwise_comparison_count 是全库两两精确比较次数；xor_popcount_word_operations 假设每个 64 位字一次异或加一次 popcount，不是实测指令数。",
         ])

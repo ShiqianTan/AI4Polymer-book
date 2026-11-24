@@ -41,8 +41,7 @@ PDF 在 macOS 15 使用 Pandoc 3.7.0.2 和 Homebrew TeX Live / XeLaTeX 构建，
 
 ## 下载和本地复现
 
-<!-- TODO: release 发布后补充固定下载链接 -->
-最新版全书 PDF 将随 Release 发布，固定下载链接形如 `https://github.com/ShiqianTan/AI4Polymer-book/releases/latest/download/AI4Polymer-Book.pdf`，始终指向最近一次标记为 Latest 的 Release。网站可直接通过 GitHub Pages 阅读；如需离线网站，从 Actions 的 `book-site-download` 产物取得 `ai4polymer-book-site.tar.gz`，解压后运行 `python -m http.server`。
+最新版全书 PDF 随 Release 发布：[下载 Latest 版本](https://github.com/ShiqianTan/AI4Polymer-book/releases/latest/download/AI4Polymer-Book.pdf)，该地址始终指向最近一次标记为 Latest 的 Release。网站可直接通过 GitHub Pages 阅读；如需离线网站，从 Actions 的 `book-site-download` 产物取得 `ai4polymer-book-site.tar.gz`，解压后运行 `python -m http.server`。
 
 已有 PDF 编译依赖时，在仓库根目录运行：
 

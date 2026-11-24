@@ -17,8 +17,10 @@
 | library_size | 1,000,000 |
 | fingerprint_space_bits | 2,048 |
 | expected_unique_fingerprints | 1,000,000 |
-| expected_collisions | 0 |
-| collision_probability | 0 |
+| expected_collisions | ≈10^-604.81（对数尺度） |
+| expected_collisions_log10 | -604.81 |
+| collision_probability | ≈10^-604.81（对数尺度） |
+| collision_probability_log10 | -604.81 |
 | pairwise_comparison_count | 499,999,500,000 |
 | xor_popcount_word_operations | 15,999,984,000,000 |
 
@@ -27,6 +29,6 @@
 - 特征维度按声明表示规格计算：Morgan/ECFP 为 n_bits 位、Mordred 为声明描述符条数、graph 为原子与键特征拼接维度、PSMILES 为字符串长度估计；不是实测内存或运行时占用。
 - ECFP4 等价于 Morgan 半径 2、2048 位；若改变半径必须改用对应 ECFP 阶数，本工具拒绝把其他半径当作 ECFP4。
 - 去重、检索或聚类时所有表示都被折叠为同一 n_bits 指纹键空间，因此碰撞按生日问题在 2^n_bits 上估计；稠密描述符之间的精确浮点碰撞不在此模型内。
-- 期望碰撞对数 = C(M,2)/2^n_bits，至少一次碰撞的概率 = 1-exp(-期望碰撞对数)；两者都是均匀随机指纹的期望，不是对真实高分子分布或相关性的预测。
+- 期望碰撞对数 = C(M,2)/2^n_bits，至少一次碰撞的概率 = 1-exp(-期望碰撞对数)；同时报告 log10 值，避免 2048 位情形在双精度浮点中下溢成 0。两者都是均匀随机指纹的理想期望，不是对真实高分子分布或相关性的预测。
 - bytes_per_molecule 采用按位打包（位指纹向上取整到字节）或声明元素宽度；未计入索引、标签、图结构或对齐填充。
 - pairwise_comparison_count 是全库两两精确比较次数；xor_popcount_word_operations 假设每个 64 位字一次异或加一次 popcount，不是实测指令数。
