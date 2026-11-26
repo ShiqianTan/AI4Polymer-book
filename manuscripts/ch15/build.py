@@ -223,6 +223,7 @@ def main():
         {'figure': '15-6', 'asset': 'ch15/figure-15-6-eol.svg'},
         {'figure': '15-7', 'asset': 'ch15/figure-15-7-scenarios.svg'},
         {'figure': '15-8', 'asset': 'ch15/figure-15-8-worked-pareto.svg'},
+        {'figure': '15-9', 'asset': 'ch15/figure-15-9-lifecycle-materials-concept.png'},
     ]
     (HERE / 'figure-index.json').write_text(
         json.dumps(index, ensure_ascii=False, indent=2) + '\n')
