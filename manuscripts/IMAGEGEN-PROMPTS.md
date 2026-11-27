@@ -1,9 +1,21 @@
 # ImageGen 插图生成记录
 
-- **生成批次：** 2026-11-24、2026-11-26
+- **生成批次：** 2026-11-24、2026-11-26、2026-11-27
 - **生成方式：** Codex 内置 ImageGen
 - **用途边界：** 所有图片均为无文字概念示意，不是实验照片、设备图纸、模型结构复刻或数据结果。
 - **视觉约定：** 16:9 横图；深海军蓝背景；青色/蓝绿色为主、琥珀色点缀；科学编辑插画；禁止文字、数字、公式、徽标与水印。
+
+## 图 3-10：文献证据与样品数据
+
+**生成日期：** 2026-11-27
+
+**输出：** `ch03/figure-3-10-literature-evidence-concept.png`
+
+**生成方式：** Codex 内置 ImageGen。图中样品卡、分布和证据连线均为概念图形；不表示具体样品、实际曲线或抽取性能。
+
+**提示词：**
+
+> Use case: scientific-educational. Asset type: 16:9 landscape concept illustration for a polymer informatics textbook. Primary request: show scientific literature evidence being transformed into traceable polymer sample records. Left: a few open scientific paper sheets with purely abstract gray line motifs, table-like grids without text, and generic bead-chain polymer motifs. Center: three visibly distinct polymer sample cards, each carrying a different chain-length ensemble (short and long chains of the same colors), a generic distribution silhouette, and a small measurement token. Right: a clean evidence graph linking each sample card to a structured data tile and back to the exact paper region by thin visible colored threads. One ambiguous link ends in an amber open ring to signify pending human review. Strong left-to-right visual hierarchy, sparse and legible, scientifically calm matte semi-realistic 3D with vector-like edges. Deep navy/slate backdrop, cyan and teal chain and evidence paths, restrained amber for ambiguity. This is conceptual art, not measured data. No words, letters, numbers, equations, axes, chemical formulas, logos, watermarks, people, brain icons, DNA, or generic glowing neural network. Do not invent legible text or present fake spectra. Leave generous negative space and emphasize distinct sample identity and evidence lineage.
 
 ## 图 13-10：自驱动实验室概念闭环
 

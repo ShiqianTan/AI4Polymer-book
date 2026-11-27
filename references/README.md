@@ -2,7 +2,7 @@
 
 本书正文引用的原始论文、综述、数据集与官方文档按章登记于此。每条来源先在 `sources.tsv` 登记，再由 `fetch.py` 下载、生成可搜索文本并写入 `manifest.json`。
 
-当前清单 293 项：已取得正文 231 项，其中 PDF 203 份。其余项目的获取状态见文末。
+当前清单 297 项：已取得正文 234 项，其中 PDF 205 份。其余项目的获取状态见文末。
 
 [来源清单](sources.tsv) · [下载与校验记录](manifest.json) · [待补充清单](NEEDED.md) · [近期工作更新台账](RECENT-UPDATES.md) · [本地索引](index.md)
 
@@ -74,6 +74,7 @@ PDF 原件位于 `files/`，可搜索文本位于 `text/`。网页同时保存�
 | [Potentials and challenges of polymer informatics: exploiting machine learning for polymer design](https://arxiv.org/abs/2010.07683) | [原件](files/papers/polymer-informatics-challenges-2020.pdf) · [文本](text/polymer-informatics-challenges-2020.txt) | 高分子信息学的表示与数据挑战综述 |
 | [Mol2vec: Unsupervised Machine Learning Approach with Chemical Intuition](https://pubs.acs.org/doi/10.1021/acs.jcim.7b00616) | 未获取（failed） | 子结构嵌入表示 |
 | [The Generation of a Unique Machine Description for Chemical Structures](https://pubs.acs.org/doi/10.1021/c160017a018) | 未获取（failed） | 拓扑指纹的早期工作 |
+| [Designing Polymers with Molecular Weight Distribution-Based Machine Learning](https://doi.org/10.1021/jacs.4c16325) | 未获取（failed） | 2025 正式论文；仅据出版社摘要介绍分布建模目标，未复现；2026-11-27 核验 |
 
 ## 第 3 章 数据、基准与可复现性
 
@@ -105,6 +106,9 @@ PDF 原件位于 `files/`，可搜索文本位于 `text/`。网页同时保存�
 | [Show Your Work: Improved Reporting of Experimental Results](https://arxiv.org/abs/1909.03004) | [原件](files/papers/show-your-work-2019.pdf) · [文本](text/show-your-work-2019.txt) | 误差棒与结果选择 |
 | [Understanding deep learning requires rethinking generalization](https://arxiv.org/abs/1611.03530) | [原件](files/papers/rethinking-generalization-2017.pdf) · [文本](text/rethinking-generalization-2017.txt) | 记忆与外推的对照 |
 | [Scikit-learn: Machine Learning in Python](https://www.jmlr.org/papers/v12/pedregosa11a.html) | [原件](files/papers/scikit-learn-2011.html) · [文本](text/scikit-learn-2011.txt) | Python 机器学习工具与实现细节 |
+| [PolyIE: A Dataset of Information Extraction from Polymer Material Scientific Literature](https://arxiv.org/abs/2311.07715) | [原件](files/papers/polyie-2023.pdf) · [文本](text/polyie-2023.txt) | 2023 预印本；实体及 N 元关系抽取任务；2026-11-27 核验 |
+| [Data extraction from polymer literature using large language models](https://doi.org/10.1038/s43246-024-00708-9) | [原件](files/papers/polymer-literature-extraction-2024.pdf) · [文本](text/polymer-literature-extraction-2024.txt) | 2024 正式论文；作者公开全文；文献到高分子性质记录；2026-11-27 核验 |
+| [PolyBench: A Reproducible Open Benchmark Platform for Repeat-Unit-Based Polymer Property Prediction](https://doi.org/10.1021/polymscitech.6c00094) | [原件](files/papers/polybench-2026.html) · [文本](text/polybench-2026.txt) | 2026 正式论文；基准协议与严格划分诊断；未重跑榜单；2026-11-27 核验 |
 
 ## 第 4 章 高分子物理与结构–性能关系
 
@@ -211,6 +215,7 @@ PDF 原件位于 `files/`，可搜索文本位于 `text/`。网页同时保存�
 | [Quantile Regression Forests](https://www.jmlr.org/papers/v7/meinshausen06a.html) | [原件](files/papers/quantile-forest-2006.html) · [文本](text/quantile-forest-2006.txt) | 分位数回归森林：条件分位数 |
 | [Simple and Scalable Predictive Uncertainty Estimation using Deep Ensembles](https://arxiv.org/abs/1612.01474) | [原件](files/papers/deep-ensembles-2017.pdf) · [文本](text/deep-ensembles-2017.txt) | 深度集成方差与预测不确定度 |
 | [Scikit-learn: Machine Learning in Python](https://www.jmlr.org/papers/v12/pedregosa11a.html) | [原件](files/papers/scikit-learn-2011.html) · [文本](text/scikit-learn-2011.txt) | Python 机器学习工具与实现细节 |
+| [PolyBench: A Reproducible Open Benchmark Platform for Repeat-Unit-Based Polymer Property Prediction](https://doi.org/10.1021/polymscitech.6c00094) | [原件](files/papers/polybench-2026.html) · [文本](text/polybench-2026.txt) | 2026 正式论文；基准协议与严格划分诊断；未重跑榜单；2026-11-27 核验 |
 
 ## 第 7 章 多任务、迁移与物理信息学习
 
@@ -246,6 +251,7 @@ PDF 原件位于 `files/`，可搜索文本位于 `text/`。网页同时保存�
 | [Informed Machine Learning: A Taxonomy and Survey of Integrating Knowledge into Learning Systems](https://arxiv.org/abs/1903.12394) | [原件](files/papers/informed-ml-2021.pdf) · [文本](text/informed-ml-2021.txt) | 知识注入的分类：特征、正则与结构 |
 | [Integrating Scientific Knowledge with Machine Learning for Engineering and Environmental Systems](https://arxiv.org/abs/2003.04919) | [原件](files/papers/willard-2022.pdf) · [文本](text/willard-2022.txt) | 科学知识与机器学习的整合方式 |
 | [Tensor Field Networks: Rotation- and Translation-Equivariant Neural Networks for 3D Point Clouds](https://arxiv.org/abs/1802.08219) | [原件](files/papers/tfn-2018.pdf) · [文本](text/tfn-2018.txt) | 张量场网络：等变特征构造 |
+| [Harnessing large language models for data-scarce learning of polymer properties](https://doi.org/10.1038/s43588-025-00768-y) | [原件](files/papers/llm-polymer-data-scarce-2025.pdf) · [文本](text/llm-polymer-data-scarce-2025.txt) | 低保真物理合成数据预训练与少量实验数据微调；本地归档题名不同的预印本，规范入口为正式 DOI |
 
 ## 第 8 章 表征、成像与光谱的 AI 分析
 
@@ -429,6 +435,8 @@ PDF 原件位于 `files/`，可搜索文本位于 `text/`。网页同时保存�
 | [Predicting reaction performance in C-N cross-coupling using machine learning](https://www.science.org/doi/10.1126/science.aar5169) | 未获取（failed） | 条件特征主导产率预测的实验证据（订阅来源） |
 | [The Open Reaction Database](https://pubs.acs.org/doi/10.1021/jacs.1c09820) | 未获取（failed） | 开放反应数据平台（订阅来源） |
 | [SCScore: Synthetic Complexity Learned from a Reaction Corpus](https://pubs.acs.org/doi/10.1021/acs.jcim.7b00622) | 未获取（failed） | 反应语料训练的合成复杂度分数（订阅来源） |
+| [PolyIE: A Dataset of Information Extraction from Polymer Material Scientific Literature](https://arxiv.org/abs/2311.07715) | [原件](files/papers/polyie-2023.pdf) · [文本](text/polyie-2023.txt) | 2023 预印本；实体及 N 元关系抽取任务；2026-11-27 核验 |
+| [Data extraction from polymer literature using large language models](https://doi.org/10.1038/s43246-024-00708-9) | [原件](files/papers/polymer-literature-extraction-2024.pdf) · [文本](text/polymer-literature-extraction-2024.txt) | 2024 正式论文；作者公开全文；文献到高分子性质记录；2026-11-27 核验 |
 
 ## 第 13 章 自驱动实验室与高通量自动化
 
@@ -564,6 +572,8 @@ PDF 原件位于 `files/`，可搜索文本位于 `text/`。网页同时保存�
 | [Inductive Confidence Machines for Regression](https://link.springer.com/chapter/10.1007/3-540-36755-1_29) | [原件](files/papers/conformal-2002.html) · [文本](text/conformal-2002.txt) | split conformal 回归预测区间（订阅来源） |
 | [Simple and Scalable Predictive Uncertainty Estimation using Deep Ensembles](https://arxiv.org/abs/1612.01474) | [原件](files/papers/deep-ensembles-2017.pdf) · [文本](text/deep-ensembles-2017.txt) | 深度集成方差与预测不确定度 |
 | [Machine learning enables interpretable discovery of innovative polymers for gas separation membranes](https://doi.org/10.1126/sciadv.abn9545) | [原件](files/papers/polymer-gas-membrane-ml-2022.md) · [文本](text/polymer-gas-membrane-ml-2022.txt) | 气体分离膜渗透率数据仓库与可解释机器学习 |
+| [PolyIE: A Dataset of Information Extraction from Polymer Material Scientific Literature](https://arxiv.org/abs/2311.07715) | [原件](files/papers/polyie-2023.pdf) · [文本](text/polyie-2023.txt) | 2023 预印本；实体及 N 元关系抽取任务；2026-11-27 核验 |
+| [Data extraction from polymer literature using large language models](https://doi.org/10.1038/s43246-024-00708-9) | [原件](files/papers/polymer-literature-extraction-2024.pdf) · [文本](text/polymer-literature-extraction-2024.txt) | 2024 正式论文；作者公开全文；文献到高分子性质记录；2026-11-27 核验 |
 
 ## 获取记录
 
@@ -631,5 +641,6 @@ PDF 原件位于 `files/`，可搜索文本位于 `text/`。网页同时保存�
 - **ahneman-2018**：failed；HTTPError: HTTP Error 403: Forbidden。
 - **ord-2021**：failed；HTTPError: HTTP Error 403: Forbidden。
 - **scscore-2018**：failed；HTTPError: HTTP Error 403: Forbidden。
+- **mwd-machine-learning-2025**：failed；HTTPError: HTTP Error 403: Forbidden。
 
 维护命令：`python3 references/fetch.py --only 资料ID` 下载指定条目；`--reindex` 只更新索引。直接运行会补齐失败或未获取的项目，保留已下载的快照。PDF 文本优先用 PyMuPDF 提取，缺失时回退到 Poppler 的 `pdftotext`。
